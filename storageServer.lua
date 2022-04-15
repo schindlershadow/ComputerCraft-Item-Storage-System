@@ -72,6 +72,15 @@ local function getInputStorage()
     return storage
 end
 
+local function getExportChests()
+    local output = {}
+    exportChests = settings.get("exportChests")
+    for i, chest in pairs(exportChests) do
+        table.insert(output, peripheral.wrap(chest))
+    end
+    return output
+end
+
 local function inExportChests(search)
     exportChests = settings.get("exportChests")
     for i, chest in pairs(exportChests) do
@@ -380,7 +389,7 @@ local function storageHandler()
             repeat
                 id2, message2 = rednet.receive()
             until id == id2
-            local inputStorage = { peripheral.wrap(settings.get("exportChest")) }
+            local inputStorage = getExportChests()
             local list = getList(inputStorage)
             local filteredTable = search(message2, list)
             for i, item in pairs(filteredTable) do
@@ -396,7 +405,7 @@ local function storageHandler()
             end
             reloadStorageDatabase()
         elseif message == "importAll" then
-            local inputStorage = { peripheral.wrap(settings.get("exportChest")) }
+            local inputStorage = getExportChests()
             local list = getList(inputStorage)
             for i, item in pairs(list) do
                 local chest, slot = findFreeSpace(item)
