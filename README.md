@@ -10,6 +10,8 @@
  A .settings file on the server will be generated at first boot, edit this file with the name of your export chest and any import chests
  
  The name of the chest will be displayed in chat when you rightclick the modem, click on the name to copy to clipboard
+ 
+ Supports just about any type of storage block
 
 Basic Server setup
 
