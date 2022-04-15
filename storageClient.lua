@@ -11,7 +11,7 @@ local debug = false
 
 term.setBackgroundColor(colors.blue)
 
-Item = {name = "", count = 1, nbt = "", tags = ""}
+Item = { name = "", count = 1, nbt = "", tags = "" }
 function Item:new(name, count, nbt, tags)
     obj = obj or {}
     setmetatable(obj, self)
@@ -46,6 +46,21 @@ local function log(text)
     end
 end
 
+local function dump(o)
+    if type(o) == "table" then
+        local s = ""
+        for k, v in pairs(o) do
+            if type(k) ~= "number" then
+                k = '"' .. k .. '"'
+            end
+            s = s .. "[" .. k .. "] = " .. dump(v) .. ","
+        end
+        return s
+    else
+        return tostring(o)
+    end
+end
+
 local function broadcast()
     print("Searching for storageServer server")
     rednet.broadcast("storageServer")
@@ -60,13 +75,46 @@ local function broadcast()
     end
 end
 
+local function findInTable(arr, element)
+    for i, value in pairs(arr) do
+        if value.name == element.name and value.nbt == element.nbt then
+            return i
+        end
+    end
+    return nil
+end
+
+local function inTable(arr, element) -- function to check if something is in an table
+    for _, value in pairs(arr) do
+        if value.name == element.name and value.nbt == element.nbt  then
+            return true
+        end
+    end
+    return false -- if no element was found, return false
+end
+
+local function removeDuplicates(arr)
+    local newArray = {} -- new array that will be arr, but without duplicates
+    for _, element in pairs(arr) do
+        if not inTable(newArray, element) then -- making sure we had not added it yet to prevent duplicates
+            table.insert(newArray, element)
+        else
+            local index = findInTable(newArray, element)
+            if index ~= nil then
+                newArray[index]["count"] = newArray[index].count + element.count
+            end
+        end
+    end
+    return newArray -- returning the new, duplicate removed array
+end
+
 local function getItems()
     rednet.send(server, "getItems")
     local id, message = rednet.receive(nil, 5)
     --print("got " .. tostring(message) .. " type " .. type(message))
     if type(message) == "table" then
         if search == "" then
-            return message
+            return removeDuplicates(message)
         end
         local filteredTable = {}
         for k, v in pairs(message) do
@@ -74,7 +122,8 @@ local function getItems()
                 table.insert(filteredTable, v)
             end
         end
-        return filteredTable
+        local outputTable = removeDuplicates(filteredTable)
+        return outputTable
     else
         sleep(0.2)
         return getItems()
@@ -102,21 +151,6 @@ local function centerText(text)
     write(text)
 end
 
-local function dump(o)
-    if type(o) == "table" then
-        local s = ""
-        for k, v in pairs(o) do
-            if type(k) ~= "number" then
-                k = '"' .. k .. '"'
-            end
-            s = s .. "[" .. k .. "] = " .. dump(v) .. ","
-        end
-        return s
-    else
-        return tostring(o)
-    end
-end
-
 local function drawNBTmenu(sel)
     local amount = 1
     local done = false
@@ -128,7 +162,7 @@ local function drawNBTmenu(sel)
                 term.write(" ")
             end
         end
-        term.setCursorPos(1,1)
+        term.setCursorPos(1, 1)
         centerText("NBT Menu")
         term.setCursorPos(1, 2)
         centerText(items[sel].name .. " #" .. tostring(items[sel].count))
@@ -163,7 +197,7 @@ local function drawMenu(sel)
                 term.write(" ")
             end
         end
-        term.setCursorPos(1,1)
+        term.setCursorPos(1, 1)
         centerText("Menu")
         term.setCursorPos(1, 2)
         centerText(items[sel].name .. " #" .. tostring(items[sel].count))
@@ -217,43 +251,38 @@ local function drawMenu(sel)
             event, button, x, y = os.pullEvent("mouse_click")
         end
 
-        if
-            (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and
-                ((y > (height * .25) + 4) and (y < (height * .25) + 6)))
-         then
+        if (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and
+            ((y > (height * .25) + 4) and (y < (height * .25) + 6)))
+        then
             if amount > 1 then
                 amount = amount - 1
             end
-        elseif
-            (((x < (width - (width * .25)) + 2) and (x > (width - (width * .25)) - 2)) and
-                ((y > (height * .25) + 4) and (y < (height * .25) + 6)))
-         then
+        elseif (((x < (width - (width * .25)) + 2) and (x > (width - (width * .25)) - 2)) and
+            ((y > (height * .25) + 4) and (y < (height * .25) + 6)))
+        then
             if amount < items[sel].count then
                 amount = amount + 1
             end
-        elseif
-            (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and
-                ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
-         then
+        elseif (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and
+            ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
+        then
             if amount + 64 < items[sel].count then
                 amount = amount + 64
             else
                 amount = items[sel].count
             end
-        elseif
-            (((x < ((width * .25) * 2) + 3) and (x > ((width * .25) * 2) - 3)) and
-                ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
-         then
-            if amount > 1+64 then
+        elseif (((x < ((width * .25) * 2) + 3) and (x > ((width * .25) * 2) - 3)) and
+            ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
+        then
+            if amount > 1 + 64 then
                 amount = amount - 64
             else
                 amount = 1
             end
-        elseif
-            (((x < ((width * .25) * 3) + 3) and (x > ((width * .25) * 3) - 3)) and
-                ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
-         then
-             amount = 1
+        elseif (((x < ((width * .25) * 3) + 3) and (x > ((width * .25) * 3) - 3)) and
+            ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
+        then
+            amount = 1
         elseif y == (height - 1) then
             done = true
             local result
@@ -265,9 +294,9 @@ local function drawMenu(sel)
             export(result)
         elseif y < 2 and x > width - 1 then
             done = true
-        elseif y == 3  then
+        elseif y == 3 then
             drawNBTmenu(sel)
-         end
+        end
 
         --sleep(5)
     end
@@ -307,7 +336,7 @@ local function drawList()
             end
         end
         --import
-        term.setCursorPos(width-5,height-1)
+        term.setCursorPos(width - 5, height - 1)
         term.setBackgroundColor(colors.red)
         term.write("Import")
         term.setBackgroundColor(colors.blue)
@@ -349,7 +378,7 @@ end
 
 local function touchHandler()
     local event, button, x, y = os.pullEvent("mouse_click")
-    if y == height -1 and x > width - 6 then
+    if y == height - 1 and x > width - 6 then
 
         importAll()
 
@@ -358,11 +387,11 @@ local function touchHandler()
         drawMenu(y)
         menu = false
         term.clear()
-        term.setCursorPos(1,1)
+        term.setCursorPos(1, 1)
         centerText("Requesting...")
         sleep(0.1)
         drawList()
-    -- export(result)
+        -- export(result)
     end
 end
 

@@ -1,11 +1,11 @@
 local clients = {}
 
 --Settings
-settings.define("debug", {description = "Enables debug options", default = "false", type = "boolean"})
-settings.define("exportChest", {description = "The peripheral name of the export chest", default = "", type = "string"})
+settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
+settings.define("exportChest", { description = "The peripheral name of the export chest", default = "", type = "string" })
 settings.define(
     "importChests",
-    {description = "The peripheral name of the import chests", default = {"minecraft:chest_2"}, type = "table"}
+    { description = "The peripheral name of the import chests", default = { "minecraft:chest_2" }, type = "table" }
 )
 
 --Settings failes to load
@@ -13,7 +13,7 @@ if settings.load() == false then
     print("No settings have been found! Default values will be used!")
     settings.set("debug", false)
     settings.set("exportChest", "minecraft:chest")
-    settings.set("importChests", {"minecraft:chest_2"})
+    settings.set("importChests", { "minecraft:chest_2" })
     print("Stop the server and edit .settings file with correct settings")
     settings.save()
     sleep(1)
@@ -102,12 +102,14 @@ end
 --gets the contents of a table of chests
 local function getList(storage)
     local list = {}
+    local itemCount = 0
     for _, chest in pairs(storage) do
         local tmpList = {}
         for slot, item in pairs(chest.list()) do
             item["slot"] = slot
             item["chestName"] = peripheral.getName(chest)
             item["details"] = peripheral.wrap(peripheral.getName(chest)).getItemDetail(slot)
+            itemCount = itemCount + item.count
             table.insert(list, item)
             --print(("%d x %s in slot %d"):format(item.count, item.name, slot))
         end
@@ -119,15 +121,27 @@ local function getList(storage)
         end
     )
 
-    return list
+    return list, itemCount
 end
 
 local function getStorageSize(storage)
-    local number = 0
+    local slots = 0
+    local total = 0
     for _, chest in pairs(storage) do
-        number = number + chest.size()
+        slots = slots + chest.size()
+        for i = 1, chest.size() do
+            total = total + chest.getItemLimit(i)
+        end
     end
-    return number
+    return slots, total
+end
+
+local function reloadStorageDatabase()
+    print("getting storage...")
+    storage = getStorage()
+    print("getting list of all items from storage...")
+    items, storageUsed = getList(storage)
+    print("done")
 end
 
 local function getItemLimit(search, storage, slot)
@@ -180,11 +194,9 @@ local function searchForItem(item, InputTable)
 end
 
 local function findFreeSpace(item)
-    local storage = getStorage()
-    local items = getList(storage)
     local filteredTable = searchForItem(item, items)
     if filteredTable == nil then
-        for i, chest in pairs(storage) do
+        for k, chest in pairs(storage) do
             local size = chest.size()
             for i = 1, size, 1 do
                 if chest.getItemDetail(i) == nil then
@@ -200,7 +212,7 @@ local function findFreeSpace(item)
                 return v["chestName"], v["slot"]
             end
         end
-        for i, chest in pairs(storage) do
+        for k, chest in pairs(storage) do
             local size = chest.size()
             for i = 1, size, 1 do
                 if chest.getItemDetail(i) == nil then
@@ -212,38 +224,36 @@ local function findFreeSpace(item)
 end
 
 local function getItem(requestItem)
-  local amount = requestItem.count
-  local storage = getStorage()
-  local items = getList(storage)
-  local filteredTable = search(requestItem.name, items)
-  for i, item in pairs(filteredTable) do
-    if requestItem.nbt == nil then
-    if item.count >= amount then
-      peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"], amount)
-      return
-    else
-      peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"])
-      amount = amount - item.count
+    local amount = requestItem.count
+    local filteredTable = search(requestItem.name, items)
+    for i, item in pairs(filteredTable) do
+        if requestItem.nbt == nil then
+            if item.count >= amount then
+                peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"], amount)
+                return
+            else
+                peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"])
+                amount = amount - item.count
+            end
+        else
+            if item.nbt == requestItem.nbt then
+                if item.count >= amount then
+                    peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"], amount)
+                    return
+                else
+                    peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"])
+                    amount = amount - item.count
+                end
+            end
+        end
     end
-    else
-      if item.nbt == requestItem.nbt then
-        if item.count >= amount then
-      peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"], amount)
-      return
-    else
-      peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"])
-      amount = amount - item.count
-    end
-      end
-    end
-  end
+    reloadStorageDatabase()
 end
+
 --debug function
 local function find(all)
     print("Enter search term")
     local input = io.read()
-    local storage = getStorage()
-    local items = getList(storage)
     local filteredTable = search(input, items)
     print(dump(filteredTable[1]))
 
@@ -264,19 +274,14 @@ end
 local function get()
     print("Enter item")
     local input = io.read()
-    local storage = getStorage()
-    local items = getList(storage)
     local filteredTable = search(input, items)
     --local exportChest = peripheral.wrap("right")
     print("exporting " .. filteredTable[1]["name"])
     print(dump(filteredTable[1]))
 
     peripheral.wrap(settings.get("exportChest")).pullItems(filteredTable[1]["chestName"], filteredTable[1]["slot"])
+    reloadStorageDatabase()
 end
-
-local storage = getStorage()
-local itemList = getList(storage)
-local storageSize = getStorageSize(storage)
 
 local function debugMenu()
     while true do
@@ -293,11 +298,10 @@ local function debugMenu()
         elseif input == "getItem" then
             getItem(true)
         elseif input == "send" then
-            sendItem(true)
+            --sendItem(true)
         elseif input == "exit" then
             os.queueEvent("terminate")
         end
-
         sleep(1)
     end
 end
@@ -307,27 +311,25 @@ local function importHandeler()
         local inputStorage = getInputStorage()
         local list = getList(inputStorage)
         if next(list) then
-        local storage = getStorage()
-        local items = getList(storage)
-        
-        --print("list of inputStorage: " .. dump(list))
-        for i, item in pairs(list) do
-            --print("items found in input chest")
-            local chest, slot = findFreeSpace(item)
-            if chest == nil then
-                --TODO: implement space full alert
-                print("No free space found!")
-                sleep(5)
-            else
-                --send to found slot
-                --print("chest: " .. chest .. ", slot: " .. tostring(slot))
-                --print("send " .. tostring( peripheral.wrap(item.chestName).pushItems(chest, item["slot"]) ) .. " items")
-                peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+            --print("list of inputStorage: " .. dump(list))
+            for i, item in pairs(list) do
+                --print("items found in input chest")
+                local chest, slot = findFreeSpace(item)
+                if chest == nil then
+                    --TODO: implement space full alert
+                    print("No free space found!")
+                    sleep(5)
+                else
+                    --send to found slot
+                    --print("chest: " .. chest .. ", slot: " .. tostring(slot))
+                    --print("send " .. tostring( peripheral.wrap(item.chestName).pushItems(chest, item["slot"]) ) .. " items")
+                    peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                end
             end
-        end
+            reloadStorageDatabase()
         end
 
-        sleep(1)
+        sleep(0.2)
     end
 end
 
@@ -353,78 +355,84 @@ local function storageHandler()
             end
             print("")
         elseif message == "getItems" then
-            local storage = getStorage()
-            local items = getList(storage)
             if settings.get("debug") then
-              print(dump(items))
+                print(dump(items))
             end
             rednet.send(id, items)
         elseif message == "getItem" then
             local id2, message2 = rednet.receive()
             if settings.get("debug") then
-              print(bridge.listItem(message2))
+                print(dump(message2))
             end
-            local storage = getStorage()
-            local items = getList(storage)
             local filteredTable = search(message2, items)
             rednet.send(id, filteredTable[1])
         elseif message == "import" then
             local id2, message2
             repeat
                 id2, message2 = rednet.receive()
-            until id ==  id2
-            local storage = getStorage()
-            local items = getList(storage)
-            local inputStorage = { peripheral.wrap(settings.get("exportChest")) } 
+            until id == id2
+            local inputStorage = { peripheral.wrap(settings.get("exportChest")) }
             local list = getList(inputStorage)
             local filteredTable = search(message2, list)
             for i, item in pairs(filteredTable) do
-              local chest, slot = findFreeSpace(item)
-              if chest == nil then
-                --TODO: implement space full alert
-                print("No free space found!")
-                sleep(5)
-              else
-                --send to found slot
-                  peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
-              end
+                local chest, slot = findFreeSpace(item)
+                if chest == nil then
+                    --TODO: implement space full alert
+                    print("No free space found!")
+                    sleep(5)
+                else
+                    --send to found slot
+                    peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                end
             end
+            reloadStorageDatabase()
         elseif message == "importAll" then
-            local storage = getStorage()
-            local items = getList(storage)
-            local inputStorage = { peripheral.wrap(settings.get("exportChest")) } 
+            local inputStorage = { peripheral.wrap(settings.get("exportChest")) }
             local list = getList(inputStorage)
             for i, item in pairs(list) do
-              local chest, slot = findFreeSpace(item)
-              if chest == nil then
-                --TODO: implement space full alert
-                print("No free space found!")
-                sleep(5)
-              else
-                --send to found slot
-                  peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
-              end
+                local chest, slot = findFreeSpace(item)
+                if chest == nil then
+                    --TODO: implement space full alert
+                    print("No free space found!")
+                    sleep(5)
+                else
+                    --send to found slot
+                    peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                end
             end
+            reloadStorageDatabase()
         elseif message == "export" then
             local id2, message2
             repeat
                 id2, message2 = rednet.receive()
-            until id ==  id2
+            until id == id2
 
-            print("got")
-            print(dump(message2))
-            print(message2["name"])
-            print(message2["count"])
+            print("Exporting Item(s): " .. dump(message2))
             getItem(message2)
+            reloadStorageDatabase()
+        elseif message == "storageUsed" then
+            rednet.send(id, storageUsed)
+        elseif message == "storageSize" then
+            rednet.send(id, storageSize)
+        elseif message == "storageMaxSize" then
+            rednet.send(id, storageMaxSize)
         end
     end
 end
 
-if settings.get("debug") then
-    print("debug: " .. tostring(settings.get("debug")))
-    print("exportChest: " .. tostring(settings.get("exportChest")))
-    print("importChests: " .. dump(settings.get("importChests")))
-end
+print("debug mode: " .. tostring(settings.get("debug")))
+print("exportChest is set to : " .. tostring(settings.get("exportChest")))
+print("importChests are set to: " .. dump(settings.get("importChests")))
+print("Server is loading, please wait....")
+print("Getting storage...")
+storage = getStorage()
+print("Getting list of all items from storage...")
+items, storageUsed = getList(storage)
+print("Getting storage size...")
+storageSize, storageMaxSize = getStorageSize(storage)
+print("Storage size is: " .. tostring(storageSize) .. " slots")
+print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format(storageUsed/storageMaxSize)) .."% items")
+print("Server Ready")
 
 while true do
     if settings.get("debug") then
