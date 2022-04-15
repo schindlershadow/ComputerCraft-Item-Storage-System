@@ -6,8 +6,22 @@ local items = {}
 local menu = false
 
 -- Settings
+--Settings
+settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
+settings.define("exportChestName", { description = "Name of the export chest for this client", default = "minecraft:chest", type = "string" })
+
 local logging = true
 local debug = false
+
+--Settings fails to load
+if settings.load() == false then
+    print("No settings have been found! Default values will be used!")
+    settings.set("debug", false)
+    settings.set("exportChestName", "minecraft:chest")
+    print("Stop the client and edit .settings file with correct settings")
+    settings.save()
+    sleep(5)
+end
 
 term.setBackgroundColor(colors.blue)
 
@@ -141,7 +155,7 @@ end
 
 local function export(item)
     rednet.send(server, "export")
-    rednet.send(server, item:getTable())
+    rednet.send(server, { item = item:getTable(), chest = settings.get("exportChestName") })
 end
 
 local function centerText(text)

@@ -2,17 +2,17 @@ local clients = {}
 
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
-settings.define("exportChest", { description = "The peripheral name of the export chest", default = "", type = "string" })
+settings.define("exportChests", { description = "The peripheral name of the export chest", { "minecraft:chest" }, type = "table" })
 settings.define(
     "importChests",
     { description = "The peripheral name of the import chests", default = { "minecraft:chest_2" }, type = "table" }
 )
 
---Settings failes to load
+--Settings fails to load
 if settings.load() == false then
     print("No settings have been found! Default values will be used!")
     settings.set("debug", false)
-    settings.set("exportChest", "minecraft:chest")
+    settings.set("exportChests", { "minecraft:chest" })
     settings.set("importChests", { "minecraft:chest_2" })
     print("Stop the server and edit .settings file with correct settings")
     settings.save()
@@ -72,6 +72,16 @@ local function getInputStorage()
     return storage
 end
 
+local function inExportChests(search)
+    exportChests = settings.get("exportChests")
+    for i, chest in pairs(exportChests) do
+        if chest == search then
+            return true
+        end
+    end
+    return false
+end
+
 local function inImportChests(search)
     importChests = settings.get("importChests")
     for i, chest in pairs(importChests) do
@@ -90,7 +100,7 @@ local function getStorage()
         local remote = modem.getNamesRemote()
         for i in pairs(remote) do
             if modem.hasTypeRemote(remote[i], "inventory") then
-                if remote[i] ~= settings.get("exportChest") and inImportChests(remote[i]) == false then
+                if inExportChests(remote[i]) == false and inImportChests(remote[i]) == false then
                     storage[#storage + 1] = peripheral.wrap(remote[i])
                 end
             end
@@ -223,25 +233,25 @@ local function findFreeSpace(item)
     end
 end
 
-local function getItem(requestItem)
+local function getItem(requestItem, chest)
     local amount = requestItem.count
     local filteredTable = search(requestItem.name, items)
     for i, item in pairs(filteredTable) do
         if requestItem.nbt == nil then
             if item.count >= amount then
-                peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"], amount)
+                peripheral.wrap(chest).pullItems(item["chestName"], item["slot"], amount)
                 return
             else
-                peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"])
+                peripheral.wrap(chest).pullItems(item["chestName"], item["slot"])
                 amount = amount - item.count
             end
         else
             if item.nbt == requestItem.nbt then
                 if item.count >= amount then
-                    peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"], amount)
+                    peripheral.wrap(chest).pullItems(item["chestName"], item["slot"], amount)
                     return
                 else
-                    peripheral.wrap(settings.get("exportChest")).pullItems(item["chestName"], item["slot"])
+                    peripheral.wrap(chest).pullItems(item["chestName"], item["slot"])
                     amount = amount - item.count
                 end
             end
@@ -275,7 +285,6 @@ local function get()
     print("Enter item")
     local input = io.read()
     local filteredTable = search(input, items)
-    --local exportChest = peripheral.wrap("right")
     print("exporting " .. filteredTable[1]["name"])
     print(dump(filteredTable[1]))
 
@@ -296,7 +305,7 @@ local function debugMenu()
         elseif input == "findAll" then
             find(true)
         elseif input == "getItem" then
-            getItem(true)
+            getItem(true, settings.get("exportChests")[1])
         elseif input == "send" then
             --sendItem(true)
         elseif input == "exit" then
@@ -407,8 +416,8 @@ local function storageHandler()
                 id2, message2 = rednet.receive()
             until id == id2
 
-            print("Exporting Item(s): " .. dump(message2))
-            getItem(message2)
+            print("Exporting Item(s): " .. dump(message2["item"]))
+            getItem(message2["item"], message2["chest"])
             reloadStorageDatabase()
         elseif message == "storageUsed" then
             rednet.send(id, storageUsed)
@@ -421,7 +430,7 @@ local function storageHandler()
 end
 
 print("debug mode: " .. tostring(settings.get("debug")))
-print("exportChest is set to : " .. tostring(settings.get("exportChest")))
+print("exportChests are set to : " .. dump(settings.get("exportChests")))
 print("importChests are set to: " .. dump(settings.get("importChests")))
 print("Server is loading, please wait....")
 print("Getting storage...")
