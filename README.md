@@ -1,5 +1,5 @@
-# ComputerCraft Storage System
- A wireless server-client storage system using only ComputerCraft
+# ComputerCraft Item Storage System
+ A wireless server-client item storage system using only ComputerCraft
 
  Required mods: ComputerCraft
 
