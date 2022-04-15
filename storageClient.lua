@@ -100,7 +100,7 @@ end
 
 local function inTable(arr, element) -- function to check if something is in an table
     for _, value in pairs(arr) do
-        if value.name == element.name and value.nbt == element.nbt  then
+        if value.name == element.name and value.nbt == element.nbt then
             return true
         end
     end
@@ -132,7 +132,11 @@ local function getItems()
         end
         local filteredTable = {}
         for k, v in pairs(message) do
-            if string.find(string.lower(v["details"]["displayName"]), string.lower(search)) then
+            if v["details"] == nil then
+                if string.find(string.lower(v["name"]), string.lower(search)) then
+                    table.insert(filteredTable, v)
+                end
+            elseif string.find(string.lower(v["details"]["displayName"]), string.lower(search)) then
                 table.insert(filteredTable, v)
             end
         end
@@ -336,12 +340,16 @@ local function drawList()
             if k < height then
                 local text = ""
 
-                if v["details"]["nbt"] ~= nil then
+                if v["nbt"] ~= nil then
                     text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"])
-                elseif v["details"]["tags"] ~= nil then
-                    text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"]["tags"])
+                elseif v["details"] == nil then
+                    text = v["name"] .. " - #" .. v["count"]
                 else
-                    text = v["details"]["displayName"] .. " - #" .. v["count"]
+                    if v["details"]["tags"] ~= nil then
+                        text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"]["tags"])
+                    else
+                        text = v["details"]["displayName"] .. " - #" .. v["count"]
+                    end
                 end
 
                 term.setCursorPos(1, k)

@@ -127,18 +127,22 @@ local function getList(storage)
         for slot, item in pairs(chest.list()) do
             item["slot"] = slot
             item["chestName"] = peripheral.getName(chest)
-            item["details"] = peripheral.wrap(peripheral.getName(chest)).getItemDetail(slot)
+            if item.nbt ~= nil then
+                item["details"] = peripheral.wrap(peripheral.getName(chest)).getItemDetail(slot)
+            end
             itemCount = itemCount + item.count
             table.insert(list, item)
             --print(("%d x %s in slot %d"):format(item.count, item.name, slot))
         end
     end
+    --[[
     table.sort(
         list,
         function(a, b)
             return a.count > b.count
         end
     )
+    --]]
 
     return list, itemCount
 end
@@ -191,11 +195,13 @@ local function search(string, InputTable)
     end
 end
 
+--Looks for an item in a given table 
 local function searchForItem(item, InputTable)
     local filteredTable = {}
     for k, v in pairs(InputTable) do
         --print(item["name"] .. " == " .. v["name"])
         if (item["name"] == v["name"]) then
+            --if the item has NBT, dont mix it with the same item that does not have an NBT
             if (item["nbt"] ~= nil) and (v["nbt"] ~= nil) then
                 if item["nbt"] == v["nbt"] then
                     table.insert(filteredTable, v)
@@ -212,9 +218,12 @@ local function searchForItem(item, InputTable)
     end
 end
 
+--Finds next free space in system of an item
 local function findFreeSpace(item)
     local filteredTable = searchForItem(item, items)
     if filteredTable == nil then
+        --Item not found in system
+        --Find first chest with a free slot
         for k, chest in pairs(storage) do
             local size = chest.size()
             for i = 1, size, 1 do
@@ -224,13 +233,16 @@ local function findFreeSpace(item)
             end
         end
     else
+        --Item was found in the system 
         for k, v in pairs(filteredTable) do
             --text = v["name"] .. " #" .. v["count"]
             local limit = peripheral.wrap(v["chestName"]).getItemLimit(v["slot"])
+            --if the slot is not full, then it has free space
             if v["count"] ~= limit then
                 return v["chestName"], v["slot"]
             end
         end
+        --Find first chest with a free slot
         for k, chest in pairs(storage) do
             local size = chest.size()
             for i = 1, size, 1 do
@@ -324,23 +336,22 @@ local function debugMenu()
     end
 end
 
-local function importHandeler()
+--Main loop for importing items into the system via defined import chests
+local function importHandler()
     while true do
         local inputStorage = getInputStorage()
         local list = getList(inputStorage)
+        --check if list is not empty
         if next(list) then
-            --print("list of inputStorage: " .. dump(list))
             for i, item in pairs(list) do
-                --print("items found in input chest")
                 local chest, slot = findFreeSpace(item)
                 if chest == nil then
                     --TODO: implement space full alert
                     print("No free space found!")
                     sleep(5)
+                    return
                 else
                     --send to found slot
-                    --print("chest: " .. chest .. ", slot: " .. tostring(slot))
-                    --print("send " .. tostring( peripheral.wrap(item.chestName).pushItems(chest, item["slot"]) ) .. " items")
                     peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
                 end
             end
@@ -454,9 +465,9 @@ print("Server Ready")
 
 while true do
     if settings.get("debug") then
-        parallel.waitForAll(debugMenu, storageHandler, importHandeler)
+        parallel.waitForAll(debugMenu, storageHandler, importHandler)
     else
-        parallel.waitForAll(storageHandler, importHandeler)
+        parallel.waitForAll(storageHandler, importHandler)
     end
     sleep(1)
 end
