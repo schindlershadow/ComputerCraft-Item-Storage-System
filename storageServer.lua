@@ -195,7 +195,7 @@ local function search(string, InputTable)
     end
 end
 
---Looks for an item in a given table 
+--Looks for an item in a given table
 local function searchForItem(item, InputTable)
     local filteredTable = {}
     for k, v in pairs(InputTable) do
@@ -233,7 +233,7 @@ local function findFreeSpace(item)
             end
         end
     else
-        --Item was found in the system 
+        --Item was found in the system
         for k, v in pairs(filteredTable) do
             --text = v["name"] .. " #" .. v["count"]
             local limit = peripheral.wrap(v["chestName"]).getItemLimit(v["slot"])
@@ -457,10 +457,17 @@ print("Getting storage...")
 storage = getStorage()
 print("Getting list of all items from storage...")
 items, storageUsed = getList(storage)
-print("Getting storage size...")
-storageSize, storageMaxSize = getStorageSize(storage)
-print("Storage size is: " .. tostring(storageSize) .. " slots")
-print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format(storageUsed/storageMaxSize)) .."% items")
+storageMaxSize = 0
+storageSize = 0
+if settings.get("debug") == false then
+    print("Getting storage size...")
+    storageSize, storageMaxSize = getStorageSize(storage)
+    print("Storage size is: " .. tostring(storageSize) .. " slots")
+    print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format(storageUsed / storageMaxSize)) .. "% items")
+else
+    print("Items in the system: " .. tostring(storageUsed) .. " items")
+end
+
 print("Server Ready")
 
 while true do
