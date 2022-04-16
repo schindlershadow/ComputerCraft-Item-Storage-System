@@ -266,6 +266,11 @@ local function findFreeSpace(item, storage)
 end
 
 local function getItem(requestItem, chest)
+    if inExportChests(chest) == false then
+        print("ERROR: invaild export chest set on client")
+        return
+    end
+    print(tostring(inExportChests(chest)))
     local amount = requestItem.count
     local filteredTable = search(requestItem.name, items)
     local wrap = peripheral.wrap
