@@ -155,16 +155,27 @@ local function getStorageSize(storage)
     local workingStorage = storage
     local slots = 0
     local total = 0
-
+    print("")
+    print("")
+    x, y = term.getSize()
+    term.setCursorPos(1,y-1)
+    write("Progress:      of " .. tostring(#storage) .. " storages processed")
+    
+    local time = os.time()
     --for _, chest in pairs(workingStorage) do
     for i = 1, #workingStorage, 1 do
-        write(".")
+        term.setCursorPos(11,y-1)
+        write(tostring(i))
+        term.setCursorPos(1,y)
         local size = workingStorage[i].size()
         slots = slots + size
         local getItemLimit = workingStorage[i].getItemLimit
         for k = 1, size do
             total = total + getItemLimit(k)
         end
+        local speed =  (os.epoch("utc")/1000) - time
+        term.write(math.floor(tostring(speed)) .. " storages per second   ETA: " .. tostring(math.floor((#storage-i)*speed)) .. " seconds left                                        ")
+        time = os.epoch("utc")/1000
     end
     return slots, total
 end
@@ -493,7 +504,7 @@ storageSize = 0
 if settings.get("debug") == false then
     write("\nGetting storage size")
     storageSize, storageMaxSize = getStorageSize(storage)
-    write("done\n\n")
+    write("\ndone\n\n")
     print("Storage size is: " .. tostring(storageSize) .. " slots")
     print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format(storageUsed / storageMaxSize)) .. "% items")
 else
