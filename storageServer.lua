@@ -245,7 +245,7 @@ local function findFreeSpace(item, storage)
             local size = chest.size()
             --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
             for i = 1, size, 1 do
-                if list[i] == nil then
+                if list[i] == nil and chest.getItemDetail(i) > 0 then
                     --print("Found free slot at chest: " .. getName(chest) .. " Slot: " .. tostring(i))
                     return getName(chest), i
                 end
@@ -397,6 +397,7 @@ local function importHandler()
                 end
             end
             reloadStorageDatabase()
+            sleep(5)
         end
 
         sleep(0.2)
@@ -509,7 +510,7 @@ if settings.get("debug") == false then
     storageSize, storageMaxSize = getStorageSize(storage)
     write("\ndone\n\n")
     print("Storage size is: " .. tostring(storageSize) .. " slots")
-    print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format(storageUsed / storageMaxSize)) .. "% items")
+    print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format((storageUsed / storageMaxSize)*100)) .. "% items")
 else
     print("Items in the system: " .. tostring(storageUsed) .. " items")
 end
