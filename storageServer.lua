@@ -153,29 +153,32 @@ end
 local function getStorageSize(storage)
     --use local var for performance
     local workingStorage = storage
+    local floor = math.floor
+    local epoch = os.epoch
+    local setCursorPos = term.setCursorPos
     local slots = 0
     local total = 0
     print("")
     print("")
     x, y = term.getSize()
-    term.setCursorPos(1,y-1)
+    setCursorPos(1,y-1)
     write("Progress:      of " .. tostring(#storage) .. " storages processed")
     
     local time = os.time()
     --for _, chest in pairs(workingStorage) do
     for i = 1, #workingStorage, 1 do
-        term.setCursorPos(11,y-1)
+        setCursorPos(11,y-1)
         write(tostring(i))
-        term.setCursorPos(1,y)
+        setCursorPos(1,y)
         local size = workingStorage[i].size()
         slots = slots + size
         local getItemLimit = workingStorage[i].getItemLimit
         for k = 1, size do
             total = total + getItemLimit(k)
         end
-        local speed =  (os.epoch("utc")/1000) - time
-        term.write(math.floor(tostring(speed)) .. " storages per second   ETA: " .. tostring(math.floor((#storage-i)*speed)) .. " seconds left                                        ")
-        time = os.epoch("utc")/1000
+        local speed =  (epoch("utc")/1000) - time
+        term.write(floor(speed * 1000) / 1000 .. " seconds per storage   ETA: " .. (floor((#storage-i)*speed)) .. " seconds left                                        ")
+        time = epoch("utc")/1000
     end
     return slots, total
 end
