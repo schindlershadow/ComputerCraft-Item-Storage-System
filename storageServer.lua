@@ -56,7 +56,7 @@ local function getInputStorage()
     local storage = {}
     local peripherals = {}
     for _, modem in pairs(modems) do
-        table.insert(peripherals, modem.getNamesRemote())
+        peripherals[#peripherals + 1] = modem.getNamesRemote()
         local remote = modem.getNamesRemote()
         for i in pairs(remote) do
             for k, chest in pairs(settings.get("importChests")) do
@@ -76,14 +76,14 @@ local function getExportChests()
     local output = {}
     exportChests = settings.get("exportChests")
     for i, chest in pairs(exportChests) do
-        table.insert(output, peripheral.wrap(chest))
+        output[#output + 1] = peripheral.wrap(chest)
     end
     return output
 end
 
 local function inExportChests(search)
     exportChests = settings.get("exportChests")
-    for i, chest in pairs(exportChests) do
+    for _, chest in pairs(exportChests) do
         if chest == search then
             return true
         end
@@ -93,7 +93,7 @@ end
 
 local function inImportChests(search)
     importChests = settings.get("importChests")
-    for i, chest in pairs(importChests) do
+    for _, chest in pairs(importChests) do
         if chest == search then
             return true
         end
@@ -101,16 +101,18 @@ local function inImportChests(search)
     return false
 end
 
+--Returns list of storage peripherals excluding import and export chests
 local function getStorage()
     local storage = {}
     local peripherals = {}
+    local wrap = peripheral.wrap
     for _, modem in pairs(modems) do
-        table.insert(peripherals, modem.getNamesRemote())
+        peripherals[#peripherals + 1] = modem.getNamesRemote()
         local remote = modem.getNamesRemote()
         for i in pairs(remote) do
             if modem.hasTypeRemote(remote[i], "inventory") then
                 if inExportChests(remote[i]) == false and inImportChests(remote[i]) == false then
-                    storage[#storage + 1] = peripheral.wrap(remote[i])
+                    storage[#storage + 1] = wrap(remote[i])
                 end
             end
         end
@@ -147,45 +149,42 @@ local function getList(storage)
     return list, itemCount
 end
 
+--loops all chests, adding together the number of slots and storage size of each. Note: MASSIVE performance hit on larger systems
 local function getStorageSize(storage)
+    --use local var for performance
+    local workingStorage = storage
     local slots = 0
     local total = 0
-    for _, chest in pairs(storage) do
-        slots = slots + chest.size()
-        for i = 1, chest.size() do
-            total = total + chest.getItemLimit(i)
+
+    --for _, chest in pairs(workingStorage) do
+    for i = 1, #workingStorage, 1 do
+        write(".")
+        local size = workingStorage[i].size()
+        slots = slots + size
+        local getItemLimit = workingStorage[i].getItemLimit
+        for k = 1, size do
+            total = total + getItemLimit(k)
         end
     end
     return slots, total
 end
 
+--Note: Large performance hit on larger systems
 local function reloadStorageDatabase()
-    print("getting storage...")
+    write("Reloading database..")
     storage = getStorage()
-    print("getting list of all items from storage...")
+    write("..")
     items, storageUsed = getList(storage)
-    print("done")
-end
-
-local function getItemLimit(search, storage, slot)
-    local number = 0
-    for _, chest in pairs(storage) do
-        if chest["chestName"] == search then
-            number = peripheral.wrap(chest["chestName"]).getItemLimit(slot)
-        end
-    end
-    if number == 0 then
-        return nil
-    else
-        return number
-    end
+    write("done\n")
 end
 
 local function search(string, InputTable)
     local filteredTable = {}
+    local find = string.find
+    local lower = string.lower
     for k, v in pairs(InputTable) do
-        if string.find(string.lower(v["name"]), string.lower(string)) then
-            table.insert(filteredTable, v)
+        if find(lower(v["name"]), lower(string)) then
+            filteredTable[#filteredTable + 1] = v
         end
     end
     if filteredTable == {} then
@@ -198,16 +197,16 @@ end
 --Looks for an item in a given table
 local function searchForItem(item, InputTable)
     local filteredTable = {}
-    for k, v in pairs(InputTable) do
-        --print(item["name"] .. " == " .. v["name"])
-        if (item["name"] == v["name"]) then
+    --for k, v in pairs(InputTable) do
+    for i = 1, #InputTable, 1 do
+        if (item["name"] == InputTable[i]["name"]) then
             --if the item has NBT, dont mix it with the same item that does not have an NBT
-            if (item["nbt"] ~= nil) and (v["nbt"] ~= nil) then
-                if item["nbt"] == v["nbt"] then
-                    table.insert(filteredTable, v)
+            if (item["nbt"] ~= nil) and (InputTable[i]["nbt"] ~= nil) then
+                if item["nbt"] == InputTable[i]["nbt"] then
+                    filteredTable[#filteredTable + 1] = InputTable[i]
                 end
             else
-                table.insert(filteredTable, v)
+                filteredTable[#filteredTable + 1] = InputTable[i]
             end
         end
     end
@@ -219,35 +218,47 @@ local function searchForItem(item, InputTable)
 end
 
 --Finds next free space in system of an item
-local function findFreeSpace(item)
+local function findFreeSpace(item, storage)
+    local localStorage = storage
     local filteredTable = searchForItem(item, items)
+    local getName = peripheral.getName
+    local wrap = peripheral.wrap
     if filteredTable == nil then
         --Item not found in system
         --Find first chest with a free slot
-        for k, chest in pairs(storage) do
+        for k, chest in pairs(localStorage) do
+            local list = chest.list()
             local size = chest.size()
+            --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
             for i = 1, size, 1 do
-                if chest.getItemDetail(i) == nil then
-                    return peripheral.getName(chest), i
+                if list[i] == nil then
+                    --print("Found free slot at chest: " .. getName(chest) .. " Slot: " .. tostring(i))
+                    return getName(chest), i
                 end
             end
         end
     else
         --Item was found in the system
+        --print("Item was found in the system")
         for k, v in pairs(filteredTable) do
             --text = v["name"] .. " #" .. v["count"]
-            local limit = peripheral.wrap(v["chestName"]).getItemLimit(v["slot"])
+            local limit = wrap(v["chestName"]).getItemLimit(v["slot"])
             --if the slot is not full, then it has free space
+            --print("limit: " .. tostring(limit) .. " count: " .. tostring(v["count"]))
             if v["count"] ~= limit then
                 return v["chestName"], v["slot"]
             end
         end
         --Find first chest with a free slot
-        for k, chest in pairs(storage) do
+        --print("Find first chest with a free slot")
+        for k, chest in pairs(localStorage) do
+            local list = chest.list()
             local size = chest.size()
+            --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
             for i = 1, size, 1 do
-                if chest.getItemDetail(i) == nil then
-                    return peripheral.getName(chest), i
+                if list[i] == nil then
+                    --print("Found free slot at chest: " .. getName(chest) .. " Slot: " .. tostring(i))
+                    return getName(chest), i
                 end
             end
         end
@@ -257,22 +268,27 @@ end
 local function getItem(requestItem, chest)
     local amount = requestItem.count
     local filteredTable = search(requestItem.name, items)
+    local wrap = peripheral.wrap
     for i, item in pairs(filteredTable) do
         if requestItem.nbt == nil then
             if item.count >= amount then
-                peripheral.wrap(chest).pullItems(item["chestName"], item["slot"], amount)
+                print("Export: " .. requestItem.name .. " #" .. tostring(amount))
+                wrap(chest).pullItems(item["chestName"], item["slot"], amount)
                 return
             else
-                peripheral.wrap(chest).pullItems(item["chestName"], item["slot"])
+                print("Export: " .. requestItem.name .. " #" .. tostring(amount))
+                wrap(chest).pullItems(item["chestName"], item["slot"])
                 amount = amount - item.count
             end
         else
             if item.nbt == requestItem.nbt then
                 if item.count >= amount then
-                    peripheral.wrap(chest).pullItems(item["chestName"], item["slot"], amount)
+                    print("Export: " .. requestItem.name .. " #" .. tostring(amount))
+                    wrap(chest).pullItems(item["chestName"], item["slot"], amount)
                     return
                 else
-                    peripheral.wrap(chest).pullItems(item["chestName"], item["slot"])
+                    print("Export: " .. requestItem.name .. " #" .. tostring(amount))
+                    wrap(chest).pullItems(item["chestName"], item["slot"])
                     amount = amount - item.count
                 end
             end
@@ -342,16 +358,22 @@ local function importHandler()
         local inputStorage = getInputStorage()
         local list = getList(inputStorage)
         --check if list is not empty
+        --print(dump(list))
         if next(list) then
+            local localStorage = storage
             for i, item in pairs(list) do
-                local chest, slot = findFreeSpace(item)
+                --print("finding free space....")
+                local chest, slot = findFreeSpace(item, storage)
+                --print("chest: " .. tostring(chest) .. " slot: " .. tostring(slot))
                 if chest == nil then
                     --TODO: implement space full alert
                     print("No free space found!")
-                    sleep(5)
-                    return
+                    reloadStorageDatabase()
+                    --sleep(5)
+                    --return
                 else
                     --send to found slot
+                    print("Import: " .. item.name .. " #" .. tostring(item.count))
                     peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
                 end
             end
@@ -408,9 +430,11 @@ local function storageHandler()
                 if chest == nil then
                     --TODO: implement space full alert
                     print("No free space found!")
-                    sleep(5)
+                    reloadStorageDatabase()
+                    --sleep(5)
                 else
                     --send to found slot
+                    print("Import: " .. item.name .. " #" .. tostring(item.count))
                     peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
                 end
             end
@@ -426,6 +450,7 @@ local function storageHandler()
                     sleep(5)
                 else
                     --send to found slot
+                    print("Import: " .. item.name .. " #" .. tostring(item.count))
                     peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
                 end
             end
@@ -449,26 +474,30 @@ local function storageHandler()
     end
 end
 
+term.clear()
 print("debug mode: " .. tostring(settings.get("debug")))
 print("exportChests are set to : " .. dump(settings.get("exportChests")))
 print("importChests are set to: " .. dump(settings.get("importChests")))
+print("")
 print("Server is loading, please wait....")
-print("Getting storage...")
+--list of storage peripherals
 storage = getStorage()
-print("Getting list of all items from storage...")
 items, storageUsed = getList(storage)
 storageMaxSize = 0
 storageSize = 0
 if settings.get("debug") == false then
-    print("Getting storage size...")
+    write("\nGetting storage size")
     storageSize, storageMaxSize = getStorageSize(storage)
+    write("done\n\n")
     print("Storage size is: " .. tostring(storageSize) .. " slots")
     print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format(storageUsed / storageMaxSize)) .. "% items")
 else
     print("Items in the system: " .. tostring(storageUsed) .. " items")
 end
-
+print("")
 print("Server Ready")
+print("")
+
 
 while true do
     if settings.get("debug") then
