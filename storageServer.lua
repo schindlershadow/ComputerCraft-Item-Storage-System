@@ -149,6 +149,14 @@ local function getList(storage)
     return list, itemCount
 end
 
+function average(t)
+    local sum = 0
+    for _,v in pairs(t) do -- Get the sum of all numbers in t
+      sum = sum + v
+    end
+    return sum / #t
+  end
+
 --loops all chests, adding together the number of slots and storage size of each. Note: MASSIVE performance hit on larger systems
 local function getStorageSize(storage)
     --use local var for performance
@@ -164,7 +172,8 @@ local function getStorageSize(storage)
     setCursorPos(1,y-1)
     write("Progress:      of " .. tostring(#storage) .. " storages processed")
     
-    local time = os.time()
+    local time = epoch("utc")/1000
+    local speedHistory = {}
     --for _, chest in pairs(workingStorage) do
     for i = 1, #workingStorage, 1 do
         setCursorPos(11,y-1)
@@ -177,7 +186,8 @@ local function getStorageSize(storage)
             total = total + getItemLimit(k)
         end
         local speed =  (epoch("utc")/1000) - time
-        term.write(floor(speed * 1000) / 1000 .. " seconds per storage   ETA: " .. (floor((#storage-i)*speed)) .. " seconds left                                        ")
+        speedHistory[#speedHistory+1] = speed
+        term.write(floor(speed * 1000) / 1000 .. " seconds per storage   ETA: " .. (floor((#storage-i)*average(speedHistory))) .. " seconds left                                        ")
         time = epoch("utc")/1000
     end
     return slots, total
