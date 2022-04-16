@@ -255,7 +255,7 @@ local function findFreeSpace(item, storage)
             local size = chest.size()
             --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
             for i = 1, size, 1 do
-                if list[i] == nil and chest.getItemDetail(i) > 0 then
+                if list[i] == nil then
                     --print("Found free slot at chest: " .. getName(chest) .. " Slot: " .. tostring(i))
                     return getName(chest), i
                 end
