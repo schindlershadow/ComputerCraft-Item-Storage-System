@@ -456,7 +456,7 @@ local function storageHandler()
             local list = getList(inputStorage)
             local filteredTable = search(message2, list)
             for i, item in pairs(filteredTable) do
-                local chest, slot = findFreeSpace(item)
+                local chest, slot = findFreeSpace(item, storage)
                 if chest == nil then
                     --TODO: implement space full alert
                     print("No free space found!")
@@ -473,7 +473,7 @@ local function storageHandler()
             local inputStorage = getExportChests()
             local list = getList(inputStorage)
             for i, item in pairs(list) do
-                local chest, slot = findFreeSpace(item)
+                local chest, slot = findFreeSpace(item, storage)
                 if chest == nil then
                     --TODO: implement space full alert
                     print("No free space found!")
