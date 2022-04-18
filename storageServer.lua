@@ -124,38 +124,34 @@ end
 local function getList(storage)
     local list = {}
     local itemCount = 0
+    local getName = peripheral.getName
+    local wrap = peripheral.wrap
     for _, chest in pairs(storage) do
         local tmpList = {}
+        local name = getName(chest)
         for slot, item in pairs(chest.list()) do
             item["slot"] = slot
-            item["chestName"] = peripheral.getName(chest)
+            item["chestName"] = name
             if item.nbt ~= nil then
-                item["details"] = peripheral.wrap(peripheral.getName(chest)).getItemDetail(slot)
+                item["details"] = wrap(name).getItemDetail(slot)
             end
             itemCount = itemCount + item.count
-            table.insert(list, item)
+            --table.insert(list, item)
+            list[#list + 1] = item
             --print(("%d x %s in slot %d"):format(item.count, item.name, slot))
         end
     end
-    --[[
-    table.sort(
-        list,
-        function(a, b)
-            return a.count > b.count
-        end
-    )
-    --]]
 
     return list, itemCount
 end
 
 function average(t)
     local sum = 0
-    for _,v in pairs(t) do -- Get the sum of all numbers in t
-      sum = sum + v
+    for _, v in pairs(t) do -- Get the sum of all numbers in t
+        sum = sum + v
     end
     return sum / #t
-  end
+end
 
 --loops all chests, adding together the number of slots and storage size of each. Note: MASSIVE performance hit on larger systems
 local function getStorageSize(storage)
@@ -169,26 +165,26 @@ local function getStorageSize(storage)
     print("")
     print("")
     x, y = term.getSize()
-    setCursorPos(1,y-1)
+    setCursorPos(1, y - 1)
     write("Progress:      of " .. tostring(#storage) .. " storages processed")
-    
-    local time = epoch("utc")/1000
+
+    local time = epoch("utc") / 1000
     local speedHistory = {}
     --for _, chest in pairs(workingStorage) do
     for i = 1, #workingStorage, 1 do
-        setCursorPos(11,y-1)
+        setCursorPos(11, y - 1)
         write(tostring(i))
-        setCursorPos(1,y)
+        setCursorPos(1, y)
         local size = workingStorage[i].size()
         slots = slots + size
         local getItemLimit = workingStorage[i].getItemLimit
         for k = 1, size do
             total = total + getItemLimit(k)
         end
-        local speed =  (epoch("utc")/1000) - time
-        speedHistory[#speedHistory+1] = speed
-        term.write(floor(speed * 1000) / 1000 .. " seconds per storage   ETA: " .. (floor((#storage-i)*average(speedHistory))) .. " seconds left                                        ")
-        time = epoch("utc")/1000
+        local speed = (epoch("utc") / 1000) - time
+        speedHistory[#speedHistory + 1] = speed
+        term.write(floor(speed * 1000) / 1000 .. " seconds per storage   ETA: " .. (floor((#storage - i) * average(speedHistory))) .. " seconds left                                        ")
+        time = epoch("utc") / 1000
     end
     return slots, total
 end
@@ -247,17 +243,28 @@ local function findFreeSpace(item, storage)
     local filteredTable = searchForItem(item, items)
     local getName = peripheral.getName
     local wrap = peripheral.wrap
+    local find = string.find
     if filteredTable == nil then
         --Item not found in system
         --Find first chest with a free slot
         for k, chest in pairs(localStorage) do
             local list = chest.list()
             local size = chest.size()
+            local chestName = getName(chest)
             --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
-            for i = 1, size, 1 do
+
+            local index
+            --workaround for storage drawers mod. slot 1 has the size of each slot but only slots 2..n can hold items so loop should start at 2
+            if find(chestName, "storagedrawers:") then
+                --print("applying storage drawers mod workaround")
+                index = 2
+            else --otherwise slots should start at 1
+                index = 1
+            end
+            for i = index, size, 1 do
                 if list[i] == nil then
                     --print("Found free slot at chest: " .. getName(chest) .. " Slot: " .. tostring(i))
-                    return getName(chest), i
+                    return chestName, i
                 end
             end
         end
@@ -266,7 +273,14 @@ local function findFreeSpace(item, storage)
         --print("Item was found in the system")
         for k, v in pairs(filteredTable) do
             --text = v["name"] .. " #" .. v["count"]
-            local limit = wrap(v["chestName"]).getItemLimit(v["slot"])
+            local limit
+            --workaround for storage drawers mod. slot 1 reports the true item limit, slots 2..n report 0
+            if find(v["chestName"], "storagedrawers:") then
+                limit = wrap(v["chestName"]).getItemLimit(1)
+            else
+                limit = wrap(v["chestName"]).getItemLimit(v["slot"])
+            end
+            
             --if the slot is not full, then it has free space
             --print("limit: " .. tostring(limit) .. " count: " .. tostring(v["count"]))
             if v["count"] ~= limit then
@@ -278,11 +292,20 @@ local function findFreeSpace(item, storage)
         for k, chest in pairs(localStorage) do
             local list = chest.list()
             local size = chest.size()
+            local chestName = getName(chest)
             --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
-            for i = 1, size, 1 do
+
+            --workaround for storage drawers mod. slot 1 has the size of each slot but only slots 2..n can hold items so loop should start at 2
+            if find(chestName, "storagedrawers:") then
+                --print("applying storage drawers mod workaround")
+                index = 2
+            else --otherwise slots should start at 1
+                index = 1
+            end
+            for i = index, size, 1 do
                 if list[i] == nil then
                     --print("Found free slot at chest: " .. getName(chest) .. " Slot: " .. tostring(i))
-                    return getName(chest), i
+                    return chestName, i
                 end
             end
         end
@@ -520,7 +543,7 @@ if settings.get("debug") == false then
     storageSize, storageMaxSize = getStorageSize(storage)
     write("\ndone\n\n")
     print("Storage size is: " .. tostring(storageSize) .. " slots")
-    print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format((storageUsed / storageMaxSize)*100)) .. "% items")
+    print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format((storageUsed / storageMaxSize) * 100)) .. "% items")
 else
     print("Items in the system: " .. tostring(storageUsed) .. " items")
 end
