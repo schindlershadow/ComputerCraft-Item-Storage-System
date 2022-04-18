@@ -124,7 +124,7 @@ end
 
 local function getItems()
     rednet.send(server, "getItems")
-    local id, message = rednet.receive(nil, 5)
+    local id, message = rednet.receive(nil, 1)
     --print("got " .. tostring(message) .. " type " .. type(message))
     if type(message) == "table" then
         if search == "" then
