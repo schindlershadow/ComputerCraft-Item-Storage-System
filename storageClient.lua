@@ -243,6 +243,8 @@ local function drawMenu(sel)
         term.write("-64")
         term.setCursorPos((width * .25) * 3, (height * .25) + 7)
         term.write("1")
+        term.setCursorPos(1, (height * .25) + 11)
+        centerText("All")
 
         term.setBackgroundColor(colors.red)
         term.setCursorPos(1, height - (height * .25) + 4)
@@ -301,6 +303,8 @@ local function drawMenu(sel)
             ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
         then
             amount = 1
+        elseif (y < ((height * .25) + 13)) and (y > ((height * .25) + 10)) then
+            amount = items[sel].count
         elseif y == (height - 1) then
             done = true
             local result
