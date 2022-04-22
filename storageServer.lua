@@ -178,8 +178,14 @@ local function getStorageSize(storage)
         local size = workingStorage[i].size()
         slots = slots + size
         local getItemLimit = workingStorage[i].getItemLimit
+        local getItemDetail = workingStorage[i].getItemDetail
         for k = 1, size do
-            total = total + getItemLimit(k)
+            --getItemLimit is broken on cc-restitched
+            --total = total + getItemLimit(k)
+            local slotItem = getItemDetail(k)
+            if type(slotItem) ~= "nil" then
+                total = total +slotItem.maxCount
+            end
         end
         local speed = (epoch("utc") / 1000) - time
         speedHistory[#speedHistory + 1] = speed
@@ -273,14 +279,30 @@ local function findFreeSpace(item, storage)
         --print("Item was found in the system")
         for k, v in pairs(filteredTable) do
             --text = v["name"] .. " #" .. v["count"]
+            --print(v["name"] .. " #" .. v["count"] .. " " .. v["chestName"] .. " " .. v["slot"])
             local limit
             --workaround for storage drawers mod. slot 1 reports the true item limit, slots 2..n report 0
             if find(v["chestName"], "storagedrawers:") then
-                limit = wrap(v["chestName"]).getItemLimit(1)
+                --getItemLimit is broken on cc-restitched
+                --limit = wrap(v["chestName"]).getItemLimit(1)
+                local slotItem = wrap(v["chestName"]).getItemDetail(1)
+                if type(slotItem) ~= "nil" then
+                    limit = slotItem.maxCount
+                else
+                    limit = 64
+                end
             else
-                limit = wrap(v["chestName"]).getItemLimit(v["slot"])
+                --getItemLimit is broken on cc-restitched
+                --limit = wrap(v["chestName"]).getItemLimit(v["slot"])
+
+                local slotItem = wrap(v["chestName"]).getItemDetail(v["slot"])
+                if type(slotItem) ~= "nil" then
+                    limit = slotItem.maxCount
+                else
+                    limit = 64
+                end
             end
-            
+
             --if the slot is not full, then it has free space
             --print("limit: " .. tostring(limit) .. " count: " .. tostring(v["count"]))
             if v["count"] ~= limit then
@@ -377,7 +399,7 @@ local function get()
     print("exporting " .. filteredTable[1]["name"])
     print(dump(filteredTable[1]))
 
-    peripheral.wrap(settings.get("exportChest")).pullItems(filteredTable[1]["chestName"], filteredTable[1]["slot"])
+    peripheral.wrap(settings.get("exportChests")[1]).pullItems(filteredTable[1]["chestName"], filteredTable[1]["slot"])
     reloadStorageDatabase()
 end
 
@@ -397,6 +419,10 @@ local function debugMenu()
             getItem(true, settings.get("exportChests")[1])
         elseif input == "send" then
             --sendItem(true)
+        elseif input == "list" then
+            for i = 1, 6, 1 do
+                print(dump(items[i]))
+            end
         elseif input == "exit" then
             os.queueEvent("terminate")
         end
