@@ -212,7 +212,7 @@ local function search(string, InputTable)
     local find = string.find
     local lower = string.lower
     for k, v in pairs(InputTable) do
-        if find(lower(v["name"]), lower(string)) then
+        if lower(v["name"]) == lower(string) then
             filteredTable[#filteredTable + 1] = v
         end
     end
