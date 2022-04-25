@@ -233,8 +233,10 @@ local function search(searchTerm, InputTable, count)
     local stringSearch = string.match(searchTerm, 'item:(%w+:.+)')
     local find = string.find
     local lower = string.lower
+    --print("need " .. tostring(count) .. " of " .. stringSearch)
     for k, v in pairs(InputTable) do
-        if find(lower(v["name"]), lower(stringSearch)) and v.count >= count then
+        if lower(v["name"]) == lower(stringSearch) and v.count >= count then
+            --print("Found: " .. tostring(v.count) .. " of " .. v.name)
             return v
         end
     end
@@ -318,12 +320,36 @@ local function dumpAll()
     end
 end
 
+--Note: Large performance hit on larger systems
+local function reloadStorageDatabase()
+    write("Reloading database..")
+    storage = getStorage()
+    write("..")
+    items, storageUsed = getList(storage)
+    write("done\n")
+end
+
+local function patchStorageDatabase(itemName, count)
+    local stringSearch = string.match(itemName, 'item:(%w+:.+)')
+    if type(stringSearch) == "nil" then
+        stringSearch = itemName
+    end
+    local find = string.find
+    local lower = string.lower
+    for k, v in pairs(items) do
+        if find(lower(v["name"]), lower(stringSearch)) then
+            items[k]["count"] = items[k]["count"] + count
+            return 1
+        end
+    end
+    return 0
+end
+
 local function craft(item)
-    local storage = getStorage()
-    local items, storageUsed = getList(storage)
     for i = 1, #recipes, 1 do
         if recipes[i]["name"] == item then
             print("Crafting: " .. item)
+            --dumpAll()
             --turtle.craft()
             --print(dump(recipes[i].recipe))
 
@@ -374,8 +400,8 @@ local function craft(item)
                                 searchResult = search(recipes[i].recipe[row][slot], items, numNeeded[recipes[i].recipe[row][slot]])
                             end
 
-                            --print(dump(pool))
-                            --log(dump(searchResult))
+                            --print(dump(searchResult))
+                            log(dump(searchResult))
                             --print(tostring(type(searchResult)))
                             if type(searchResult) == "nil" then
                                 print("Cannot find enough " .. recipes[i].recipe[row][slot] .. " in system")
@@ -390,19 +416,39 @@ local function craft(item)
 
                                 if redoItem then
                                     print("Attempting to craft " .. redoItem)
-                                    craft(redoItem)
-                                    craft(item)
-                                    return
-
+                                    local ableToCraft = craft(redoItem)
+                                    if ableToCraft ~= 0 then
+                                        --sleep to let the storage server catch up
+                                        sleep(1)
+                                        ableToCraft = craft(item)
+                                        if ableToCraft ~= 0 then
+                                            return 1
+                                        end
+                                    end
+                                    return 0
                                 else
-                                    return
+                                    return 0
                                 end
 
 
                             else
-                                print("Getting: " .. searchResult.name)
+                            print("Getting: " .. searchResult.name)
+                            local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                            if itemsMoved < 1 then
+                                reloadStorageDatabase()
                                 peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
-                                turtle.suckUp()
+                            end
+                            turtle.suckUp()
+                            if type(turtle.getItemDetail()) == "nil" then
+                                print("failed to get item")
+                                dumpAll()
+                                return 0
+                            end
+                            local success = patchStorageDatabase(searchResult.name, -1)
+                            if success == 0 then
+                                reloadStorageDatabase()
+                            end
+                            numNeeded[recipes[i].recipe[row][slot]] = numNeeded[recipes[i].recipe[row][slot]] - 1
                             end
                         end
                     end
@@ -426,9 +472,9 @@ local function craft(item)
                             searchResult = search(recipes[i].recipe[slot], items, numNeeded[recipes[i].recipe[slot]])
                         end
 
-                        --print(dump(pool))
-                        --log(dump(searchResult))
-                        --print(tostring(type(searchResult)))
+                        --print(dump(searchResult))
+                        log(dump(searchResult))
+                        print(tostring(type(searchResult)))
                         if type(searchResult) == "nil" then
                             print("Cannot find enough " .. recipes[i].recipe[slot] .. " in system")
                             dumpAll()
@@ -441,26 +487,52 @@ local function craft(item)
 
                             if redoItem then
                                 print("Attempting to craft " .. redoItem)
-                                craft(redoItem)
-                                craft(item)
-                                return
-
+                                local ableToCraft = craft(redoItem)
+                                if ableToCraft ~= 0 then
+                                    --sleep to let the storage server catch up
+                                    sleep(1)
+                                    ableToCraft = craft(item)
+                                    if ableToCraft ~= 0 then
+                                        return 1
+                                    end
+                                end
+                                return 0
                             else
-                                return
+                                return 0
                             end
-
-
                         else
                             print("Getting: " .. searchResult.name)
-                            peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                            local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                            if itemsMoved < 1 then
+                                reloadStorageDatabase()
+                                peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                            end
                             turtle.suckUp()
+                            if type(turtle.getItemDetail()) == "nil" then
+                                print("failed to get item")
+                                dumpAll()
+                                return 0
+                            end
+                            local success = patchStorageDatabase(searchResult.name, -1)
+                            if success == 0 then
+                                reloadStorageDatabase()
+                            end
+                            numNeeded[recipes[i].recipe[slot]] = numNeeded[recipes[i].recipe[slot]] -1
                         end
                     end
                 end
             end
             turtle.craft()
+            local craftedItem = turtle.getItemDetail()
             dumpAll()
-            return
+            if type(craftedItem) == "nil" then
+                return 0
+            end
+            local success = patchStorageDatabase(craftedItem.name, craftedItem.count)
+            if success == 0 then
+                reloadStorageDatabase()
+            end
+            return 1
         end
     end
 end
@@ -480,7 +552,12 @@ local function debugMenu()
             for i = 1, #recipes, 1 do
                 if string.find(recipes[i].name, input2) then
                     print("Crafting: " .. (recipes[i].name))
-                    craft(recipes[i].name)
+                    local ableToCraft = craft(recipes[i].name)
+                    if ableToCraft ~= 0 then
+                        print("Crafting Successful")
+                    else
+                        print("Crafting Failed!")
+                    end
                     return
                 end
             end
@@ -519,11 +596,14 @@ local function serverHandler()
             repeat
                 id2, message2 = rednet.receive()
             until id2 == id
-            craft(message2)
+            local ableToCraft = craft(message2)
+            if ableToCraft ~= 0 then
+                print("Crafting Successful")
+            else
+                print("Crafting Failed!")
+            end
         end
-
     end
-
 end
 
 print("debug mode: " .. tostring(settings.get("debug")))
@@ -532,6 +612,8 @@ print("craftingChest is set to: " .. (settings.get("craftingChest")))
 
 getRecipes()
 broadcast()
+local storage, items, storageUsed
+reloadStorageDatabase()
 while true do
     if settings.get("debug") then
         print(dump(recipes))
