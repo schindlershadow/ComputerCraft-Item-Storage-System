@@ -7,6 +7,8 @@ settings.define(
     "importChests",
     { description = "The peripheral name of the import chests", default = { "minecraft:chest_2" }, type = "table" }
 )
+settings.define("craftingChest", { description = "The peripheral name of the crafting chest", "minecraft:chest_3", type = "string" })
+
 
 --Settings fails to load
 if settings.load() == false then
@@ -14,6 +16,7 @@ if settings.load() == false then
     settings.set("debug", false)
     settings.set("exportChests", { "minecraft:chest" })
     settings.set("importChests", { "minecraft:chest_2" })
+    settings.set("craftingChest", "minecraft:chest_3")
     print("Stop the server and edit .settings file with correct settings")
     settings.save()
     sleep(1)
@@ -111,7 +114,7 @@ local function getStorage()
         local remote = modem.getNamesRemote()
         for i in pairs(remote) do
             if modem.hasTypeRemote(remote[i], "inventory") then
-                if inExportChests(remote[i]) == false and inImportChests(remote[i]) == false then
+                if inExportChests(remote[i]) == false and inImportChests(remote[i]) == false and remote[i] ~= settings.get("craftingChest")then
                     storage[#storage + 1] = wrap(remote[i])
                 end
             end
@@ -557,6 +560,8 @@ term.clear()
 print("debug mode: " .. tostring(settings.get("debug")))
 print("exportChests are set to : " .. dump(settings.get("exportChests")))
 print("importChests are set to: " .. dump(settings.get("importChests")))
+print("craftingChest is set to: " .. (settings.get("craftingChest")))
+
 print("")
 print("Server is loading, please wait....")
 --list of storage peripherals
