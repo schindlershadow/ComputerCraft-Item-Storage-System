@@ -713,3 +713,5 @@
   craftingTable.addShapeless("minecraft:yellow_dye_from_sunflower", <item:minecraft:yellow_dye> * 2, [<item:minecraft:sunflower>]);
   craftingTable.addShapeless("minecraft:yellow_wool", <item:minecraft:yellow_wool>, [<item:minecraft:yellow_dye>, <item:minecraft:white_wool>]);
   craftingTable.addShaped("minecraft:map_extending", <item:minecraft:map>, [[<item:minecraft:paper>, <item:minecraft:paper>, <item:minecraft:paper>], [<item:minecraft:paper>, <item:minecraft:filled_map>, <item:minecraft:paper>], [<item:minecraft:paper>, <item:minecraft:paper>, <item:minecraft:paper>]]);
+  craftingTable.addShaped("minecraft:torch", <item:minecraft:torch> * 4, [[<item:minecraft:coal>], [<item:minecraft:stick>]]);
+  craftingTable.addShaped("minecraft:torch", <item:minecraft:torch> * 4, [[<item:minecraft:charcoal>], [<item:minecraft:stick>]]);
