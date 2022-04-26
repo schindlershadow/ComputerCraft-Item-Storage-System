@@ -1,3 +1,4 @@
+tags = {}
 local clients = {}
 local recipes = {}
 local server = 0
@@ -174,6 +175,61 @@ local function removeDuplicates(arr)
     return newArray -- returning the new, duplicate removed array
 end
 
+function table.contains(table, element)
+    for _, value in pairs(table) do
+      if value == element then
+        return true
+      end
+    end
+    return false
+  end
+  
+
+--Mantain tags lookup
+local function addTag(item)
+    --print("addTag for: " .. item.name)
+    
+    --Maintain tags count
+    local countTags 
+    if type(tags.count) ~= "number" then
+        countTags = 0
+    else
+        countTags = tags.count
+    end
+
+    --Maintain item count
+    local countItems
+    if type(tags.countItems) ~= "number" then
+        countItems = 0
+    else
+        countItems = tags.countItems
+    end
+    
+    --Get the tags which are keys in table item.details.tags 
+    local keyset = {}
+    local n = 0
+    for k, v in pairs(item.details.tags) do
+        n = n + 1
+        keyset[n] = k
+    end
+    --print(dump(keyset))
+
+    --Add them to tags table if they dont exist, if they exist add the item name to the list
+    for i = 1, #keyset, 1 do
+        if type(tags[keyset[i]]) == "nil" then
+            tags[keyset[i]] = {item.name}
+            countTags = countTags + 1
+            countItems= countItems + 1
+        elseif table.contains(tags[keyset[i]], item.name) == false then
+            tags[keyset[i]] = table.insert(tags[keyset[i]],item.name)
+            countItems= countItems + 1
+        end
+    end
+
+    tags.count = countTags
+    tags.countItems = countItems
+end
+
 --gets the contents of a table of chests
 local function getList(storage)
     local list = {}
@@ -187,6 +243,7 @@ local function getList(storage)
             item["slot"] = slot
             item["chestName"] = name
             item["details"] = wrap(name).getItemDetail(slot)
+            addTag(item)
             itemCount = itemCount + item.count
             --table.insert(list, item)
             list[#list + 1] = item
@@ -494,11 +551,30 @@ end
 
 --Note: Large performance hit on larger systems
 local function reloadStorageDatabase()
+    if fs.exists("tags.db") then
+        print("Reading Tags Database")
+        local tagsFile = fs.open("tags.db", "r")
+        local contents = tagsFile.readAll()
+        tagsFile.close()
+
+        tags = textutils.unserialize(contents)
+        if type(tags) == "nil" then
+            tags = {}
+        end    
+        print("Tags read: " .. tostring(tags.count))
+    end
     write("Reloading database..")
     storage = getStorage()
     write("..")
     items, storageUsed = getList(storage)
     write("done\n")
+    write("Writing Tags Database....")
+    local tagsFile = fs.open("tags.db", "w")
+    tagsFile.write(textutils.serialise(tags))
+    write("done\n")
+    print("Items loaded: " .. tostring(storageUsed))
+    print("Tags loaded: " .. tostring(tags.count))
+    print("Tagged Items loaded: " .. tostring(tags.countItems))
 end
 
 local function patchStorageDatabase(itemName, count)
