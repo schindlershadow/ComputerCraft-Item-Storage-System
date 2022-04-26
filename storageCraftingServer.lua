@@ -177,20 +177,19 @@ end
 
 function table.contains(table, element)
     for _, value in pairs(table) do
-      if value == element then
-        return true
-      end
+        if value == element then
+            return true
+        end
     end
     return false
-  end
-  
+end
 
 --Mantain tags lookup
 local function addTag(item)
     --print("addTag for: " .. item.name)
-    
+
     --Maintain tags count
-    local countTags 
+    local countTags
     if type(tags.count) ~= "number" then
         countTags = 0
     else
@@ -204,8 +203,8 @@ local function addTag(item)
     else
         countItems = tags.countItems
     end
-    
-    --Get the tags which are keys in table item.details.tags 
+
+    --Get the tags which are keys in table item.details.tags
     local keyset = {}
     local n = 0
     for k, v in pairs(item.details.tags) do
@@ -217,12 +216,12 @@ local function addTag(item)
     --Add them to tags table if they dont exist, if they exist add the item name to the list
     for i = 1, #keyset, 1 do
         if type(tags[keyset[i]]) == "nil" then
-            tags[keyset[i]] = {item.name}
+            tags[keyset[i]] = { item.name }
             countTags = countTags + 1
-            countItems= countItems + 1
+            countItems = countItems + 1
         elseif table.contains(tags[keyset[i]], item.name) == false then
-            tags[keyset[i]] = table.insert(tags[keyset[i]],item.name)
-            countItems= countItems + 1
+            tags[keyset[i]] = table.insert(tags[keyset[i]], item.name)
+            countItems = countItems + 1
         end
     end
 
@@ -514,22 +513,41 @@ local function searchForItemWithTag(string, InputTable)
 end
 
 local function isTagCraftable(searchTerm, inputTable)
-    --local stringSearch = string.match(searchTerm, 'tag:%w+:(%w+:.+)')
-    local items = searchForItemWithTag(searchTerm, inputTable)
+    local stringSearch = string.match(searchTerm, 'tag:%w+:(%w+:.+)')
+    local items = {}
+    print("searchTerm: " .. searchTerm)
+    if type(tags[stringSearch]) ~= "nil" then
+        --check tags database
+        print("Checking tags database")
+        for i, k in pairs(tags[stringSearch]) do
+            items[#items + 1] = {}
+            items[#items]["name"] = k
+        end
+    else
+        items = searchForItemWithTag(searchTerm, inputTable)
+    end
+
     if type(items) == nil then
-        print("is nil")
         return false
     end
     --print(dump(items))
     --sleep(5)
+
+    --check if tag has crafting recipe
+    local tab = {}
     for i = 1, #recipes, 1 do
         for k = 1, #items, 1 do
             if recipes[i].name == items[k].name then
-                return recipes[i].name
+                --return recipes[i].name
+                tab[#tab+1] = recipes[i].name
             end
         end
     end
-    return false
+    if not next(tab) then
+        return false
+    else
+        return tab
+    end
 end
 
 local function isCraftable(searchTerm)
@@ -560,7 +578,7 @@ local function reloadStorageDatabase()
         tags = textutils.unserialize(contents)
         if type(tags) == "nil" then
             tags = {}
-        end    
+        end
         print("Tags read: " .. tostring(tags.count))
     end
     write("Reloading database..")
@@ -569,8 +587,13 @@ local function reloadStorageDatabase()
     items, storageUsed = getList(storage)
     write("done\n")
     write("Writing Tags Database....")
+
+    if fs.exists("tags.db") then
+        fs.delete("tags.db")
+    end
     local tagsFile = fs.open("tags.db", "w")
     tagsFile.write(textutils.serialise(tags))
+    tagsFile.close()
     write("done\n")
     print("Items loaded: " .. tostring(storageUsed))
     print("Tags loaded: " .. tostring(tags.count))
@@ -669,15 +692,18 @@ local function craft(item)
                                         redoItem = isCraftable(recipes[i].recipe[row][slot])
                                     end
 
-                                    if redoItem then
-                                        print("Attempting to craft " .. redoItem)
-                                        local ableToCraft = craft(redoItem)
-                                        if ableToCraft ~= 0 then
-                                            --sleep to let the storage server catch up
-                                            sleep(1)
-                                            ableToCraft = craft(item)
+                                    if type(redoItem) ~= "boolean" then
+                                        print(dump(redoItem))
+                                        for redos = 1, #redoItem, 1 do
+                                            print("Attempting to craft " .. redoItem[redos])
+                                            local ableToCraft = craft(redoItem[redos])
                                             if ableToCraft ~= 0 then
-                                                return 1
+                                                --sleep to let the storage server catch up
+                                                sleep(1)
+                                                ableToCraft = craft(item)
+                                                if ableToCraft ~= 0 then
+                                                    return 1
+                                                end
                                             end
                                         end
                                         return 0
@@ -741,14 +767,16 @@ local function craft(item)
                                 end
 
                                 if redoItem then
-                                    print("Attempting to craft " .. redoItem)
-                                    local ableToCraft = craft(redoItem)
-                                    if ableToCraft ~= 0 then
-                                        --sleep to let the storage server catch up
-                                        sleep(1)
-                                        ableToCraft = craft(item)
+                                    for redos = 1, #redoItem, 1 do
+                                        print("Attempting to craft " .. redoItem[redos])
+                                        local ableToCraft = craft(redoItem[redos])
                                         if ableToCraft ~= 0 then
-                                            return 1
+                                            --sleep to let the storage server catch up
+                                            sleep(1)
+                                            ableToCraft = craft(item)
+                                            if ableToCraft ~= 0 then
+                                                return 1
+                                            end
                                         end
                                     end
                                     return 0
@@ -823,17 +851,18 @@ local function craft(item)
                                         end
 
                                         if redoItem[k] then
-                                            print("Attempting to craft " .. redoItem)
-                                            local ableToCraft = craft(redoItem)
-                                            if ableToCraft ~= 0 then
-                                                --sleep to let the storage server catch up
-                                                sleep(1)
-                                                ableToCraft = craft(item)
+                                            for redos = 1, #redoItem[k], 1 do
+                                                print("Attempting to craft " .. redoItem[k][redos])
+                                                local ableToCraft = craft(redoItem[k][redos])
                                                 if ableToCraft ~= 0 then
-                                                    return 1
+                                                    --sleep to let the storage server catch up
+                                                    sleep(1)
+                                                    ableToCraft = craft(item)
+                                                    if ableToCraft ~= 0 then
+                                                        return 1
+                                                    end
                                                 end
                                             end
-
                                         else
 
                                         end
@@ -917,14 +946,16 @@ local function craft(item)
                                     end
 
                                     if redoItem[k] then
-                                        print("Attempting to craft " .. redoItem)
-                                        local ableToCraft = craft(redoItem)
-                                        if ableToCraft ~= 0 then
-                                            --sleep to let the storage server catch up
-                                            sleep(1)
-                                            ableToCraft = craft(item)
+                                        for redos = 1, #redoItem[k], 1 do
+                                            print("Attempting to craft " .. redoItem[k][redos])
+                                            local ableToCraft = craft(redoItem[k][redos])
                                             if ableToCraft ~= 0 then
-                                                return 1
+                                                --sleep to let the storage server catch up
+                                                sleep(1)
+                                                ableToCraft = craft(item)
+                                                if ableToCraft ~= 0 then
+                                                    return 1
+                                                end
                                             end
                                         end
 
