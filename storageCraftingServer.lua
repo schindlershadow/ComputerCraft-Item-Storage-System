@@ -112,7 +112,7 @@ function addShapeless(name, itemOutput, arg3, arg4)
     tab["recipe"] = recipe
     tab["recipeType"] = "shapeless"
     local isVar = false
-    for i=1,#recipe,1 do
+    for i = 1, #recipe, 1 do
         if type(recipe[i]) == "table" then
             isVar = true
         end
@@ -121,7 +121,7 @@ function addShapeless(name, itemOutput, arg3, arg4)
         tab["recipeInput"] = "variable"
         tab["recipe"] = tab["recipe"][1]
 
-        for i=1,#tab["recipe"],1 do
+        for i = 1, #tab["recipe"], 1 do
             if type(tab["recipe"][i]) ~= "table" then
                 tab["recipe"][i] = { tab["recipe"][i] }
             end
@@ -888,7 +888,7 @@ local function craft(item)
                         end
                     end
                 end
-                    
+
             end
             turtle.craft()
             local craftedItem = turtle.getItemDetail()
@@ -917,16 +917,26 @@ local function debugMenu()
             end
         elseif input == "craft" then
             local input2 = io.read()
-            for i = 1, #recipes, 1 do
-                if string.find(recipes[i].name, input2) then
-                    print("Crafting: " .. (recipes[i].name))
-                    local ableToCraft = craft(recipes[i].name)
-                    if ableToCraft ~= 0 then
-                        print("Crafting Successful")
-                    else
-                        print("Crafting Failed!")
+            if string.find(input2, ':') then
+                print("Crafting: " .. (input2))
+                local ableToCraft = craft(input2)
+                if ableToCraft ~= 0 then
+                    print("Crafting Successful")
+                else
+                    print("Crafting Failed!")
+                end
+            else
+                for i = 1, #recipes, 1 do
+                    if string.find(recipes[i].name, input2) then
+                        print("Crafting: " .. (recipes[i].name))
+                        local ableToCraft = craft(recipes[i].name)
+                        if ableToCraft ~= 0 then
+                            print("Crafting Successful")
+                        else
+                            print("Crafting Failed!")
+                        end
+                        return
                     end
-                    return
                 end
             end
         elseif input == "find" then
