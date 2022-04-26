@@ -66,7 +66,7 @@ local function broadcast()
     end
 end
 
-function addShaped(name, itemOutput, arg3, arg4)
+function addShaped(recipeName, name, arg3, arg4)
     --print("name: " .. name)
     --print("itemOutput: " .. itemOutput)
     local tab = {}
@@ -83,7 +83,10 @@ function addShaped(name, itemOutput, arg3, arg4)
         recipe = arg3
     end
 
+    name = string.match(name, 'item:(.+)')
+
     tab["name"] = name
+    tab["recipeName"] = recipeName
     tab["count"] = outputNumber
     tab["recipe"] = recipe
     tab["recipeType"] = "shaped"
@@ -97,7 +100,7 @@ function addShaped(name, itemOutput, arg3, arg4)
 
 end
 
-function addShapeless(name, itemOutput, arg3, arg4)
+function addShapeless(recipeName, name, arg3, arg4)
     local tab = {}
     local outputNumber = 1
     local recipe
@@ -108,7 +111,10 @@ function addShapeless(name, itemOutput, arg3, arg4)
         recipe = arg3
     end
 
+    name = string.match(name, 'item:(.+)')
+
     tab["name"] = name
+    tab["recipeName"] = recipeName
     tab["count"] = outputNumber
     tab["recipe"] = recipe
     tab["recipeType"] = "shapeless"
@@ -212,10 +218,10 @@ local function addTag(item)
         keyset[n] = k
     end
     --print(dump(keyset))
-    
+
 
     --Add them to tags table if they dont exist, if they exist add the item name to the list
-    for i = 1, #keyset, 1 do        
+    for i = 1, #keyset, 1 do
         if type(tags[keyset[i]]) == "nil" then
             print("Found new tag: " .. keyset[i])
             print("Found new item: " .. item.name)
@@ -437,32 +443,8 @@ local function getRecipes()
     print(tostring(#recipes) .. " recipes loaded!")
 end
 
-local function getRecipesOld()
-    local fileName = settings.get("recipeFile")
-    local file = fs.open(fileName, "r")
-    local contents = file.readAll()
-    file.close()
-
-    --Do a bunch of replacements to convert to lua code
-    contents = string.gsub(contents, "<", '"')
-    contents = string.gsub(contents, ">", '"')
-    contents = string.gsub(contents, '%[', '{')
-    contents = string.gsub(contents, '%]', '}')
-    contents = string.gsub(contents, ' %* ', ' ,')
-    contents = string.gsub(contents, ';', '\n')
-
-
-    local outFile = fs.open(fileName, "w")
-    outFile.writeLine(contents)
-    outFile.close()
-
-    print("Loading recipes...")
-    require(fileName)
-    print(tostring(#recipes) .. " recipes loaded!")
-end
-
 local function search(searchTerm, InputTable, count)
-    local stringSearch = string.match(searchTerm, 'item:(%w+:.+)')
+    local stringSearch = string.match(searchTerm, 'item:(.+)')
     local find = string.find
     local lower = string.lower
     --print("need " .. tostring(count) .. " of " .. stringSearch)
@@ -478,7 +460,7 @@ end
 local function searchForTag(string, InputTable, count)
     local find = string.find
     local match = string.match
-    local stringTag = match(string, 'tag:%w+:(%w+:.+)')
+    local stringTag = match(string, 'tag:%w+:(.+)')
 
     for k, v in pairs(InputTable) do
         if v.details then
@@ -498,7 +480,7 @@ local function searchForItemWithTag(string, InputTable)
     local filteredTable = {}
     local find = string.find
     local match = string.match
-    local stringTag = match(string, 'tag:%w+:(%w+:.+)')
+    local stringTag = match(string, 'tag:%w+:(.+)')
 
     for k, v in pairs(InputTable) do
         if v.details then
@@ -517,7 +499,7 @@ local function searchForItemWithTag(string, InputTable)
 end
 
 local function isTagCraftable(searchTerm, inputTable)
-    local stringSearch = string.match(searchTerm, 'tag:%w+:(%w+:.+)')
+    local stringSearch = string.match(searchTerm, 'tag:%w+:(.+)')
     local items = {}
     print("searchTerm: " .. searchTerm)
     if type(tags[stringSearch]) ~= "nil" then
@@ -541,9 +523,13 @@ local function isTagCraftable(searchTerm, inputTable)
     local tab = {}
     for i = 1, #recipes, 1 do
         for k = 1, #items, 1 do
-            if recipes[i].name == items[k].name then
+            if (recipes[i].name == items[k].name) then
                 --return recipes[i].name
-                tab[#tab+1] = recipes[i].name
+                tab[#tab + 1] = recipes[i].name
+
+
+
+
             end
         end
     end
@@ -555,36 +541,50 @@ local function isTagCraftable(searchTerm, inputTable)
 end
 
 local function isCraftable(searchTerm)
-    local stringSearch = string.match(searchTerm, 'item:(%w+:.+)')
+    local tab = {}
+    local stringSearch = string.match(searchTerm, 'item:(.+)')
     for i = 1, #recipes, 1 do
-        if recipes[i].name == stringSearch then
-            return recipes[i].name
+        if (recipes[i].name == stringSearch) then
+            tab[#tab + 1] = recipes[i].name
+
         end
     end
-    return false
+    if not next(tab) then
+        return false
+    else
+        return tab
+    end
+end
+
+local function patchStorageDatabase(itemName, count)
+    local stringSearch = string.match(itemName, 'item:(.+)')
+    if type(stringSearch) == "nil" then
+        stringSearch = itemName
+    end
+    local find = string.find
+    local lower = string.lower
+    for k, v in pairs(items) do
+        if find(lower(v["name"]), lower(stringSearch)) then
+            items[k]["count"] = items[k]["count"] + count
+            return 1
+        end
+    end
+    return 0
 end
 
 local function dumpAll()
     for i = 1, 16, 1 do
         turtle.select(i)
+        local item = turtle.getItemDetail(i)
+        if type(item) ~= "nil" then
+            patchStorageDatabase(item.name, item.count)
+        end
         turtle.dropDown()
     end
 end
 
 --Note: Large performance hit on larger systems
 local function reloadStorageDatabase()
-    if fs.exists("tags.db") then
-        print("Reading Tags Database")
-        local tagsFile = fs.open("tags.db", "r")
-        local contents = tagsFile.readAll()
-        tagsFile.close()
-
-        tags = textutils.unserialize(contents)
-        if type(tags) == "nil" then
-            tags = {}
-        end
-        print("Tags read: " .. tostring(tags.count))
-    end
     write("Reloading database..")
     storage = getStorage()
     write("..")
@@ -602,22 +602,6 @@ local function reloadStorageDatabase()
     print("Items loaded: " .. tostring(storageUsed))
     print("Tags loaded: " .. tostring(tags.count))
     print("Tagged Items loaded: " .. tostring(tags.countItems))
-end
-
-local function patchStorageDatabase(itemName, count)
-    local stringSearch = string.match(itemName, 'item:(%w+:.+)')
-    if type(stringSearch) == "nil" then
-        stringSearch = itemName
-    end
-    local find = string.find
-    local lower = string.lower
-    for k, v in pairs(items) do
-        if find(lower(v["name"]), lower(stringSearch)) then
-            items[k]["count"] = items[k]["count"] + count
-            return 1
-        end
-    end
-    return 0
 end
 
 local function craft(item)
@@ -704,9 +688,12 @@ local function craft(item)
                                             if ableToCraft ~= 0 then
                                                 --sleep to let the storage server catch up
                                                 sleep(1)
+                                                print("Try to craft original item")
                                                 ableToCraft = craft(item)
                                                 if ableToCraft ~= 0 then
                                                     return 1
+                                                else
+                                                    print("Failed")
                                                 end
                                             end
                                         end
@@ -1030,6 +1017,7 @@ local function debugMenu()
             local input2 = io.read()
             if string.find(input2, ':') then
                 print("Crafting: " .. (input2))
+                reloadStorageDatabase()
                 local ableToCraft = craft(input2)
                 if ableToCraft ~= 0 then
                     print("Crafting Successful")
@@ -1040,6 +1028,7 @@ local function debugMenu()
                 for i = 1, #recipes, 1 do
                     if string.find(recipes[i].name, input2) then
                         print("Crafting: " .. (recipes[i].name))
+                        reloadStorageDatabase()
                         local ableToCraft = craft(recipes[i].name)
                         if ableToCraft ~= 0 then
                             print("Crafting Successful")
@@ -1093,6 +1082,7 @@ local function serverHandler()
             repeat
                 id2, message2 = rednet.receive()
             until id2 == id
+            reloadStorageDatabase()
             local ableToCraft = craft(message2)
             if ableToCraft ~= 0 then
                 print("Crafting Successful")
@@ -1107,10 +1097,23 @@ print("debug mode: " .. tostring(settings.get("debug")))
 print("recipeFile is set to : " .. (settings.get("recipeFile")))
 print("craftingChest is set to: " .. (settings.get("craftingChest")))
 
+if fs.exists("tags.db") then
+    print("Reading Tags Database")
+    local tagsFile = fs.open("tags.db", "r")
+    local contents = tagsFile.readAll()
+    tagsFile.close()
+
+    tags = textutils.unserialize(contents)
+    if type(tags) == "nil" then
+        tags = {}
+    end
+    print("Tags read: " .. tostring(tags.count))
+end
+
 getRecipes()
 broadcast()
 local storage, items, storageUsed
-reloadStorageDatabase()
+
 while true do
     if settings.get("debug") then
         print(dump(recipes))
