@@ -86,6 +86,11 @@ function addShaped(name, itemOutput, arg3, arg4)
     tab["count"] = outputNumber
     tab["recipe"] = recipe
     tab["recipeType"] = "shaped"
+    if type(recipe[1][1]) == "table" then
+        tab["recipeInput"] = "variable"
+    else
+        tab["recipeInput"] = "static"
+    end
 
     recipes[#recipes + 1] = tab
 
@@ -106,6 +111,24 @@ function addShapeless(name, itemOutput, arg3, arg4)
     tab["count"] = outputNumber
     tab["recipe"] = recipe
     tab["recipeType"] = "shapeless"
+    local isVar = false
+    for i=1,#recipe,1 do
+        if type(recipe[i]) == "table" then
+            isVar = true
+        end
+    end
+    if isVar then
+        tab["recipeInput"] = "variable"
+        tab["recipe"] = tab["recipe"][1]
+
+        for i=1,#tab["recipe"],1 do
+            if type(tab["recipe"][i]) ~= "table" then
+                tab["recipe"][i] = { tab["recipe"][i] }
+            end
+        end
+    else
+        tab["recipeInput"] = "static"
+    end
 
     recipes[#recipes + 1] = tab
 end
@@ -205,7 +228,156 @@ local function getItems()
     end
 end
 
+function Split(s, delimiter)
+    result = {};
+    for match in (s .. delimiter):gmatch("(.-)" .. delimiter) do
+        table.insert(result, match);
+    end
+    return result;
+end
+
+--Grab recipe file from an http source in crafttweaker output format and covert it to lua code
 local function getRecipes()
+    print("Loading recipes...")
+    local contents = http.get('https://schindlershadow.duckdns.org/AOF5recipes.txt')
+
+
+
+    local fileName = settings.get("recipeFile")
+    --local file = fs.open(fileName, "r")
+    local lines = {}
+    while true do
+        --local line = file.readLine()
+        local line = contents.readLine()
+        -- If line is nil then we've reached the end of the file and should stop
+        if not line then break end
+
+        lines[#lines + 1] = line
+    end
+
+    --file.close()
+
+    --deal with the recipes that have multiple possible item inputs
+    for i = 1, #lines, 1 do
+        local line = lines[i]
+
+        if string.find(line, '|') then
+            table.remove(lines, i)
+
+            local firstHalf = string.sub(line, 1, string.find(line, '%[') - 1)
+            local recipe = ""
+            if string.find(line, '%[%[') then
+                recipe = string.sub(line, string.find(line, '%[') + 1, string.find(line, ');') - 3)
+            else
+                recipe = string.sub(line, string.find(line, '%['), string.find(line, ');') - 2)
+            end
+
+
+            local row = Split(recipe, '],')
+            local newRecipes = {}
+
+            --Convert the string recipe into an array
+            for k = 1, #row, 1 do
+                --cut out the first char which is [
+                row[k] = string.sub(row[k], 2, #row[k])
+                newRecipes[k] = {}
+                local slot = Split(row[k], ',')
+
+                for m = 1, #slot, 1 do
+                    local inputs = Split(slot[m], '|')
+                    newRecipes[k][m] = {}
+                    for j = 1, #inputs, 1 do
+                        newRecipes[k][m][j] = inputs[j]:gsub(' ', '')
+                    end
+                end
+            end
+
+            --Rebuild the crafttweaker string with the new format
+            local newLine = firstHalf .. '['
+            for row = 1, #newRecipes, 1 do
+                newLine = newLine .. '['
+                for slot = 1, #newRecipes[row], 1 do
+
+                    if #newRecipes[row][slot] == 1 then
+                        if string.find(newRecipes[row][slot][1], '%[') then
+                            newRecipes[row][slot][1] = '{' .. string.gsub(newRecipes[row][slot][1], '%[', '') .. '}'
+                        end
+                        newLine = newLine .. newRecipes[row][slot][1]
+                    else
+                        newLine = newLine .. '{'
+                        for j = 1, #newRecipes[row][slot] do
+                            if string.find(newRecipes[row][slot][j], '%[') then
+                                newRecipes[row][slot][j] = string.gsub(newRecipes[row][slot][j], '%[', '')
+                            end
+                            newLine = newLine .. newRecipes[row][slot][j]
+                            if j ~= #newRecipes[row][slot] then
+                                newLine = newLine .. ','
+                            end
+                        end
+                        newLine = newLine .. '}'
+                    end
+                    if slot ~= #newRecipes[row] then
+                        newLine = newLine .. ','
+                    end
+                end
+                if row == #newRecipes then
+                    newLine = newLine .. ']'
+                else
+                    newLine = newLine .. '],'
+                end
+            end
+            newLine = newLine .. ']);'
+            --[[
+            if string.find(newLine, '"minecraft:torch"') then
+                print(newLine)
+            end
+            --]]
+            lines[#lines + 1] = newLine
+        end
+        lines[i] = line
+    end
+
+
+    --Do a bunch of replacements to convert to lua code
+    for i = 1, #lines, 1 do
+        local line = lines[i]
+        if string.find(line, '|') or string.find(line, 'withTag') then
+            line = ""
+        else
+            line = string.gsub(line, "<", '"')
+            line = string.gsub(line, ">", '"')
+            line = string.gsub(line, '%[', '{')
+            line = string.gsub(line, '%]', '}')
+            line = string.gsub(line, ' %* ', ' ,')
+            line = string.gsub(line, ';', '\n')
+        end
+        lines[i] = line
+    end
+
+
+    --The file might be larger than the filesystem, so do it in small chunks
+    local count = #lines
+    local fileNumber = 1
+    print("Number of lines " .. tostring(count))
+    while count > 0 do
+        local outFile = fs.open(tostring(fileNumber) .. fileName, "w")
+        for i = 1, 500, 1 do
+            if count > 0 then
+                outFile.writeLine(lines[count])
+                count = count - 1
+            end
+        end
+        outFile.close()
+        --print(tostring(count))
+        require(tostring(fileNumber) .. fileName)
+        fs.delete(tostring(fileNumber) .. fileName)
+        fileNumber = fileNumber + 1
+    end
+
+    print(tostring(#recipes) .. " recipes loaded!")
+end
+
+local function getRecipesOld()
     local fileName = settings.get("recipeFile")
     local file = fs.open(fileName, "r")
     local contents = file.readAll()
@@ -349,8 +521,6 @@ local function craft(item)
     for i = 1, #recipes, 1 do
         if recipes[i]["name"] == item then
             print("Crafting: " .. item)
-            --dumpAll()
-            --turtle.craft()
             --print(dump(recipes[i].recipe))
 
             --TODO: Check if every item exists in the system
@@ -360,6 +530,10 @@ local function craft(item)
                     for slot = 1, #recipes[i].recipe[row], 1 do
                         if recipes[i].recipe[row][slot] ~= "none" then
                             local recipeName = recipes[i].recipe[row][slot]
+                            --print(dump(recipeName))
+                            if type(recipeName) == "table" then
+                                recipeName = recipeName[1]
+                            end
                             if type(numNeeded[recipeName]) == "nil" then
                                 numNeeded[recipeName] = 1
                             else
@@ -373,6 +547,9 @@ local function craft(item)
                 for slot = 1, #recipes[i].recipe, 1 do
                     if recipes[i].recipe[slot] ~= "none" then
                         local recipeName = recipes[i].recipe[slot]
+                        if type(recipeName) == "table" then
+                            recipeName = recipeName[1]
+                        end
                         if type(numNeeded[recipeName]) == "nil" then
                             numNeeded[recipeName] = 1
                         else
@@ -382,36 +559,109 @@ local function craft(item)
                 end
             end
 
+            print(recipes[i].recipeInput .. " crafting recipe")
 
             --Get items and craft
-            if recipes[i].recipeType == "shaped" then
-                for row = 1, #recipes[i].recipe do
-                    for slot = 1, #recipes[i].recipe[row], 1 do
+            if recipes[i].recipeInput == "static" then
+                if recipes[i].recipeType == "shaped" then
+                    for row = 1, #recipes[i].recipe do
+                        for slot = 1, #recipes[i].recipe[row], 1 do
+                            --print("Do we have " .. recipes[i].recipe[row][slot] .. " ?")
+                            --print("row " .. row .. " slot " .. slot)
+                            if recipes[i].recipe[row][slot] ~= "none" then
+
+                                turtle.select(((row - 1) * 4) + slot)
+                                local searchResult
+                                print("need #" .. tostring(numNeeded[recipes[i].recipe[row][slot]]) .. " " .. recipes[i].recipe[row][slot])
+                                if string.find(recipes[i].recipe[row][slot], "tag:") then
+                                    searchResult = searchForTag(recipes[i].recipe[row][slot], items, numNeeded[recipes[i].recipe[row][slot]])
+                                else
+                                    searchResult = search(recipes[i].recipe[row][slot], items, numNeeded[recipes[i].recipe[row][slot]])
+                                end
+
+                                --print(dump(searchResult))
+                                log(dump(searchResult))
+                                --print(tostring(type(searchResult)))
+                                if type(searchResult) == "nil" then
+                                    print("Cannot find enough " .. recipes[i].recipe[row][slot] .. " in system")
+                                    dumpAll()
+
+                                    local redoItem = ""
+                                    if string.find(recipes[i].recipe[row][slot], "tag:") then
+                                        redoItem = isTagCraftable(recipes[i].recipe[row][slot], items)
+                                    else
+                                        redoItem = isCraftable(recipes[i].recipe[row][slot])
+                                    end
+
+                                    if redoItem then
+                                        print("Attempting to craft " .. redoItem)
+                                        local ableToCraft = craft(redoItem)
+                                        if ableToCraft ~= 0 then
+                                            --sleep to let the storage server catch up
+                                            sleep(1)
+                                            ableToCraft = craft(item)
+                                            if ableToCraft ~= 0 then
+                                                return 1
+                                            end
+                                        end
+                                        return 0
+                                    else
+                                        return 0
+                                    end
+
+
+                                else
+                                    print("Getting: " .. searchResult.name)
+                                    local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                                    if itemsMoved < 1 then
+                                        reloadStorageDatabase()
+                                        peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                                    end
+                                    turtle.suckUp()
+                                    if type(turtle.getItemDetail()) == "nil" then
+                                        print("failed to get item")
+                                        dumpAll()
+                                        return 0
+                                    end
+                                    local success = patchStorageDatabase(searchResult.name, -1)
+                                    if success == 0 then
+                                        reloadStorageDatabase()
+                                    end
+                                    numNeeded[recipes[i].recipe[row][slot]] = numNeeded[recipes[i].recipe[row][slot]] - 1
+                                end
+                            end
+                        end
+                    end
+                else
+                    for slot = 1, #recipes[i].recipe, 1 do
                         --print("Do we have " .. recipes[i].recipe[row][slot] .. " ?")
                         --print("row " .. row .. " slot " .. slot)
-                        if recipes[i].recipe[row][slot] ~= "none" then
-
-                            turtle.select(((row - 1) * 4) + slot)
-                            local searchResult
-                            print("need #" .. tostring(numNeeded[recipes[i].recipe[row][slot]]) .. " " .. recipes[i].recipe[row][slot])
-                            if string.find(recipes[i].recipe[row][slot], "tag:") then
-                                searchResult = searchForTag(recipes[i].recipe[row][slot], items, numNeeded[recipes[i].recipe[row][slot]])
+                        if recipes[i].recipe[slot] ~= "none" then
+                            if slot > 3 then
+                                turtle.select(((math.floor(slot / 3)) * 4) + slot)
                             else
-                                searchResult = search(recipes[i].recipe[row][slot], items, numNeeded[recipes[i].recipe[row][slot]])
+                                turtle.select(slot)
+                            end
+
+                            local searchResult
+                            --print("need #" .. tostring(numNeeded[recipes[i].recipe[slot]]) .. " " .. recipes[i].recipe[slot])
+                            if string.find(recipes[i].recipe[slot], "tag:") then
+                                searchResult = searchForTag(recipes[i].recipe[slot], items, numNeeded[recipes[i].recipe[slot]])
+                            else
+                                searchResult = search(recipes[i].recipe[slot], items, numNeeded[recipes[i].recipe[slot]])
                             end
 
                             --print(dump(searchResult))
                             log(dump(searchResult))
-                            --print(tostring(type(searchResult)))
+                            print(tostring(type(searchResult)))
                             if type(searchResult) == "nil" then
-                                print("Cannot find enough " .. recipes[i].recipe[row][slot] .. " in system")
+                                print("Cannot find enough " .. recipes[i].recipe[slot] .. " in system")
                                 dumpAll()
-
                                 local redoItem = ""
-                                if string.find(recipes[i].recipe[row][slot], "tag:") then
-                                    redoItem = isTagCraftable(recipes[i].recipe[row][slot], items)
+                                if string.find(recipes[i].recipe[slot], "tag:") then
+                                    redoItem = isTagCraftable(recipes[i].recipe[slot], items)
                                 else
-                                    redoItem = isCraftable(recipes[i].recipe[row][slot])
+                                    redoItem = isCraftable(recipes[i].recipe[slot])
                                 end
 
                                 if redoItem then
@@ -429,98 +679,216 @@ local function craft(item)
                                 else
                                     return 0
                                 end
-
-
                             else
-                            print("Getting: " .. searchResult.name)
-                            local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
-                            if itemsMoved < 1 then
-                                reloadStorageDatabase()
-                                peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
-                            end
-                            turtle.suckUp()
-                            if type(turtle.getItemDetail()) == "nil" then
-                                print("failed to get item")
-                                dumpAll()
-                                return 0
-                            end
-                            local success = patchStorageDatabase(searchResult.name, -1)
-                            if success == 0 then
-                                reloadStorageDatabase()
-                            end
-                            numNeeded[recipes[i].recipe[row][slot]] = numNeeded[recipes[i].recipe[row][slot]] - 1
+                                print("Getting: " .. searchResult.name)
+                                local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                                if itemsMoved < 1 then
+                                    reloadStorageDatabase()
+                                    peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                                end
+                                turtle.suckUp()
+                                if type(turtle.getItemDetail()) == "nil" then
+                                    print("failed to get item")
+                                    dumpAll()
+                                    return 0
+                                end
+                                local success = patchStorageDatabase(searchResult.name, -1)
+                                if success == 0 then
+                                    reloadStorageDatabase()
+                                end
+                                numNeeded[recipes[i].recipe[slot]] = numNeeded[recipes[i].recipe[slot]] - 1
                             end
                         end
                     end
                 end
             else
-                for slot = 1, #recipes[i].recipe, 1 do
-                    --print("Do we have " .. recipes[i].recipe[row][slot] .. " ?")
-                    --print("row " .. row .. " slot " .. slot)
-                    if recipes[i].recipe[slot] ~= "none" then
-                        if slot > 3 then
-                            turtle.select(((math.floor(slot / 3)) * 4) + slot)
-                        else
-                            turtle.select(slot)
-                        end
+                --Crafting type is variable meaning recipe can have different materals to make the same item
+                --print(dump(recipes[i]))
+                if recipes[i].recipeType == "shaped" then
+                    for row = 1, #recipes[i].recipe do
+                        for slot = 1, #recipes[i].recipe[row], 1 do
+                            --print("Do we have " .. recipes[i].recipe[row][slot] .. " ?")
+                            --print("row " .. row .. " slot " .. slot)
+                            if recipes[i].recipe[row][slot][1] ~= "none" then
 
-                        local searchResult
-                        --print("need #" .. tostring(numNeeded[recipes[i].recipe[slot]]) .. " " .. recipes[i].recipe[slot])
-                        if string.find(recipes[i].recipe[slot], "tag:") then
-                            searchResult = searchForTag(recipes[i].recipe[slot], items, numNeeded[recipes[i].recipe[slot]])
-                        else
-                            searchResult = search(recipes[i].recipe[slot], items, numNeeded[recipes[i].recipe[slot]])
-                        end
+                                turtle.select(((row - 1) * 4) + slot)
+                                local searchResult = {}
+                                local found = false
 
-                        --print(dump(searchResult))
-                        log(dump(searchResult))
-                        print(tostring(type(searchResult)))
-                        if type(searchResult) == "nil" then
-                            print("Cannot find enough " .. recipes[i].recipe[slot] .. " in system")
-                            dumpAll()
-                            local redoItem = ""
-                            if string.find(recipes[i].recipe[row][slot], "tag:") then
-                                redoItem = isTagCraftable(recipes[i].recipe[slot], items)
+                                for k = 1, #recipes[i].recipe[row][slot], 1 do
+                                    --print(dump(recipes[i].recipe[row][slot]))
+                                    print("need #" .. tostring(numNeeded[recipes[i].recipe[row][slot][1]]) .. " " .. tostring(recipes[i].recipe[row][slot][k]))
+
+                                    if string.find(recipes[i].recipe[row][slot][k], "tag:") then
+                                        searchResult[k] = searchForTag(recipes[i].recipe[row][slot][k], items, numNeeded[recipes[i].recipe[row][slot][1]])
+                                    else
+                                        searchResult[k] = search(recipes[i].recipe[row][slot][k], items, numNeeded[recipes[i].recipe[row][slot][1]])
+                                    end
+                                    if type(searchResult[k]) ~= "nil" then
+                                        found = true
+                                    end
+
+
+                                end
+
+                                --print(dump(searchResult))
+                                log(dump(searchResult))
+                                --print(tostring(type(searchResult)))
+                                if found == false then
+                                    print("Cannot find enough " .. recipes[i].recipe[row][slot][1] .. " in system")
+                                    dumpAll()
+
+                                    local redoItem = {}
+                                    for k = 1, #recipes[i].recipe[row][slot], 1 do
+                                        if string.find(recipes[i].recipe[row][slot][k], "tag:") then
+                                            redoItem[k] = isTagCraftable(recipes[i].recipe[row][slot][k], items)
+                                        else
+                                            redoItem[k] = isCraftable(recipes[i].recipe[row][slot][k])
+                                        end
+
+                                        if redoItem[k] then
+                                            print("Attempting to craft " .. redoItem)
+                                            local ableToCraft = craft(redoItem)
+                                            if ableToCraft ~= 0 then
+                                                --sleep to let the storage server catch up
+                                                sleep(1)
+                                                ableToCraft = craft(item)
+                                                if ableToCraft ~= 0 then
+                                                    return 1
+                                                end
+                                            end
+
+                                        else
+
+                                        end
+                                    end
+                                    return 0
+
+
+                                else
+                                    local selected = 0
+                                    for k = 1, #searchResult, 1 do
+                                        if searchResult[k] ~= nil then
+                                            searchResult = searchResult[k]
+                                            selected = k
+                                        end
+                                    end
+                                    print("Getting: " .. searchResult.name)
+                                    local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                                    if itemsMoved < 1 then
+                                        reloadStorageDatabase()
+                                        peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                                    end
+                                    turtle.suckUp()
+                                    if type(turtle.getItemDetail()) == "nil" then
+                                        print("failed to get item")
+                                        dumpAll()
+                                        return 0
+                                    end
+                                    local success = patchStorageDatabase(searchResult.name, -1)
+                                    if success == 0 then
+                                        reloadStorageDatabase()
+                                    end
+                                    numNeeded[recipes[i].recipe[row][slot][1]] = numNeeded[recipes[i].recipe[row][slot][1]] - 1
+                                end
+                            end
+                        end
+                    end
+                else
+                    print(dump(recipes[i].recipe))
+                    for slot = 1, #recipes[i].recipe, 1 do
+                        --print("Do we have " .. recipes[i].recipe[row][slot] .. " ?")
+                        --print("row " .. row .. " slot " .. slot)
+                        if recipes[i].recipe[slot][1] ~= "none" then
+
+                            if slot > 3 then
+                                turtle.select(((math.floor(slot / 3)) * 4) + slot)
                             else
-                                redoItem = isCraftable(recipes[i].recipe[slot])
+                                turtle.select(slot)
+                            end
+                            local searchResult = {}
+                            local found = false
+
+                            for k = 1, #recipes[i].recipe[slot], 1 do
+                                --print(dump(recipes[i].recipe[row][slot]))
+                                print("need #" .. tostring(numNeeded[recipes[i].recipe[slot][1]]) .. " " .. tostring(recipes[i].recipe[slot][k]))
+
+                                if string.find(recipes[i].recipe[slot][k], "tag:") then
+                                    searchResult[k] = searchForTag(recipes[i].recipe[slot][k], items, numNeeded[recipes[i].recipe[slot][1]])
+                                else
+                                    searchResult[k] = search(recipes[i].recipe[slot][k], items, numNeeded[recipes[i].recipe[slot][1]])
+                                end
+                                if type(searchResult[k]) ~= "nil" then
+                                    found = true
+                                end
+
+
                             end
 
-                            if redoItem then
-                                print("Attempting to craft " .. redoItem)
-                                local ableToCraft = craft(redoItem)
-                                if ableToCraft ~= 0 then
-                                    --sleep to let the storage server catch up
-                                    sleep(1)
-                                    ableToCraft = craft(item)
-                                    if ableToCraft ~= 0 then
-                                        return 1
+                            --print(dump(searchResult))
+                            log(dump(searchResult))
+                            --print(tostring(type(searchResult)))
+                            if found == false then
+                                print("Cannot find enough " .. recipes[i].recipe[slot][1] .. " in system")
+                                dumpAll()
+
+                                local redoItem = {}
+                                for k = 1, #recipes[i].recipe[slot], 1 do
+                                    if string.find(recipes[i].recipe[slot][k], "tag:") then
+                                        redoItem[k] = isTagCraftable(recipes[i].recipe[slot][k], items)
+                                    else
+                                        redoItem[k] = isCraftable(recipes[i].recipe[slot][k])
+                                    end
+
+                                    if redoItem[k] then
+                                        print("Attempting to craft " .. redoItem)
+                                        local ableToCraft = craft(redoItem)
+                                        if ableToCraft ~= 0 then
+                                            --sleep to let the storage server catch up
+                                            sleep(1)
+                                            ableToCraft = craft(item)
+                                            if ableToCraft ~= 0 then
+                                                return 1
+                                            end
+                                        end
+
+                                    else
+
                                     end
                                 end
                                 return 0
+
+
                             else
-                                return 0
+                                local selected = 0
+                                for k = 1, #searchResult, 1 do
+                                    if searchResult[k] ~= nil then
+                                        searchResult = searchResult[k]
+                                        selected = k
+                                    end
+                                end
+                                print("Getting: " .. searchResult.name)
+                                local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                                if itemsMoved < 1 then
+                                    reloadStorageDatabase()
+                                    peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
+                                end
+                                turtle.suckUp()
+                                if type(turtle.getItemDetail()) == "nil" then
+                                    print("failed to get item")
+                                    dumpAll()
+                                    return 0
+                                end
+                                local success = patchStorageDatabase(searchResult.name, -1)
+                                if success == 0 then
+                                    reloadStorageDatabase()
+                                end
+                                numNeeded[recipes[i].recipe[slot][1]] = numNeeded[recipes[i].recipe[slot][1]] - 1
                             end
-                        else
-                            print("Getting: " .. searchResult.name)
-                            local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
-                            if itemsMoved < 1 then
-                                reloadStorageDatabase()
-                                peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
-                            end
-                            turtle.suckUp()
-                            if type(turtle.getItemDetail()) == "nil" then
-                                print("failed to get item")
-                                dumpAll()
-                                return 0
-                            end
-                            local success = patchStorageDatabase(searchResult.name, -1)
-                            if success == 0 then
-                                reloadStorageDatabase()
-                            end
-                            numNeeded[recipes[i].recipe[slot]] = numNeeded[recipes[i].recipe[slot]] -1
                         end
                     end
                 end
+                    
             end
             turtle.craft()
             local craftedItem = turtle.getItemDetail()
@@ -559,6 +927,14 @@ local function debugMenu()
                         print("Crafting Failed!")
                     end
                     return
+                end
+            end
+        elseif input == "find" then
+            local input2 = io.read()
+            for i = 1, #recipes, 1 do
+                if string.find(recipes[i].name, input2) then
+                    print(dump(recipes[i]))
+                    log(dump(recipes[i]))
                 end
             end
         elseif input == "exit" then
