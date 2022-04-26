@@ -1,4 +1,4 @@
-tags = {}
+local tags = {}
 local clients = {}
 local recipes = {}
 local server = 0
@@ -10,14 +10,17 @@ local modem = peripheral.find("modem")
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
 --Oneliner bash to extract recipes from craft tweaker output:
 --grep craftingTable crafttweaker.log > recipes
-settings.define("recipeFile", { description = "The file containing the recipes", "recipes", type = "string" })
+settings.define("recipeURL", { description = "The URL containing all recipes", "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt", type = "string" })
+settings.define("recipeFile", { description = "The temp file used for loading recipes", "recipes", type = "string" })
 settings.define("craftingChest", { description = "The peripheral name of the crafting chest", "minecraft:chest_3", type = "string" })
 
 
 --Settings fails to load
 if settings.load() == false then
     print("No settings have been found! Default values will be used!")
+    print("Only vanilla recipes will be loaded, change the recipeURL in .settings for modded Minecraft")
     settings.set("debug", false)
+    settings.set("recipeURL", "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt")
     settings.set("recipeFile", "recipes")
     settings.set("craftingChest", "minecraft:chest_3")
     print("Stop the server and edit .settings file with correct settings")
@@ -190,6 +193,38 @@ function table.contains(table, element)
     return false
 end
 
+--Creates a tab table using the tabs db, use this to avoid costly peripheral lookups
+local function reconstructTags(itemName)
+    local tab = {}
+    tab.tags = {}
+    for tag, nameTable in pairs(tags) do
+        if type(nameTable) == "table" then
+            for _, name in pairs(nameTable) do
+                if name == itemName then
+                    tab.tags[tag] = true
+                end
+            end
+        end
+    end
+    return tab
+end
+
+--Check if item name is in tag db
+local function inTags(itemName)
+
+    for _, nameTable in pairs(tags) do
+        if type(nameTable) == "table" then
+            for _, name in pairs(nameTable) do
+                if name == itemName then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+
+end
+
 --Mantain tags lookup
 local function addTag(item)
     --print("addTag for: " .. item.name)
@@ -251,8 +286,13 @@ local function getList(storage)
         for slot, item in pairs(chest.list()) do
             item["slot"] = slot
             item["chestName"] = name
-            item["details"] = wrap(name).getItemDetail(slot)
-            addTag(item)
+            if not (inTags(item.name)) then
+                item["details"] = wrap(name).getItemDetail(slot)
+                addTag(item)
+            else
+                item["details"] = reconstructTags(item.name)
+            end
+
             itemCount = itemCount + item.count
             --table.insert(list, item)
             list[#list + 1] = item
@@ -305,7 +345,8 @@ end
 --Grab recipe file from an http source in crafttweaker output format and covert it to lua code
 local function getRecipes()
     print("Loading recipes...")
-    local contents = http.get('https://schindlershadow.duckdns.org/AOF5recipes.txt')
+    print("Recipe URL set to: " .. settings.get("recipeURL"))
+    local contents = http.get(settings.get("recipeURL"))
 
 
 
@@ -1113,6 +1154,10 @@ end
 getRecipes()
 broadcast()
 local storage, items, storageUsed
+
+print("")
+print("Crafting Server Ready")
+print("")
 
 while true do
     if settings.get("debug") then
