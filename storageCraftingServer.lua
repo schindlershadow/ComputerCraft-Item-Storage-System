@@ -212,15 +212,19 @@ local function addTag(item)
         keyset[n] = k
     end
     --print(dump(keyset))
+    
 
     --Add them to tags table if they dont exist, if they exist add the item name to the list
-    for i = 1, #keyset, 1 do
+    for i = 1, #keyset, 1 do        
         if type(tags[keyset[i]]) == "nil" then
+            print("Found new tag: " .. keyset[i])
+            print("Found new item: " .. item.name)
             tags[keyset[i]] = { item.name }
             countTags = countTags + 1
             countItems = countItems + 1
         elseif table.contains(tags[keyset[i]], item.name) == false then
-            tags[keyset[i]] = table.insert(tags[keyset[i]], item.name)
+            print("Found new item: " .. item.name)
+            table.insert(tags[keyset[i]], item.name)
             countItems = countItems + 1
         end
     end
