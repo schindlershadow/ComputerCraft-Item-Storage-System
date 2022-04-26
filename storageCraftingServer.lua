@@ -1,4 +1,4 @@
-tags = {}
+local tags = {}
 local clients = {}
 local recipes = {}
 local server = 0
@@ -10,14 +10,17 @@ local modem = peripheral.find("modem")
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
 --Oneliner bash to extract recipes from craft tweaker output:
 --grep craftingTable crafttweaker.log > recipes
-settings.define("recipeFile", { description = "The file containing the recipes", "recipes", type = "string" })
+settings.define("recipeURL", { description = "The URL containing all recipes", "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt", type = "string" })
+settings.define("recipeFile", { description = "The temp file used for loading recipes", "recipes", type = "string" })
 settings.define("craftingChest", { description = "The peripheral name of the crafting chest", "minecraft:chest_3", type = "string" })
 
 
 --Settings fails to load
 if settings.load() == false then
     print("No settings have been found! Default values will be used!")
+    print("Only vanilla recipes will be loaded, change the recipeURL in .settings for modded Minecraft")
     settings.set("debug", false)
+    settings.set("recipeURL", "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt")
     settings.set("recipeFile", "recipes")
     settings.set("craftingChest", "minecraft:chest_3")
     print("Stop the server and edit .settings file with correct settings")
@@ -305,7 +308,8 @@ end
 --Grab recipe file from an http source in crafttweaker output format and covert it to lua code
 local function getRecipes()
     print("Loading recipes...")
-    local contents = http.get('https://schindlershadow.duckdns.org/AOF5recipes.txt')
+    print("Recipe URL set to: " .. settings.get("recipeURL"))
+    local contents = http.get(settings.get("recipeURL"))
 
 
 
@@ -1113,6 +1117,10 @@ end
 getRecipes()
 broadcast()
 local storage, items, storageUsed
+
+print("")
+print("Crafting Server Ready")
+print("")
 
 while true do
     if settings.get("debug") then
