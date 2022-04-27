@@ -30,12 +30,12 @@ local modems = {
     peripheral.find(
         "modem",
         function(name, modem)
-            if modem.isWireless() then
-                return false
-            else
-                return true
-            end
+        if modem.isWireless() then
+            return false
+        else
+            return true
         end
+    end
     )
 }
 
@@ -114,7 +114,7 @@ local function getStorage()
         local remote = modem.getNamesRemote()
         for i in pairs(remote) do
             if modem.hasTypeRemote(remote[i], "inventory") then
-                if inExportChests(remote[i]) == false and inImportChests(remote[i]) == false and remote[i] ~= settings.get("craftingChest")then
+                if inExportChests(remote[i]) == false and inImportChests(remote[i]) == false and remote[i] ~= settings.get("craftingChest") then
                     storage[#storage + 1] = wrap(remote[i])
                 end
             end
@@ -165,6 +165,25 @@ local function getStorageSize(storage)
     local setCursorPos = term.setCursorPos
     local slots = 0
     local total = 0
+
+
+    for i = 1, #workingStorage, 1 do
+        local size = workingStorage[i].size()
+        slots = slots + size
+    end
+
+    --If the number of chests slots is unchanged from last db refresh, skip max storage calc
+    if slots == storageSize then
+        return storageSize, storageMaxSize
+    end
+    if storageSize ~= 0 then
+    print("")
+    print("Storage change detected")
+    print("")
+    end
+
+    slots = 0
+
     print("")
     print("")
     x, y = term.getSize()
@@ -187,7 +206,7 @@ local function getStorageSize(storage)
             --total = total + getItemLimit(k)
             local slotItem = getItemDetail(k)
             if type(slotItem) ~= "nil" then
-                total = total +slotItem.maxCount
+                total = total + slotItem.maxCount
             end
         end
         local speed = (epoch("utc") / 1000) - time
@@ -204,6 +223,22 @@ local function reloadStorageDatabase()
     storage = getStorage()
     write("..")
     items, storageUsed = getList(storage)
+    write("done\n")
+    write("Writing storage database....")
+
+    if fs.exists("storage.db") then
+        fs.delete("storage.db")
+    end
+
+    local decoded = {}
+    decoded.items = items
+    decoded.storageUsed = storageUsed
+    decoded.storageMaxSize = storageMaxSize
+    decoded.storageSize = storageSize
+
+    local storageFile = fs.open("storage.db", "w")
+    storageFile.write(textutils.serialise(decoded))
+    storageFile.close()
     write("done\n")
 end
 
@@ -566,9 +601,30 @@ print("")
 print("Server is loading, please wait....")
 --list of storage peripherals
 storage = getStorage()
-items, storageUsed = getList(storage)
+items = {}
+storageUsed = 0
 storageMaxSize = 0
 storageSize = 0
+
+if fs.exists("storage.db") then
+    print("Reading storage database")
+    local storageFile = fs.open("storage.db", "r")
+    local contents = storageFile.readAll()
+    storageFile.close()
+
+    local decoded = textutils.unserialize(contents)
+    if type(decoded) ~= "nil" then
+        items = decoded.items
+        storageUsed = decoded.storageUsed
+        storageMaxSize = decoded.storageMaxSize
+        storageSize = decoded.storageSize
+    end
+else
+    items, storageUsed = getList(storage)
+end
+
+
+
 if settings.get("debug") == false then
     write("\nGetting storage size")
     storageSize, storageMaxSize = getStorageSize(storage)
@@ -578,6 +634,8 @@ if settings.get("debug") == false then
 else
     print("Items in the system: " .. tostring(storageUsed) .. " items")
 end
+
+
 print("")
 print("Server Ready")
 print("")

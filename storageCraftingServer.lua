@@ -193,6 +193,38 @@ function table.contains(table, element)
     return false
 end
 
+--Creates a tab table using the tabs db, use this to avoid costly peripheral lookups
+local function reconstructTags(itemName)
+    local tab = {}
+    tab.tags = {}
+    for tag, nameTable in pairs(tags) do
+        if type(nameTable) == "table" then
+            for _, name in pairs(nameTable) do
+                if name == itemName then
+                    tab.tags[tag] = true
+                end
+            end
+        end
+    end
+    return tab
+end
+
+--Check if item name is in tag db
+local function inTags(itemName)
+
+    for _, nameTable in pairs(tags) do
+        if type(nameTable) == "table" then
+            for _, name in pairs(nameTable) do
+                if name == itemName then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+
+end
+
 --Mantain tags lookup
 local function addTag(item)
     --print("addTag for: " .. item.name)
@@ -254,8 +286,13 @@ local function getList(storage)
         for slot, item in pairs(chest.list()) do
             item["slot"] = slot
             item["chestName"] = name
-            item["details"] = wrap(name).getItemDetail(slot)
-            addTag(item)
+            if not (inTags(item.name)) then
+                item["details"] = wrap(name).getItemDetail(slot)
+                addTag(item)
+            else
+                item["details"] = reconstructTags(item.name)
+            end
+
             itemCount = itemCount + item.count
             --table.insert(list, item)
             list[#list + 1] = item
