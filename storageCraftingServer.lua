@@ -1163,6 +1163,7 @@ local function craftBranch(recipe, itemName, ttl)
     end
 
     log("craftedAnything: " .. tostring(craftedAnything))
+    local craft = false
     --This is to ensure the materials needed to craft parent were not used in child recipe
     if craftedAnything then
         local tab = {}
@@ -1176,15 +1177,14 @@ local function craftBranch(recipe, itemName, ttl)
             end
             return status
         else
-            log("Crafting Parent recipe: " .. itemName)
-            local status = craftRecipe(recipe)
-            if status == false then
-                print("crafting failed")
-                log("crafting failed")
-            end
-            return status
+            craft = true
         end
     else
+        craft = true
+    end
+
+    --Craft parent item
+    if craft then
         log("Crafting Parent recipe: " .. itemName)
         local status = craftRecipe(recipe)
         if status == false then
