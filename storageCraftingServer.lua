@@ -578,12 +578,34 @@ local function searchForItemWithTag(string, InputTable)
     end
 end
 
+--Calculate number of each item needed.
+local function calculateNumberOfItems(recipe)
+    local numNeeded = {}
+    for row = 1, #recipe do
+        for slot = 1, #recipe[row], 1 do
+            for itemSlot = 1, #recipe[row][slot], 1 do
+                if recipe[row][slot][itemSlot] ~= "none" then
+                    local recipeItemName = recipe[row][slot][itemSlot]
+                    --print(dump(recipeName))
+                    if type(numNeeded[recipeItemName]) == "nil" then
+                        numNeeded[recipeItemName] = 1
+                    else
+                        numNeeded[recipeItemName] = numNeeded[recipeItemName] + 1
+                    end
+                end
+            end
+        end
+    end
+    return numNeeded
+end
+
 --Checks if crafting materials are in system
 local function haveCraftingMaterials(tableOfRecipes)
     --log(tableOfRecipes)
     local recipeIsCraftable = {}
     --print("Found " .. tostring(#tableOfRecipes) .. " recipes")
     --print(dump(tableOfRecipes))
+
     local num = 1
     for _, tab in pairs(tableOfRecipes) do
         local recipe = tab.recipe
@@ -591,6 +613,8 @@ local function haveCraftingMaterials(tableOfRecipes)
         --log(textutils.serialise(recipe))
         --sleep(5)
         local craftable = true
+
+        local numNeeded = calculateNumberOfItems(recipe)
 
 
         craftable = true
@@ -606,9 +630,9 @@ local function haveCraftingMaterials(tableOfRecipes)
                     else
                         local result
                         if string.find(item, "tag:") then
-                            result = searchForTag(item, items, 1)
+                            result = searchForTag(item, items, numNeeded[item])
                         else
-                            result = search(item, items, 1)
+                            result = search(item, items, numNeeded[item])
                         end
                         if type(result) ~= "nil" then
                             craftable2 = true
@@ -637,10 +661,10 @@ end
 local function isTagCraftable(searchTerm, inputTable)
     local stringSearch = string.match(searchTerm, 'tag:%w+:(.+)')
     local items = {}
-    print("searchTerm: " .. searchTerm)
+    --print("searchTerm: " .. searchTerm)
     if type(tags[stringSearch]) ~= "nil" then
         --check tags database
-        print("Checking tags database")
+        --print("Checking tags database")
         for i, k in pairs(tags[stringSearch]) do
             items[#items + 1] = {}
             items[#items]["name"] = k
@@ -772,10 +796,10 @@ end
 local function getAllTagRecipes(searchTerm)
     local stringSearch = string.match(searchTerm, 'tag:%w+:(.+)')
     local items = {}
-    print("searchTerm: " .. searchTerm)
+    --print("searchTerm: " .. searchTerm)
     if type(tags[stringSearch]) ~= "nil" then
         --check tags database
-        print("Checking tags database")
+        --print("Checking tags database")
         for i, k in pairs(tags[stringSearch]) do
             items[#items + 1] = {}
             items[#items]["name"] = k
@@ -806,18 +830,20 @@ local function getAllTagRecipes(searchTerm)
 end
 
 --returns score
-local function scoreBranch(recipe, ttl)
+local function scoreBranch(recipe, itemName, ttl)
     local score = 0
+
+    log("scoreBranch: " .. textutils.serialise(itemName))
+    --print("scoreBranch: " .. textutils.serialise(itemName))
+    log("ttl is " .. tostring(ttl))
+    --log(textutils.serialise(recipe))
+
     if ttl < 1 then
-        print("ttl is 0")
-        log("ttl is 0")
+        --print("ttl is 0")
+        --log("ttl is 0")
         --log(recipe)
         return 0
     end
-
-
-    --log(textutils.serialise(recipe))
-    --print(textutils.serialise(recipe))
 
 
     for i = 1, #recipe, 1 do --row
@@ -828,6 +854,7 @@ local function scoreBranch(recipe, ttl)
             for k = 1, #slot, 1 do --item
                 local item = slot[k]
                 if item ~= "none" and not skip then
+                    log("searching for: " .. textutils.serialise(item))
                     --if item is in the system, increase score
                     local searchResult
                     if string.find(item, "tag:") then
@@ -840,9 +867,11 @@ local function scoreBranch(recipe, ttl)
 
                     if type(searchResult) ~= "nil" then
                         --print(item .. " found in system")
+                        log(item .. " found in system")
                         score = score + 1 + ttl
                         --no need to check the other possible items
                         skip = true
+                        break
                     else
 
                         local allRecipes
@@ -855,24 +884,41 @@ local function scoreBranch(recipe, ttl)
                             allRecipes = getAllRecipes(item)
                         end
 
-
-                        if #allRecipes < 1 then
-                            --print("no recipes found for: " .. item)
-                            --log(("no recipes found for: " .. item))
+                        if type(allRecipes) == "nil" then
+                            print(item .. " is unknown to the system")
+                            log(item .. " is unknown to the system")
+                            return 0
+                        elseif #allRecipes < 1 then
+                            print("no recipes found for: " .. item)
+                            log(("no recipes found for: " .. item))
                             return 0
                         end
                         local craftableRecipes = haveCraftingMaterials(allRecipes)
                         if #craftableRecipes > 0 then
                             --if it has a currently craftable recipe increase score
                             --print(item .. " is currently craftable")
+                            log(item .. " is currently craftable")
                             score = score + 1 + ttl
+                            skip = true
+                            break
                         else
                             --if it has no currently craftable recipe, check all recipes
+                            --log("no currently craftable recipe, check all recipes for " .. item)
+                            --log(allRecipes)
+
+                            local failed = true
                             for m = 1, #allRecipes, 1 do
-                                local scoreTab = scoreBranch(allRecipes[m], ttl - 1)
+                                local scoreTab = scoreBranch(allRecipes[m].recipe, allRecipes[m].name, ttl - 1)
                                 if scoreTab > 0 then
                                     score = score + scoreTab
+                                    skip = true
+                                    failed = false
+                                    break
                                 end
+                            end
+                            if failed then
+                                print("No recipe found for " .. item)
+                                return 0
                             end
                         end
                     end
@@ -891,7 +937,8 @@ local function getBestRecipe(allRecipes)
     local bestScore = 0
     for i = 1, #allRecipes, 1 do
         local recipe = allRecipes[i].recipe
-        local score = scoreBranch(recipe, 20)
+        local name = allRecipes[i].name
+        local score = scoreBranch(recipe, allRecipes[i].name, 10)
         --print("recipe: " .. allRecipes[i].recipeName .. " score: " .. score)
         --log(score)
         --log(recipe)
@@ -914,6 +961,9 @@ end
 
 --Get items and craft. input is recipe only
 local function craftRecipe(recipeToCraft)
+    log("craftRecipe")
+    log(recipeToCraft)
+    local failed = false
     for row = 1, #recipeToCraft do
         for slot = 1, #recipeToCraft[row], 1 do
             --print("Do we have " .. recipes[i].recipe[row][slot] .. " ?")
@@ -947,7 +997,8 @@ local function craftRecipe(recipeToCraft)
                 if found == false then
                     for j = 1, #foundIndex, 1 do
                         if not foundIndex[j] then
-                            --print("Cannot find enough " .. recipeToCraft[row][slot][j] .. " in system")
+                            print("craftRecipe: Cannot find enough " .. recipeToCraft[row][slot][j] .. " in system")
+                            log(("craftRecipe: Cannot find enough " .. recipeToCraft[row][slot][j] .. " in system"))
                         end
                     end
 
@@ -971,7 +1022,7 @@ local function craftRecipe(recipeToCraft)
                     end
                     turtle.suckUp()
                     if type(turtle.getItemDetail()) == "nil" then
-                        print("failed to get item")
+                        print("failed to get item: " .. searchResult.name)
                         dumpAll()
                         failed = true
                     end
@@ -994,8 +1045,14 @@ local function craftRecipe(recipeToCraft)
 end
 
 --Brute-force recersive crafting
-local function craftBranch(recipe, ttl)
+local function craftBranch(recipe, itemName, ttl)
     local score = 0
+
+    log("craftBranch: " .. textutils.serialise(itemName))
+    --print("craftBranch: " .. textutils.serialise(itemName))
+    --log(textutils.serialise(recipe))
+    --print(textutils.serialise(recipe))
+
     if ttl < 1 then
         --print("ttl is 0")
         log("ttl is 0")
@@ -1003,11 +1060,14 @@ local function craftBranch(recipe, ttl)
         return false
     end
 
+    local numNeeded = calculateNumberOfItems(recipe)
 
-    log(textutils.serialise(recipe))
-    --print(textutils.serialise(recipe))
+    for k, v in pairs(numNeeded) do
+        --print("numNeeded: " .. k .. " #" .. v)
+        log("numNeeded: " .. k .. " #" .. v)
+    end
 
-
+    local craftedAnything = false
     for i = 1, #recipe, 1 do --row
         local row = recipe[i]
         for j = 1, #row, 1 do --slot
@@ -1016,20 +1076,21 @@ local function craftBranch(recipe, ttl)
             for k = 1, #slot, 1 do --item
                 local item = slot[k]
                 if item ~= "none" and skip == false then
-                    log(item)
+                    log("processing: " .. tostring(numNeeded[item]) .. " " .. item)
                     --if item is in the system
                     local searchResult
                     if string.find(item, "tag:") then
-                        searchResult = searchForTag(item, items, 1)
+                        searchResult = searchForTag(item, items, numNeeded[item])
                     elseif string.find(item, "item:(.+)") then
-                        searchResult = search(item, items, 1)
+                        searchResult = search(item, items, numNeeded[item])
                     else
-                        searchResult = search(item, items, 1)
+                        searchResult = search(item, items, numNeeded[item])
                     end
 
                     if type(searchResult) ~= "nil" then
                         --Item was found in the system
-                        print(item .. " found in system")
+                        --print(item .. " found in system")
+                        log(item .. " found in system")
                         --no need to check the other possible items
                         skip = true
                         break
@@ -1048,44 +1109,50 @@ local function craftBranch(recipe, ttl)
 
 
                         if #allRecipes < 1 then
-                            print("no recipes found for: " .. item)
+                            print("Cannot craft " .. itemName .. ": no recipes found for: " .. item)
                             log(("no recipes found for: " .. item))
                             return false
                         end
                         local craftableRecipes = haveCraftingMaterials(allRecipes)
                         if #craftableRecipes > 0 then
                             --Get best recipe then craft it
-                            print(item .. " is currently craftable")
+                            --print(item .. " is currently craftable")
+                            log(item .. " is currently craftable")
 
                             local recipeToCraft
                             --get the best recipe
                             if #craftableRecipes > 1 then
                                 --print("More than one craftable recipe, Searching for best recipe")
+                                log("More than one craftable recipe, Searching for best recipe")
                                 recipeToCraft = getBestRecipe(craftableRecipes)
                             else
                                 recipeToCraft = craftableRecipes[1].recipe
                             end
+                            --log(recipeToCraft)
                             local status = craftRecipe(recipeToCraft)
                             if status == false then
                                 print("crafting failed")
+                                log("crafting failed")
                                 return false
-                            else 
+                            else
+                                log("breaking")
+                                craftedAnything = true
                                 break
                             end
                         else
                             --if it has no currently craftable recipe, check all recipes
-                            local status = false
+                            local failed = true
                             for m = 1, #allRecipes, 1 do
-                                local result = craftBranch(allRecipes[m].recipe, ttl - 1)
-                                if not status then
-                                    status = result
-                                end
+                                local result = craftBranch(allRecipes[m].recipe, item, ttl - 1)
                                 if result then
+                                    failed = false
+                                    craftedAnything = true
                                     break
                                 end
                             end
-                            if not status then
+                            if failed then
                                 --print("got nothing for " .. item)
+                                log("got nothing for " .. item)
                                 return false
                             end
                         end
@@ -1095,11 +1162,37 @@ local function craftBranch(recipe, ttl)
         end
     end
 
-    local status = craftRecipe(recipe)
-    if status == false then
-        print("crafting failed")
+    log("craftedAnything: " .. tostring(craftedAnything))
+    --This is to ensure the materials needed to craft parent were not used in child recipe
+    if craftedAnything then
+        local tab = {}
+        tab.recipe = recipe
+        local craftable = haveCraftingMaterials({ tab })
+        if #craftable < 1 then
+            local status = craftBranch(recipe, itemName, ttl)
+            if status == false then
+                print("failed")
+                log("failed")
+            end
+            return status
+        else
+            log("Crafting Parent recipe: " .. itemName)
+            local status = craftRecipe(recipe)
+            if status == false then
+                print("crafting failed")
+                log("crafting failed")
+            end
+            return status
+        end
+    else
+        log("Crafting Parent recipe: " .. itemName)
+        local status = craftRecipe(recipe)
+        if status == false then
+            print("crafting failed")
+            log("crafting failed")
+        end
+        return status
     end
-    return status
 end
 
 local function craft(item)
@@ -1124,10 +1217,10 @@ local function craft(item)
 
     --Otherwise get the best recipe
     if #craftableRecipes == 0 then
-        print("No currently craftable recipes, Searching for best recipe")
+        --print("No currently craftable recipes, Searching for best recipe")
         recipeToCraft = getBestRecipe(allRecipes)
     elseif #craftableRecipes > 1 then
-        print("More than one craftable recipe, Searching for best recipe")
+        --print("More than one craftable recipe, Searching for best recipe")
         recipeToCraft = getBestRecipe(craftableRecipes)
     else
         recipeToCraft = craftableRecipes[1].recipe
@@ -1135,7 +1228,7 @@ local function craft(item)
 
     if type(recipeToCraft) == "nil" then
         print("No recipe found for: " .. item)
-        return 0
+        return false
     end
 
     local failed = false
@@ -1163,7 +1256,7 @@ local function craft(item)
 
     --print(recipeToCraftInput .. " " .. recipeToCraftType .. " crafting recipe")
 
-    return craftBranch(recipeToCraft, 10)
+    return craftBranch(recipeToCraft, item, 20)
     --return craftBranch(recipeToCraft, numNeeded, 10)
 
 
@@ -1184,10 +1277,10 @@ local function debugMenu()
         elseif input == "craft" then
             local input2 = io.read()
             if string.find(input2, ':') then
-                print("Crafting: " .. (input2))
+                --print("Crafting: " .. (input2))
                 reloadStorageDatabase()
                 local ableToCraft = craft(input2)
-                if ableToCraft ~= 0 then
+                if ableToCraft then
                     print("Crafting Successful")
                 else
                     print("Crafting Failed!")
@@ -1195,10 +1288,10 @@ local function debugMenu()
             else
                 for i = 1, #recipes, 1 do
                     if string.find(recipes[i].name, input2) then
-                        print("Crafting: " .. (recipes[i].name))
+                        --print("Crafting: " .. (recipes[i].name))
                         reloadStorageDatabase()
                         local ableToCraft = craft(recipes[i].name)
-                        if ableToCraft ~= 0 then
+                        if ableToCraft then
                             print("Crafting Successful")
                         else
                             print("Crafting Failed!")
@@ -1225,7 +1318,9 @@ end
 local function serverHandler()
     while true do
         local id, message = rednet.receive()
-        print(("Computer %d sent message %s"):format(id, message))
+        if id ~= server then
+            print(("Computer %d sent message %s"):format(id, message))
+        end
         if message == "storageCraftingServer" then
             rednet.send(id, tostring(os.computerID()))
             local uniq = true
