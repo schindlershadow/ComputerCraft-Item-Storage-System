@@ -522,6 +522,8 @@ local function storageHandler()
                 print(tostring(clients[i]))
             end
             print("")
+        elseif message == "ping" then
+            rednet.send(id, "ack")
         elseif message == "getItems" then
             if settings.get("debug") then
                 print(dump(items))
