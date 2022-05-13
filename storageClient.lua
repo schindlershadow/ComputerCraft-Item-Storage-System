@@ -1,13 +1,18 @@
 local modem = peripheral.find("modem", rednet.open)
 local width, height = term.getSize()
 local server = 0
+local craftingServer = 0
 local search = ""
 local items = {}
+local recipes = {}
+local displayedRecipes = {}
 local menu = false
+local menuSel = "storage"
 
 -- Settings
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
+settings.define("crafting", { description = "Enables crafting support", default = "false", type = "boolean" })
 settings.define("exportChestName", { description = "Name of the export chest for this client", default = "minecraft:chest", type = "string" })
 
 local logging = true
@@ -17,6 +22,7 @@ local debug = false
 if settings.load() == false then
     print("No settings have been found! Default values will be used!")
     settings.set("debug", false)
+    settings.set("crafting", false)
     settings.set("exportChestName", "minecraft:chest")
     print("Stop the client and edit .settings file with correct settings")
     settings.save()
@@ -75,7 +81,7 @@ local function dump(o)
     end
 end
 
-local function broadcast()
+local function broadcastStorageServer()
     print("Searching for storageServer server")
     rednet.broadcast("storageServer")
     local id, message = rednet.receive(nil, 5)
@@ -85,7 +91,44 @@ local function broadcast()
         return tonumber(message)
     else
         sleep(1)
-        return broadcast()
+        return broadcastStorageServer()
+    end
+end
+
+local function getRecipes()
+    rednet.send(craftingServer, "getRecipes")
+    local id, message = rednet.receive(nil, 1)
+    if type(message) == "table" and id == craftingServer then
+        table.sort(message, function(a, b)
+            return a.name < b.name
+        end)
+
+        return message
+
+
+
+    else
+        sleep(0.2)
+        return getRecipes()
+    end
+end
+
+local function broadcastCraftingServer()
+    if settings.get("crafting") then
+        print("Searching for storageCraftingServer server")
+        rednet.broadcast("storageCraftingServer")
+        local id, message = rednet.receive(nil, 5)
+        if type(tonumber(message)) == "number" and id == tonumber(message) then
+            print("Server set to: " .. tostring(message))
+            craftingServer = tonumber(message)
+            recipes = getRecipes()
+            return tonumber(message)
+        else
+            sleep(1)
+            return broadcastCraftingServer()
+        end
+    else
+        return 0
     end
 end
 
@@ -125,18 +168,17 @@ end
 local function getItems()
     rednet.send(server, "getItems")
     local id, message = rednet.receive(nil, 1)
-    --print("got " .. tostring(message) .. " type " .. type(message))
-    if type(message) == "table" then
+    if type(message) == "table" and id == server then
         if search == "" then
             return removeDuplicates(message)
         end
         local filteredTable = {}
         for k, v in pairs(message) do
             if v["details"] == nil then
-                if string.find(string.lower(v["name"]), string.lower(search)) then
+                if string.find(string.lower(v["name"]), string.lower(search)) or string.find(string.lower(v["name"]), string.lower(search:gsub(" ", "_"))) then
                     table.insert(filteredTable, v)
                 end
-            elseif string.find(string.lower(v["details"]["displayName"]), string.lower(search)) then
+            elseif string.find(string.lower(v["details"]["displayName"]), string.lower(search)) or string.find(string.lower(v["details"]["displayName"]), string.lower(search:gsub(" ", "_"))) then
                 table.insert(filteredTable, v)
             end
         end
@@ -197,6 +239,115 @@ local function drawNBTmenu(sel)
         local event, button, x, y = os.pullEvent("mouse_click")
 
         if y < 2 and x > width - 1 then
+            done = true
+        end
+
+        --sleep(5)
+    end
+end
+
+local function craftRecipe(recipe)
+    rednet.send(craftingServer, "craftItem")
+    sleep(0.1)
+    rednet.send(craftingServer, recipe.recipe)
+    local id, message
+    repeat
+        id, message = rednet.receive()
+    until id == craftingServer
+    return message
+end
+
+local function drawCraftingMenu(sel)
+    local amount = 1
+    done = false
+    while done == false do
+        term.setBackgroundColor(colors.green)
+        for k = 1, height - 1, 1 do
+            for i = 1, width, 1 do
+                term.setCursorPos(i, k)
+                term.write(" ")
+            end
+        end
+        term.setCursorPos(1, 1)
+        centerText("Crafting Menu")
+        term.setCursorPos(1, 2)
+        centerText(displayedRecipes[sel].name .. " #" .. tostring(displayedRecipes[sel].count))
+        term.setCursorPos(1, 3)
+        centerText("_______")
+        term.setCursorPos(1, 4)
+        centerText("|x|x|x|")
+        term.setCursorPos(1, 5)
+        centerText("|-----|")
+        term.setCursorPos(1, 6)
+        centerText("|x|x|x|")
+        term.setCursorPos(1, 7)
+        centerText("|-----|")
+        term.setCursorPos(1, 8)
+        centerText("|x|x|x|")
+        term.setCursorPos(1, 9)
+        centerText("~~~~~~~")
+
+
+        term.setCursorPos(1, height - (height * .25)+1)
+        centerText("Amount to request")
+        term.setCursorPos(width, 1)
+        term.setBackgroundColor(colors.red)
+        term.write("x")
+        term.setBackgroundColor(colors.green)
+        term.setCursorPos((width * .25), height - (height * .25)+2)
+        term.write("<")
+        term.setCursorPos((width * .50), height - (height * .25)+2)
+        centerText(tostring(amount))
+        term.setCursorPos(width - (width * .25), height - (height * .25)+2)
+        term.write(">")
+        term.setCursorPos((width * .25), height - (height * .25)+3)
+        term.write("+64")
+        term.setCursorPos((width * .25) * 2 - 1, height - (height * .25)+3)
+        term.write("-64")
+        term.setCursorPos((width * .25) * 3, height - (height * .25)+3)
+        term.write("1")
+
+        term.setBackgroundColor(colors.red)
+        term.setCursorPos(1, height - (height * .25) + 4)
+        centerText("Request")
+
+        local event, button, x, y
+
+        if debug then
+            event, button, x, y = os.pullEvent("mouse_click")
+            term.setCursorPos(x, y)
+            term.write("? " .. tostring(x) .. " " .. tostring(y))
+            sleep(5)
+        else
+            event, button, x, y = os.pullEvent("mouse_click")
+        end
+
+        if (x == (width * .25) and y== height - (height * .25)+2)
+        then
+            if amount > 1 then
+                amount = amount - 1
+            end
+        elseif (x== width - (width * .25) and y== height - (height * .25)+2)
+        then
+            amount = amount + 1
+        elseif (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and (y == height - (height * .25)+3))
+        then
+            amount = amount + 64
+        elseif (((x < ((width * .25) * 2) + 3) and (x > ((width * .25) * 2) - 3)) and
+            (y == height - (height * .25)+3))
+        then
+            if amount > 1 + 64 then
+                amount = amount - 64
+            else
+                amount = 1
+            end
+        elseif (x == (width * .25) * 3 and y == height - (height * .25)+3)
+        then
+            amount = 1
+        elseif y == (height - 1) then
+            done = true
+            craftRecipe(displayedRecipes[sel])
+        elseif y < 2 and x > width - 1 then
             done = true
         end
 
@@ -326,46 +477,98 @@ end
 
 local function drawList()
     if menu == false then
-        items = getItems()
-        table.sort(
-            items,
-            function(a, b)
+        if menuSel == "storage" then
+            items = getItems()
+            table.sort(
+                items,
+                function(a, b)
                 return a.count > b.count
             end
-        )
-        term.setBackgroundColor(colors.blue)
-        for k = 1, height - 1, 1 do
-            for i = 1, width, 1 do
-                term.setCursorPos(i, k)
-                term.write(" ")
-            end
-        end
-        for k, v in pairs(items) do
-            if k < height then
-                local text = ""
-
-                if v["nbt"] ~= nil then
-                    text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"])
-                elseif v["details"] == nil then
-                    text = v["name"] .. " - #" .. v["count"]
-                else
-                    if v["details"]["tags"] ~= nil then
-                        text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"]["tags"])
-                    else
-                        text = v["details"]["displayName"] .. " - #" .. v["count"]
-                    end
+            )
+            term.setBackgroundColor(colors.blue)
+            for k = 1, height - 1, 1 do
+                for i = 1, width, 1 do
+                    term.setCursorPos(i, k)
+                    term.write(" ")
                 end
-
-                term.setCursorPos(1, k)
-                term.write(text)
-                term.setCursorPos(1, height)
             end
+            for k, v in pairs(items) do
+                if k < height then
+                    local text = ""
+
+                    if v["nbt"] ~= nil then
+                        text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"])
+                    elseif v["details"] == nil then
+                        text = v["name"] .. " - #" .. v["count"]
+                    else
+                        if v["details"]["tags"] ~= nil then
+                            text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"]["tags"])
+                        else
+                            text = v["details"]["displayName"] .. " - #" .. v["count"]
+                        end
+                    end
+
+                    term.setCursorPos(1, k)
+                    term.write(text)
+                    term.setCursorPos(1, height)
+                end
+            end
+        elseif menuSel == "crafting" then
+
+            local filteredRecipes = {}
+            for k, v in pairs(recipes) do
+                if string.find(string.lower(v["name"]), string.lower(search)) or string.find(string.lower(v["name"]), string.lower(search:gsub(" ", "_"))) then
+                    filteredRecipes[#filteredRecipes+1] = v
+                end
+            end
+            term.setBackgroundColor(colors.blue)
+            for k = 1, height - 1, 1 do
+                for i = 1, width, 1 do
+                    term.setCursorPos(i, k)
+                    term.write(" ")
+                end
+            end
+            for k, recipe in pairs(filteredRecipes) do
+                if k < height then
+                    term.setCursorPos(1, k)
+                    term.write(recipe.name .. " #" .. tostring(recipe.count))
+                    term.setCursorPos(1, height)
+                end
+            end
+
+            displayedRecipes = filteredRecipes
+
         end
+
         --import
-        term.setCursorPos(width - 5, height - 1)
+        term.setCursorPos(width - 8, height - 1)
         term.setBackgroundColor(colors.red)
-        term.write("Import")
+        term.write(" Import  ")
         term.setBackgroundColor(colors.blue)
+
+        if settings.get("crafting") == true then
+            term.setCursorPos(width - 8, height - 3)
+            if menuSel == "crafting" then
+                term.setBackgroundColor(colors.green)
+            else
+                term.setBackgroundColor(colors.red)
+            end
+            term.write(" Crafting ")
+            term.setBackgroundColor(colors.blue)
+
+            term.setCursorPos(width - 8, height - 2)
+            if menuSel == "storage" then
+                term.setBackgroundColor(colors.green)
+            else
+                term.setBackgroundColor(colors.red)
+            end
+            term.write(" Storage ")
+            term.setBackgroundColor(colors.blue)
+        end
+
+
+
+
     end
 
     --sleep(5)
@@ -404,13 +607,26 @@ end
 
 local function touchHandler()
     local event, button, x, y = os.pullEvent("mouse_click")
-    if y == height - 1 and x > width - 6 then
-
+    if y == height - 1 and x > width - 8 then
+        --Import button pressed
         importAll()
 
-    elseif items[y] ~= nil and y ~= height then
+    elseif settings.get("crafting") == true and y == height - 2 and x > width - 8 then
+        --Storage menu button pressed
+        menuSel = "storage"
+        drawList()
+    elseif settings.get("crafting") == true and y == height - 3 and x > width - 8 then
+        --Crafting menu button pressed
+        menuSel = "crafting"
+        drawList()
+    elseif (items[y] ~= nil or displayedRecipes[y] ~= nil) and y ~= height then
         menu = true
-        drawMenu(y)
+        if menuSel == "crafting" then
+            drawCraftingMenu(y)
+        else
+            drawMenu(y)
+        end
+        
         menu = false
         term.clear()
         term.setCursorPos(1, 1)
@@ -421,7 +637,8 @@ local function touchHandler()
     end
 end
 
-broadcast()
+broadcastStorageServer()
+broadcastCraftingServer()
 term.clear()
 term.setCursorPos(1, 1)
 drawList()
@@ -436,5 +653,5 @@ while true do
     parallel.waitForAny(touchHandler, inputHandler)
 
     --inputHandler()
-    sleep(1)
+    sleep(0.1)
 end

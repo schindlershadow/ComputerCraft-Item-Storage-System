@@ -1439,7 +1439,7 @@ local function craft(item, amount)
     end
 
     local failed = false
-    print("Crafting: " .. item)
+    print("Crafting: #" .. tostring(math.ceil(amount/outputAmount)) .. " " .. item)
     --print(dump(recipes[i].recipe))
     --log(recipeToCraft)
 
@@ -1532,6 +1532,8 @@ local function serverHandler()
                 print(tostring(clients[i]))
             end
             print("")
+        elseif message == "getRecipes" then
+            rednet.send(id, recipes)
         elseif message == "craft" then
             turtle.craft()
         elseif message == "craftItem" then
@@ -1543,8 +1545,10 @@ local function serverHandler()
             local ableToCraft = craft(message2)
             if ableToCraft ~= 0 then
                 print("Crafting Successful")
+                rednet.send(id, true)
             else
                 print("Crafting Failed!")
+                rednet.send(id, false)
             end
         end
     end
