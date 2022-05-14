@@ -1439,15 +1439,15 @@ local function craft(item, amount)
     end
 
     local failed = false
-    print("Crafting: #" .. tostring(math.ceil(amount/outputAmount)) .. " " .. item)
+    print("Crafting: #" .. tostring(math.ceil(amount / outputAmount)) .. " " .. item)
     --print(dump(recipes[i].recipe))
     --log(recipeToCraft)
 
 
     --print(recipeToCraftInput .. " " .. recipeToCraftType .. " crafting recipe")
 
-    log("Craft: " .. item ..", " .. tostring(ttl) .. math.ceil(amount/outputAmount))
-    return craftBranch(recipeToCraft, item, ttl, math.ceil(amount/outputAmount))
+    log("Craft: " .. item .. ", " .. tostring(ttl) .. math.ceil(amount / outputAmount))
+    return craftBranch(recipeToCraft, item, ttl, math.ceil(amount / outputAmount))
     --return craftBranch(recipeToCraft, numNeeded, 10)
 
 
@@ -1542,12 +1542,56 @@ local function serverHandler()
                 id2, message2 = rednet.receive()
             until id2 == id
             reloadStorageDatabase()
-            local ableToCraft = craft(message2)
+            local ableToCraft = craft(message2.name, message2.amount)
             if ableToCraft ~= 0 then
                 print("Crafting Successful")
                 rednet.send(id, true)
             else
                 print("Crafting Failed!")
+                rednet.send(id, false)
+            end
+        elseif message == "getAmount" then
+            local id2, message2
+            repeat
+                id2, message2 = rednet.receive()
+            until id2 == id
+            local _, number = search(message2, items, 1)
+            rednet.send(id, number)
+        elseif message == "numNeeded" then
+            local id2, message2
+            repeat
+                id2, message2 = rednet.receive()
+            until id2 == id
+            rednet.send(id, calculateNumberOfItems(message2.recipe, message2.amount))
+        elseif message == "craftable" then
+            local id2, message2
+            repeat
+                id2, message2 = rednet.receive()
+            until id2 == id
+            local item = message2
+
+            local allRecipes
+            ---need to check for tags
+            if string.find(item, 'tag:%w+:(.+)') then
+                allRecipes = getAllTagRecipes(item)
+            elseif string.find(item, "item:(.+)") then
+                allRecipes = getAllRecipes(string.match(item, 'item:(.+)'))
+            else
+                allRecipes = getAllRecipes(item)
+            end
+
+            if type(allRecipes) == "nil" then
+                print(item .. " is unknown to the system")
+                rednet.send(id, false)
+            elseif #allRecipes < 1 then
+                print("no recipes found for: " .. item)
+                rednet.send(id, false)
+            end
+            local craftableRecipes = haveCraftingMaterials(allRecipes, 1)
+
+            if #craftableRecipes > 0 then
+                rednet.send(id, craftableRecipes[1])
+            else
                 rednet.send(id, false)
             end
         end
@@ -1575,6 +1619,7 @@ end
 
 getRecipes()
 broadcast()
+reloadStorageDatabase()
 local storage, items, storageUsed
 
 print("")
