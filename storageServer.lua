@@ -217,6 +217,12 @@ local function getStorageSize(storage)
     return slots, total
 end
 
+local function pingClients(message)
+    for k,v in pairs(clients) do
+        rednet.send(v, message)
+    end
+end
+
 --Note: Large performance hit on larger systems
 local function reloadStorageDatabase()
     write("Reloading database..")
@@ -239,6 +245,7 @@ local function reloadStorageDatabase()
     local storageFile = fs.open("storage.db", "w")
     storageFile.write(textutils.serialise(decoded))
     storageFile.close()
+    pingClients("databaseReload")
     write("done\n")
 end
 

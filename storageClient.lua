@@ -59,9 +59,16 @@ function Item:getTable()
 end
 
 local function log(text)
-    if type(text) == "string" and logging then
-        local logFile = fs.open("logs/RSclient.csv", "a")
-        logFile.writeLine(os.date("%A/%d/%B/%Y %I:%M%p") .. "," .. text)
+    if settings.get("debug") then
+        local logFile = fs.open("logs/RSclient.log", "a")
+        if type(text) == "string" then
+
+            logFile.writeLine(text)
+
+        else
+            logFile.writeLine(textutils.serialise(text))
+        end
+
         logFile.close()
     end
 end
@@ -247,21 +254,113 @@ local function drawNBTmenu(sel)
 end
 
 local function craftRecipe(recipe, amount)
+    local table = {}
+    local logs = {}
+    for row = 1, 3, 1 do
+        table[row] = {}
+        for slot = 1, 3, 1 do
+            table[row][slot] = 0
+        end
+    end
     rednet.send(craftingServer, "craftItem")
     sleep(0.1)
     recipe.amount = amount
     rednet.send(craftingServer, recipe)
     term.clear()
-    term.setCursorPos(1, 1)
-    term.write("Crafting....")
     local id, message
+    local nowCrafting = recipe.name
     repeat
+        if id == craftingServer and type(message) == "table" and message.type == "craftingUpdate" then
+            log(textutils.serialise(message))
+            if message.message == "slotUpdate" then
+                table[message[1]][message[2]] = message[3]
+
+            elseif message.message == "itemUpdate" then
+                nowCrafting = message[1]
+                for row = 1, 3, 1 do
+                    table[row] = {}
+                    for slot = 1, 3, 1 do
+                        table[row][slot] = 0
+                    end
+                end
+            elseif message.message == "logUpdate" then
+                logs[#logs+1] = message[1]
+            end
+        end
+
+        term.clear()
+        term.setCursorPos(1, 1)
+        centerText("Now Crafting: " .. nowCrafting:match(".+:(.+)"))
+
+        --Draw crafting table
+        term.setCursorPos(1, (height * .25))
+        term.setBackgroundColor(colors.gray)
+        print("       ")
+        term.setCursorPos(1, (height * .25) + 1)
+        term.setCursorPos(1, 1)
+        local pos = 1
+        for row = 1, 3, 1 do
+            if row == 1 then
+                term.setCursorPos(1, (height * .25) + row)
+            else
+                term.setCursorPos(1, (height * .25) + row + pos)
+                pos = pos + 1
+            end
+            term.setBackgroundColor(colors.gray)
+            term.write(" ")
+            if type(recipe.recipe[row]) == "nil" then
+                term.setBackgroundColor(colors.black)
+                term.write(" ")
+                term.setBackgroundColor(colors.gray)
+                term.write(" ")
+                term.setBackgroundColor(colors.black)
+                term.write(" ")
+                term.setBackgroundColor(colors.gray)
+                term.write(" ")
+                term.setBackgroundColor(colors.black)
+                term.write(" ")
+            else
+                for slot = 1, 3, 1 do
+
+
+                    --log(textutils.serialise(recipe.recipe[row][slot][1]))
+                    if table[row][slot] == 0 then
+                        term.setBackgroundColor(colors.black)
+                        term.write(" ")
+                    else
+                        term.setBackgroundColor(colors.green)
+                        term.write(table[row][slot])
+                    end
+                    if slot ~= 3 then
+                        term.setBackgroundColor(colors.gray)
+                        term.write(" ")
+                    end
+                end
+            end
+            term.setBackgroundColor(colors.gray)
+            term.write(" ")
+
+            term.setCursorPos(1, (height * .25) + row + pos)
+            print("       ")
+        end
+
+        --Draw logs
+        term.setBackgroundColor(colors.black)
+        local count = 0
+        for i = 3, (height - 2), 1 do
+            term.setCursorPos(9, i)
+            if #logs-count > 0 and type(logs[#logs-count]) ~= "nil" then
+                term.write(logs[#logs-count])
+                count = count+1
+            end
+        end
+
+
         id, message = rednet.receive()
-        term.write(".")
-    until id == craftingServer
+    until id == craftingServer and type(message) == "boolean"
     if message == true then
         term.write("\n\nCrafting Complete! :D")
-    else
+    elseif message == false then
         term.write("\n\nCrafting Failed! D:")
     end
     sleep(5)
@@ -287,21 +386,24 @@ local function isCraftable(itemName)
     local id2, message2
     repeat
         id2, message2 = rednet.receive()
+        --log("message2: " .. tostring(type(message2)) .. " " .. tostring(message2))
     until id2 == craftingServer and (type(message2) == "bool" or type(message2) == "table")
     return message2
 end
 
 local function drawCraftingMenu(sel, inputTable)
-    if type(inputTable) ~= "nil" then
-        local displayedRecipes = inputTable
+    if type(inputTable) == "nil" then
+        log("type(inputTable) == nil")
+        inputTable = displayedRecipes
     end
+    log(inputTable)
     local amount = 1
-    done = false
+    local done = false
     while done == false do
         rednet.send(craftingServer, "numNeeded")
         sleep(0.1)
-        displayedRecipes[sel].amount = amount
-        rednet.send(craftingServer, displayedRecipes[sel])
+        inputTable[sel].amount = amount
+        rednet.send(craftingServer, inputTable[sel])
         local id2, message2
         repeat
             id2, message2 = rednet.receive()
@@ -335,15 +437,19 @@ local function drawCraftingMenu(sel, inputTable)
         term.setCursorPos(1, 1)
         centerText("Crafting Menu")
         term.setCursorPos(1, 2)
-        centerText(displayedRecipes[sel].name .. " #" .. tostring(displayedRecipes[sel].count))
+        term.write("<")
+        centerText(inputTable[sel].name .. " #" .. tostring(inputTable[sel].count))
+        term.setCursorPos(width, 2)
+        term.write(">")
         term.setCursorPos(1, (height * .25))
         term.setBackgroundColor(colors.gray)
         print("       ")
         term.setCursorPos(1, (height * .25) + 1)
         term.setCursorPos(1, 1)
-        --print(textutils.serialise(displayedRecipes[sel].recipe))
+        --print(textutils.serialise(inputTable[sel].recipe))
         --sleep(10)
 
+        --Draw crafting table
         local pos = 1
         for row = 1, 3, 1 do
             if row == 1 then
@@ -354,7 +460,7 @@ local function drawCraftingMenu(sel, inputTable)
             end
             term.setBackgroundColor(colors.gray)
             term.write(" ")
-            if type(displayedRecipes[sel].recipe[row]) == "nil" then
+            if type(inputTable[sel].recipe[row]) == "nil" then
                 term.setBackgroundColor(colors.black)
                 term.write(" ")
                 term.setBackgroundColor(colors.gray)
@@ -368,14 +474,14 @@ local function drawCraftingMenu(sel, inputTable)
             else
                 for slot = 1, 3, 1 do
                     term.setBackgroundColor(colors.black)
-                    if type(displayedRecipes[sel].recipe[row][slot]) == "nil" then
+                    if type(inputTable[sel].recipe[row][slot]) == "nil" then
                         term.write(" ")
                     else
-                        --log(textutils.serialise(displayedRecipes[sel].recipe[row][slot][1]))
-                        if displayedRecipes[sel].recipe[row][slot][1] == "none" then
+                        --log(textutils.serialise(inputTable[sel].recipe[row][slot][1]))
+                        if inputTable[sel].recipe[row][slot][1] == "none" then
                             term.write(" ")
                         else
-                            term.write(utf8.char(keys[displayedRecipes[sel].recipe[row][slot][1]] + 64))
+                            term.write(utf8.char(keys[inputTable[sel].recipe[row][slot][1]] + 64))
                         end
                     end
                     if slot ~= 3 then
@@ -392,11 +498,11 @@ local function drawCraftingMenu(sel, inputTable)
         end
 
 
-
+        --Draw legend
         for i = 1, #legend, 1 do
             term.setCursorPos(9, (height * .25) + (i - 1))
             --log(tostring(getAmount(legend[i].item)))
-            if legend[i].count < legend[i].have then
+            if legend[i].count <= legend[i].have then
                 term.setBackgroundColor(colors.green)
             else
                 term.setBackgroundColor(colors.red)
@@ -446,41 +552,60 @@ local function drawCraftingMenu(sel, inputTable)
         else
             event, button, x, y = os.pullEvent("mouse_click")
         end
-        log(tostring(x) .. " " .. tostring(y) .. " " .. tostring((height * .25)))
+        log(tostring(x) .. " " .. tostring(y) .. " need: " .. tostring((width * .25)) .. " " .. tostring(height - (height * .25) + 2))
 
         --if x > 8 and y >= (height * .25) and y < (height * .25) + 8 and type(legend[y - math.ceil((height * .25))]) ~= "nil" then
-        if x > 8 and y >= 4 and y <= 4 + 8 and type(legend[y-4]) ~= "nil" then
+        if x > 8 and y >= 4 and y <= 4 + 8 and type(legend[y - 3]) ~= "nil" then
             --log(legend[y - math.ceil((height * .25))].item)
             --local craftable = isCraftable(legend[y - math.ceil((height * .25))].item)
-            local craftable = isCraftable(legend[y - 4].item)
-            if craftable ~= false then
-                drawCraftingMenu(1, { craftable })
+            local craftable
+            if string.find(legend[y - 3].item, "tag:") then
+                --craftable = isCraftable(legend[y - 4].item:match("tag:(.*)"))
+                craftable = isCraftable(legend[y - 3].item)
+            else
+                craftable = isCraftable(legend[y - 3].item)
             end
-        elseif (x == (width * .25) and y == height - (height * .25) + 2)
+            log(textutils.serialise(craftable))
+
+            if craftable ~= false then
+                log("craftable ~= false")
+                drawCraftingMenu(1, craftable)
+            end
+        elseif (x == math.floor(width * .25) and y == math.floor(height - (height * .25) + 2))
         then
             if amount > 1 then
                 amount = amount - 1
             end
-        elseif (x == width - (width * .25) and y == height - (height * .25) + 2)
+        elseif (x == math.floor(width - (width * .25)) and y == math.floor((height - (height * .25) + 2)))
         then
             amount = amount + 1
-        elseif (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and (y == height - (height * .25) + 3))
+        elseif (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and (y == math.floor(height - (height * .25) + 3)))
         then
             amount = amount + 64
         elseif (((x < ((width * .25) * 2) + 3) and (x > ((width * .25) * 2) - 3)) and
-            (y == height - (height * .25) + 3))
+            (y == math.floor(height - (height * .25) + 3)))
         then
             if amount > 1 + 64 then
                 amount = amount - 64
             else
                 amount = 1
             end
-        elseif (x == (width * .25) * 3 and y == height - (height * .25) + 3)
+        elseif (x == math.floor((width * .25) * 3) and y == math.floor(height - (height * .25) + 3))
         then
             amount = 1
         elseif y == (height - 1) then
             done = true
-            craftRecipe(displayedRecipes[sel], amount)
+            craftRecipe(inputTable[sel], amount, keys, legend)
+        elseif y == 2 and x == 1 then
+            if type(inputTable[sel - 1]) ~= "nil" then
+                done = true
+                drawCraftingMenu(sel - 1, inputTable)
+            end
+        elseif y == 2 and x == width then
+            if type(inputTable[sel + 1]) ~= "nil" then
+                done = true
+                drawCraftingMenu(sel + 1, inputTable)
+            end
         elseif y < 2 and x > width - 1 then
             done = true
         end
@@ -491,7 +616,7 @@ end
 
 local function drawMenu(sel)
     local amount = 1
-    done = false
+    local done = false
     while done == false do
         term.setBackgroundColor(colors.green)
         for k = 1, height - 1, 1 do
@@ -763,7 +888,7 @@ local function touchHandler()
     elseif (items[y] ~= nil or displayedRecipes[y] ~= nil) and y ~= height then
         menu = true
         if menuSel == "crafting" then
-            drawCraftingMenu(y)
+            drawCraftingMenu(y, displayedRecipes)
         else
             drawMenu(y)
         end

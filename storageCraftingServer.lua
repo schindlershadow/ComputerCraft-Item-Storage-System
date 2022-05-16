@@ -1058,8 +1058,24 @@ local function getBestRecipe(allRecipes)
 
 end
 
+local function updateClient(id, message, messageToSend)
+    local table = {}
+    table.type = "craftingUpdate"
+
+    table.message = message
+    if message == "slotUpdate" then
+        table[1] = messageToSend[1]
+        table[2] = messageToSend[2]
+        table[3] = messageToSend[3]
+    elseif message == "itemUpdate" or message == "logUpdate" then
+        table[1] = messageToSend
+    end
+    rednet.send(id, table)
+
+end
+
 --Get items and craft. input is recipe only
-local function craftRecipe(recipeToCraft, amount)
+local function craftRecipe(recipeToCraft, amount, id)
     log("craftRecipe")
     log(recipeToCraft)
     if type(amount) == "nil" then
@@ -1134,6 +1150,7 @@ local function craftRecipe(recipeToCraft, amount)
                                             if not foundIndex[j] then
                                                 print("craftRecipe: Cannot find enough " .. recipeToCraft[row][slot][j] .. " in system")
                                                 log(("craftRecipe: Cannot find enough " .. recipeToCraft[row][slot][j] .. " in system"))
+                                                updateClient(id, "logUpdate", "craftRecipe: Cannot find enough " .. recipeToCraft[row][slot][j] .. " in system")
                                             end
                                         end
 
@@ -1152,6 +1169,7 @@ local function craftRecipe(recipeToCraft, amount)
                                         end
 
                                         print("Getting: " .. searchResult.name)
+                                        updateClient(id, "logUpdate", "Getting: " .. searchResult.name:match(".+:(.+)"))
                                         local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
                                         if itemsMoved < 1 then
                                             --try again
@@ -1160,11 +1178,21 @@ local function craftRecipe(recipeToCraft, amount)
                                             peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], 1)
                                         end
                                         turtle.suckUp()
-                                        if type(turtle.getItemDetail()) == "nil" then
+                                        local slotDetail = turtle.getItemDetail()
+                                        if type(slotDetail) == "nil" then
                                             print("failed to get item: " .. searchResult.name)
+                                            updateClient(id, "logUpdate", "failed to get item: " .. searchResult.name)
                                             dumpAll()
                                             failed = true
                                             log(searchResult)
+                                        else
+                                            --Send crafting status update to client
+                                            local table = {}
+                                            table[1] = row
+                                            table[2] = slot
+                                            table[3] = slotDetail.count
+                                            --rednet.send(id, table)
+                                            updateClient(id, "slotUpdate", table)
                                         end
                                         recipes[index].count = recipes[index].count - 1
                                     end
@@ -1209,14 +1237,19 @@ local function getCountFromRecipe(recipe)
 end
 
 --Brute-force recersive crafting
-local function craftBranch(recipe, itemName, ttl, amount)
+local function craftBranch(recipe, itemName, ttl, amount, id)
     local score = 0
 
     if type(amount) == "nil" then
         amount = 1
     end
+    if type(id) == "nil" then
+        id = os.computerID()
+    end
 
-    log("craftBranch: " .. textutils.serialise(itemName))
+    --Send item status update to client
+    updateClient(id, "craftingUpdate", itemName)
+    log("craftBranch: " .. textutils.serialise(itemName) .. " id:" .. tostring(id))
     --print("craftBranch: " .. textutils.serialise(itemName))
     --log(textutils.serialise(recipe))
     --print(textutils.serialise(recipe))
@@ -1256,8 +1289,9 @@ local function craftBranch(recipe, itemName, ttl, amount)
                     else
                         searchResult, have = search(item, items, numNeeded[item])
                     end
+                    log(tostring(have) .. " found in system")
 
-                    if type(searchResult) ~= "nil" then
+                    if type(searchResult) ~= "nil" or have >= numNeeded[item] then
                         --Item was found in the system
                         --print(item .. " found in system")
                         log(item .. " found in system")
@@ -1279,6 +1313,7 @@ local function craftBranch(recipe, itemName, ttl, amount)
 
                         if #allRecipes < 1 then
                             print("Cannot craft " .. itemName .. ": no recipes found for: " .. item)
+                            updateClient(id, "logUpdate", "Cannot craft " .. itemName .. ": no recipes found for: " .. item)
                             log(("no recipes found for: " .. item))
                             sleep(1)
                             return false
@@ -1313,10 +1348,13 @@ local function craftBranch(recipe, itemName, ttl, amount)
                             --log(recipeToCraft)
                             log("numNeeded[item]: " .. tostring(numNeeded[item]))
                             log("outputAmount: " .. tostring(outputAmount))
-                            local status = craftRecipe(recipeToCraft, math.ceil(numNeeded[item] / outputAmount))
+                            --Send status update to client
+                            updateClient(id, "itemUpdate", item)
+                            local status = craftRecipe(recipeToCraft, math.ceil(numNeeded[item] / outputAmount), id)
                             if status == false then
                                 print("crafting failed")
                                 log("crafting failed")
+                                updateClient(id, "logUpdate", "crafting failed")
                                 return false
                             else
                                 log("breaking")
@@ -1328,7 +1366,7 @@ local function craftBranch(recipe, itemName, ttl, amount)
                             local failed = true
                             for m = 1, #allRecipes, 1 do
                                 ttl = ttl - 1
-                                local result = craftBranch(allRecipes[m].recipe, item, ttl, numNeeded[item])
+                                local result = craftBranch(allRecipes[m].recipe, item, ttl, numNeeded[item], id)
                                 if result then
                                     failed = false
                                     craftedAnything = true
@@ -1355,10 +1393,11 @@ local function craftBranch(recipe, itemName, ttl, amount)
         tab.recipe = recipe
         local craftable = haveCraftingMaterials({ tab }, amount)
         if #craftable < 1 then
-            local status = craftBranch(recipe, itemName, ttl - 1, amount)
+            local status = craftBranch(recipe, itemName, ttl - 1, amount, id)
             if status == false then
                 print("failed")
                 log("failed")
+                updateClient(id, "logUpdate", "failed")
             end
             return status
         else
@@ -1376,19 +1415,22 @@ local function craftBranch(recipe, itemName, ttl, amount)
             return false
         end
         log("Crafting Parent recipe: " .. itemName)
+        --Send status update to client
+        updateClient(id, "itemUpdate", itemName)
         local status
         local times = math.ceil(amount / recipeCount)
         while times > 0 do
             if times > 64 then
-                status = craftRecipe(recipe, 64)
+                status = craftRecipe(recipe, 64, id)
                 times = times - 64
             else
-                status = craftRecipe(recipe, times)
+                status = craftRecipe(recipe, times, id)
                 times = 0
             end
             if status == false then
                 print("crafting failed")
                 log("crafting failed")
+                updateClient(id, "logUpdate", "crafting failed")
                 return false
             end
         end
@@ -1396,7 +1438,11 @@ local function craftBranch(recipe, itemName, ttl, amount)
     end
 end
 
-local function craft(item, amount)
+local function craft(item, amount, id)
+    if type(id) == "nil" then
+        id = os.computerID()
+    end
+
     local ttl = 20
     if type(amount) == "nil" then
         amount = 1
@@ -1447,7 +1493,7 @@ local function craft(item, amount)
     --print(recipeToCraftInput .. " " .. recipeToCraftType .. " crafting recipe")
 
     log("Craft: " .. item .. ", " .. tostring(ttl) .. math.ceil(amount / outputAmount))
-    return craftBranch(recipeToCraft, item, ttl, math.ceil(amount / outputAmount))
+    return craftBranch(recipeToCraft, item, ttl, math.ceil(amount / outputAmount), id)
     --return craftBranch(recipeToCraft, numNeeded, 10)
 
 
@@ -1532,6 +1578,8 @@ local function serverHandler()
                 print(tostring(clients[i]))
             end
             print("")
+        elseif message == "databaseReload" then
+            reloadStorageDatabase()
         elseif message == "getRecipes" then
             rednet.send(id, recipes)
         elseif message == "craft" then
@@ -1541,8 +1589,9 @@ local function serverHandler()
             repeat
                 id2, message2 = rednet.receive()
             until id2 == id
+            print("Request to craft #" .. tostring(message2.amount) .. " " .. message2.name)
             reloadStorageDatabase()
-            local ableToCraft = craft(message2.name, message2.amount)
+            local ableToCraft = craft(message2.name, message2.amount, id)
             if ableToCraft ~= 0 then
                 print("Crafting Successful")
                 rednet.send(id, true)
@@ -1570,11 +1619,12 @@ local function serverHandler()
             until id2 == id
             local item = message2
 
+            print("Checking if " .. item .. " is craftable")
             local allRecipes
             ---need to check for tags
-            if string.find(item, 'tag:%w+:(.+)') then
+            if string.find(item, 'tag:') then
                 allRecipes = getAllTagRecipes(item)
-            elseif string.find(item, "item:(.+)") then
+            elseif string.find(item, "item:") then
                 allRecipes = getAllRecipes(string.match(item, 'item:(.+)'))
             else
                 allRecipes = getAllRecipes(item)
@@ -1590,9 +1640,10 @@ local function serverHandler()
             local craftableRecipes = haveCraftingMaterials(allRecipes, 1)
 
             if #craftableRecipes > 0 then
-                rednet.send(id, craftableRecipes[1])
+                rednet.send(id, craftableRecipes)
             else
-                rednet.send(id, false)
+                print("0 craftable recipes")
+                rednet.send(id, allRecipes)
             end
         end
     end
