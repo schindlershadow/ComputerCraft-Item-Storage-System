@@ -253,7 +253,7 @@ local function drawNBTmenu(sel)
     end
 end
 
-local function craftRecipe(recipe, amount)
+local function craftRecipe(recipe, amount, canCraft)
     local table = {}
     local logs = {}
     for row = 1, 3, 1 do
@@ -262,7 +262,12 @@ local function craftRecipe(recipe, amount)
             table[row][slot] = 0
         end
     end
-    rednet.send(craftingServer, "craftItem")
+    if canCraft == true then
+        rednet.send(craftingServer, "craftItem")
+    else
+        rednet.send(craftingServer, "autoCraftItem")
+    end
+
     sleep(0.1)
     recipe.amount = amount
     rednet.send(craftingServer, recipe)
@@ -284,7 +289,9 @@ local function craftRecipe(recipe, amount)
                     end
                 end
             elseif message.message == "logUpdate" then
-                logs[#logs+1] = message[1]
+                if logs[#logs] ~= message[1] then
+                    logs[#logs + 1] = message[1]
+                end
             end
         end
 
@@ -349,9 +356,9 @@ local function craftRecipe(recipe, amount)
         local count = 0
         for i = 3, (height - 2), 1 do
             term.setCursorPos(9, i)
-            if #logs-count > 0 and type(logs[#logs-count]) ~= "nil" then
-                term.write(logs[#logs-count])
-                count = count+1
+            if #logs - count > 0 and type(logs[#logs - count]) ~= "nil" then
+                term.write(logs[#logs - count])
+                count = count + 1
             end
         end
 
@@ -383,10 +390,16 @@ local function isCraftable(itemName)
     rednet.send(craftingServer, "craftable")
     sleep(0.1)
     rednet.send(craftingServer, itemName)
+    local ttl = 5
     local id2, message2
     repeat
-        id2, message2 = rednet.receive()
+        id2, message2 = rednet.receive(nil, 0.5)
         --log("message2: " .. tostring(type(message2)) .. " " .. tostring(message2))
+
+        if ttl < 1 then
+            break
+        end
+        ttl = ttl - 1
     until id2 == craftingServer and (type(message2) == "bool" or type(message2) == "table")
     return message2
 end
@@ -548,7 +561,7 @@ local function drawCraftingMenu(sel, inputTable)
             event, button, x, y = os.pullEvent("mouse_click")
             term.setCursorPos(x, y)
             term.write("? " .. tostring(x) .. " " .. tostring(y))
-            sleep(5)
+            --sleep(5)
         else
             event, button, x, y = os.pullEvent("mouse_click")
         end
@@ -556,15 +569,9 @@ local function drawCraftingMenu(sel, inputTable)
 
         --if x > 8 and y >= (height * .25) and y < (height * .25) + 8 and type(legend[y - math.ceil((height * .25))]) ~= "nil" then
         if x > 8 and y >= 4 and y <= 4 + 8 and type(legend[y - 3]) ~= "nil" then
-            --log(legend[y - math.ceil((height * .25))].item)
-            --local craftable = isCraftable(legend[y - math.ceil((height * .25))].item)
-            local craftable
-            if string.find(legend[y - 3].item, "tag:") then
-                --craftable = isCraftable(legend[y - 4].item:match("tag:(.*)"))
-                craftable = isCraftable(legend[y - 3].item)
-            else
-                craftable = isCraftable(legend[y - 3].item)
-            end
+            --Item on legend is clicked, open subMenu
+
+            local craftable = isCraftable(legend[y - 3].item)
             log(textutils.serialise(craftable))
 
             if craftable ~= false then
@@ -595,7 +602,8 @@ local function drawCraftingMenu(sel, inputTable)
             amount = 1
         elseif y == (height - 1) then
             done = true
-            craftRecipe(inputTable[sel], amount, keys, legend)
+            craftRecipe(inputTable[sel], amount, canCraft)
+
         elseif y == 2 and x == 1 then
             if type(inputTable[sel - 1]) ~= "nil" then
                 done = true
@@ -888,8 +896,10 @@ local function touchHandler()
     elseif (items[y] ~= nil or displayedRecipes[y] ~= nil) and y ~= height then
         menu = true
         if menuSel == "crafting" then
-            drawCraftingMenu(y, displayedRecipes)
-        else
+            if displayedRecipes[y] ~= nil then
+                drawCraftingMenu(y, displayedRecipes)
+            end
+        elseif items[y] ~= nil then
             drawMenu(y)
         end
 
