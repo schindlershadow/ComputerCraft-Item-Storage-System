@@ -1077,6 +1077,9 @@ local function inputHandler()
                     search = ""
                     scroll = 0
                     drawList()
+                elseif key == keys.insert then
+                    --Import button pressed
+                    importAll()
                 elseif key == keys.numPad1 then
                     openMenu(1)
                 elseif key == keys.numPad2 then
