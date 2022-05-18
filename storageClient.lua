@@ -880,36 +880,38 @@ local function inputHandler()
 end
 
 local function touchHandler()
-    local event, button, x, y = os.pullEvent("mouse_click")
-    if y == height - 1 and x > width - 8 then
-        --Import button pressed
-        importAll()
+    while true do
+        local event, button, x, y = os.pullEvent("mouse_click")
+        if y == height - 1 and x > width - 8 then
+            --Import button pressed
+            importAll()
 
-    elseif settings.get("crafting") == true and y == height - 2 and x > width - 8 then
-        --Storage menu button pressed
-        menuSel = "storage"
-        drawList()
-    elseif settings.get("crafting") == true and y == height - 3 and x > width - 8 then
-        --Crafting menu button pressed
-        menuSel = "crafting"
-        drawList()
-    elseif (items[y] ~= nil or displayedRecipes[y] ~= nil) and y ~= height then
-        menu = true
-        if menuSel == "crafting" then
-            if displayedRecipes[y] ~= nil then
-                drawCraftingMenu(y, displayedRecipes)
+        elseif settings.get("crafting") == true and y == height - 2 and x > width - 8 then
+            --Storage menu button pressed
+            menuSel = "storage"
+            drawList()
+        elseif settings.get("crafting") == true and y == height - 3 and x > width - 8 then
+            --Crafting menu button pressed
+            menuSel = "crafting"
+            drawList()
+        elseif (items[y] ~= nil or displayedRecipes[y] ~= nil) and y ~= height then
+            menu = true
+            if menuSel == "crafting" then
+                if displayedRecipes[y] ~= nil then
+                    drawCraftingMenu(y, displayedRecipes)
+                end
+            elseif items[y] ~= nil then
+                drawMenu(y)
             end
-        elseif items[y] ~= nil then
-            drawMenu(y)
-        end
 
-        menu = false
-        term.clear()
-        term.setCursorPos(1, 1)
-        centerText("Requesting...")
-        sleep(0.1)
-        drawList()
-        -- export(result)
+            menu = false
+            term.clear()
+            term.setCursorPos(1, 1)
+            centerText("Requesting...")
+            sleep(0.1)
+            drawList()
+            -- export(result)
+        end
     end
 end
 
