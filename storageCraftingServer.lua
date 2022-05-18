@@ -959,7 +959,7 @@ local function recipeContains(recipe, itemName)
 end
 
 --returns score, input recipe, name of recipe item output, time-to-live, amount of item output recipe creates
-local function scoreBranch(recipe, itemName, ttl, amount)
+local function scoreBranch(recipe, itemName, ttl, amount, id)
     local score = 0
 
     if type(amount) == "nil" then
@@ -986,7 +986,7 @@ local function scoreBranch(recipe, itemName, ttl, amount)
             local skip = false
             for k = 1, #slot, 1 do --item
                 local item = slot[k]
-                if item ~= "none"  and item ~="item:minecraft:air" and not skip then
+                if item ~= "none" and item ~= "item:minecraft:air" and not skip then
                     log("searching for: " .. textutils.serialise(item))
                     --if item is in the system, increase score
                     local searchResult
@@ -1025,6 +1025,7 @@ local function scoreBranch(recipe, itemName, ttl, amount)
                         elseif #allRecipes < 1 then
                             print("no recipes found for: " .. item)
                             log(("no recipes found for: " .. item))
+                            updateClient(id, "logUpdate", "no recipes found for: " .. tostring(item))
                             return 0
                         end
                         local craftableRecipes = haveCraftingMaterials(allRecipes, 1)
@@ -1058,7 +1059,7 @@ local function scoreBranch(recipe, itemName, ttl, amount)
                                 if recipeContains(allRecipes[m], itemName) == false and recipeContains(allRecipes[m], item) == false then
                                     log("checking recipe: " .. allRecipes[m].name .. " from: " .. allRecipes[m].recipeName)
                                     ttl = ttl - 1
-                                    local scoreTab = scoreBranch(allRecipes[m].recipe, allRecipes[m].name, ttl - 1, allRecipes[m].count)
+                                    local scoreTab = scoreBranch(allRecipes[m].recipe, allRecipes[m].name, ttl - 1, allRecipes[m].count, id)
                                     if scoreTab > 0 then
                                         score = score + scoreTab
                                         log("score: " .. tostring(score))
@@ -1086,12 +1087,12 @@ local function scoreBranch(recipe, itemName, ttl, amount)
     return score
 end
 
-local function getBestRecipe(allRecipes)
+local function getBestRecipe(allRecipes, id)
     local bestRecipe
     local bestScore = 0
     local bestCount = 1
     for i = 1, #allRecipes, 1 do
-        local score = scoreBranch(allRecipes[i].recipe, allRecipes[i].name, 20, allRecipes[i].count)
+        local score = scoreBranch(allRecipes[i].recipe, allRecipes[i].name, 20, allRecipes[i].count, id)
         log("recipe: " .. allRecipes[i].recipeName .. " score: " .. score)
         if score > bestScore then
             bestRecipe = allRecipes[i]
@@ -1156,7 +1157,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
         end
     end
 
-    log("stackLimited: " .. tostring(stackLimited).. " stackLimit:" .. tostring(stackLimit))
+    log("stackLimited: " .. tostring(stackLimited) .. " stackLimit:" .. tostring(stackLimit))
 
     --calculate number of items to be moved at once
     local moveCount = timesToCraft
@@ -1448,7 +1449,7 @@ local function craftBranch(recipeObj, ttl, amount, id)
                             if #craftableRecipes > 1 then
                                 --print("More than one craftable recipe, Searching for best recipe")
                                 log("More than one craftable recipe, Searching for best recipe")
-                                recipeToCraft, outputAmount = getBestRecipe(craftableRecipes)
+                                recipeToCraft, outputAmount = getBestRecipe(craftableRecipes, id)
                             else
                                 recipeToCraft = craftableRecipes[1]
                                 outputAmount = craftableRecipes[1].count
@@ -1577,17 +1578,23 @@ local function craft(item, amount, id)
     local outputAmount = 1
     if #craftableRecipes == 0 then
         --print("No currently craftable recipes, Searching for best recipe")
-        recipeToCraft, outputAmount = getBestRecipe(allRecipes)
+        recipeToCraft, outputAmount = getBestRecipe(allRecipes, id)
     elseif #craftableRecipes > 1 then
         --print("More than one craftable recipe, Searching for best recipe")
-        recipeToCraft, outputAmount = getBestRecipe(craftableRecipes)
+        recipeToCraft, outputAmount = getBestRecipe(craftableRecipes, id)
     else
         recipeToCraft = craftableRecipes[1]
         outputAmount = craftableRecipes[1].count
     end
 
     if type(recipeToCraft) == "nil" then
-        print("No recipe found for: " .. tostring(item))
+        if type(item) == "table" then
+            print("No recipe found for: " .. tostring(item.name))
+            updateClient(id, "logUpdate", "No recipe found for: " .. tostring(item.name:match(".+:(.+)")))
+        else
+            print("No recipe found for: " .. tostring(item))
+            updateClient(id, "logUpdate", "No recipe found for: " .. tostring(item:match(".+:(.+)")))
+        end
         return false
     end
 
