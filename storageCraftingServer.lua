@@ -635,7 +635,7 @@ local function calculateNumberOfItems(recipe, amount)
     for row = 1, #recipe do
         for slot = 1, #recipe[row], 1 do
             for itemSlot = 1, #recipe[row][slot], 1 do
-                if recipe[row][slot][itemSlot] ~= "none" then
+                if recipe[row][slot][itemSlot] ~= "none" or recipe[row][slot][itemSlot] ~= "item:minecraft:air" then
                     local recipeItemName = recipe[row][slot][itemSlot]
                     --print(dump(recipeName))
                     if type(numNeeded[recipeItemName]) == "nil" then
@@ -699,7 +699,7 @@ local function haveCraftingMaterials(tableOfRecipes, amount, id)
                         return {}
                     end
 
-                    if item == "none" then
+                    if item == "none" or item == "item:minecraft:air" then
                         craftable2 = true
                     else
                         local result
@@ -986,7 +986,7 @@ local function scoreBranch(recipe, itemName, ttl, amount)
             local skip = false
             for k = 1, #slot, 1 do --item
                 local item = slot[k]
-                if item ~= "none" and not skip then
+                if item ~= "none"  and item ~="item:minecraft:air" and not skip then
                     log("searching for: " .. textutils.serialise(item))
                     --if item is in the system, increase score
                     local searchResult
@@ -1135,7 +1135,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
     for row = 1, #recipe do
         for slot = 1, #recipe[row], 1 do
             --ignore empty slots
-            if recipe[row][slot][1] ~= "none" then
+            if recipe[row][slot][1] ~= "none" and recipe[row][slot][1] ~= "item:minecraft:air" then
                 local searchResult = {}
                 for k = 1, #recipe[row][slot], 1 do
                     --Find a sample of the item in system
@@ -1181,7 +1181,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
         local failed = false
         for row = 1, #recipe do
             for slot = 1, #recipe[row], 1 do
-                if recipe[row][slot][1] ~= "none" then
+                if recipe[row][slot][1] ~= "none" and recipe[row][slot][1] ~= "item:minecraft:air" then
                     if not failed then
                         --Select the slot in the turtle, the turtle is 4x4 but crafting grid is 3x3
                         turtle.select(((row - 1) * 4) + slot)
@@ -1384,7 +1384,7 @@ local function craftBranch(recipeObj, ttl, amount, id)
             local skip = false
             for k = 1, #slot, 1 do --item
                 local item = slot[k]
-                if item ~= "none" and skip == false then
+                if item ~= "none" and item ~= "item:minecraft:air" and skip == false then
                     log("processing: " .. tostring(numNeeded[item]) .. " " .. item)
                     --if item is in the system
                     local searchResult

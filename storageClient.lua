@@ -491,7 +491,7 @@ local function drawCraftingMenu(sel, inputTable)
                         term.write(" ")
                     else
                         --log(textutils.serialise(inputTable[sel].recipe[row][slot][1]))
-                        if inputTable[sel].recipe[row][slot][1] == "none" then
+                        if inputTable[sel].recipe[row][slot][1] == "none" or inputTable[sel].recipe[row][slot][1] == "item:minecraft:air" then
                             term.write(" ")
                         else
                             term.write(utf8.char(keys[inputTable[sel].recipe[row][slot][1]] + 64))
