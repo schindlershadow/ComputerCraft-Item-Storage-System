@@ -5,7 +5,7 @@
 
  storageServer.lua - Server file (rename to startup for autostart)
  
- storageClient.lua - Client files (Advanced computers only, supports pocket computers with wireless modem)
+ storageClient.lua - Client files (supports pocket computers with wireless modem)
  
  A .settings file on the server will be generated at first boot, edit this file with the name of your export chest and any import chests
  
@@ -27,16 +27,31 @@ Production setup
 
 Client main menu
 
-![Client main menu](https://user-images.githubusercontent.com/7072789/163578791-705c5419-79ab-42cc-bd2f-0521ed6d83ba.png)
+![Client main menu](https://user-images.githubusercontent.com/7072789/169100557-be2069fc-7148-4c4b-8881-e661e7f87516.png)
 
 Client search
 
-![Client search](https://user-images.githubusercontent.com/7072789/163578808-be95cf2c-a678-439a-bbad-da8de5613d0b.png)
+![Client search](https://user-images.githubusercontent.com/7072789/169100641-91e9e3dc-2774-4622-99be-3ec9ed3acb04.png)
+
 
 Client item menu
 
-![Client item menu](https://user-images.githubusercontent.com/7072789/163578971-d7aa6407-74df-409d-b2a4-7395462a060f.png)
+![Client item menu](https://user-images.githubusercontent.com/7072789/169100658-a97d762b-f7dd-4930-857b-2e951a8ffc20.png)
+
+
+Client crafting search
+
+![craftinglist](https://user-images.githubusercontent.com/7072789/169099908-1498e88b-c062-485d-9121-2df91752a363.png)
+
+Client crafting menu
+
+![craftingmenu](https://user-images.githubusercontent.com/7072789/169099960-7d4ec2a1-6251-4ecf-90d2-8ea3239763a1.png)
+
+Server Startup
+
+![server startup](https://user-images.githubusercontent.com/7072789/169101034-f1c15ce4-d1f1-4794-9d49-67d5d6f81cdf.png)
+
 
 Server interface
 
-![Server](https://user-images.githubusercontent.com/7072789/163579015-02c7b79d-9826-4044-81cc-10f3c843754a.png)
+![server interface](https://user-images.githubusercontent.com/7072789/169101058-5fdf8f29-a8a7-4706-bd63-d95453363df6.png)
