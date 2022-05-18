@@ -3,6 +3,7 @@ local width, height = term.getSize()
 local server = 0
 local craftingServer = 0
 local search = ""
+local scroll = 0
 local items = {}
 local recipes = {}
 local displayedRecipes = {}
@@ -223,16 +224,27 @@ local function drawNBTmenu(sel)
     local done = false
     while done == false do
         term.setBackgroundColor(colors.green)
-        for k = 1, height - 1, 1 do
+        for k = 3, height - 1, 1 do
             for i = 1, width, 1 do
                 term.setCursorPos(i, k)
                 term.write(" ")
             end
         end
         term.setCursorPos(1, 1)
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, 1)
+            term.write(" ")
+        end
         centerText("NBT Menu")
         term.setCursorPos(1, 2)
+        term.setBackgroundColor(colors.blue)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, 2)
+            term.write(" ")
+        end
         centerText(items[sel].name .. " #" .. tostring(items[sel].count))
+        term.setBackgroundColor(colors.green)
         term.setCursorPos(1, 3)
         if items[sel].nbt ~= nil then
             write(dump(items[sel].details))
@@ -242,11 +254,22 @@ local function drawNBTmenu(sel)
         term.write("x")
         term.setBackgroundColor(colors.green)
 
+        local event, button, x, y
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event ~= "mouse_click" or event ~= "key"
 
-        local event, button, x, y = os.pullEvent("mouse_click")
+        if event == "key" then
+            local key = button
+            if key == keys.backspace then
+                done = true
+            end
+        end
 
-        if y < 2 and x > width - 1 then
-            done = true
+        if event == "mouse_click" then
+            if y < 2 and x > width - 1 then
+                done = true
+            end
         end
 
         --sleep(5)
@@ -424,7 +447,7 @@ local function drawCraftingMenu(sel, inputTable)
         local numNeeded = message2
 
         local legend = {}
-        local keys = {}
+        local legendKeys = {}
         local canCraft = true
         local count = 0
         for i, v in pairs(numNeeded) do
@@ -433,7 +456,7 @@ local function drawCraftingMenu(sel, inputTable)
             legend[count].item = i
             legend[count].count = v
             legend[count].have = getAmount(i)
-            keys[i] = count
+            legendKeys[i] = count
 
             if legend[count].have < legend[count].count then
                 canCraft = false
@@ -441,14 +464,24 @@ local function drawCraftingMenu(sel, inputTable)
         end
 
         term.setBackgroundColor(colors.green)
-        for k = 1, height - 1, 1 do
+        for k = 3, height - 1, 1 do
             for i = 1, width, 1 do
                 term.setCursorPos(i, k)
                 term.write(" ")
             end
         end
         term.setCursorPos(1, 1)
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, 1)
+            term.write(" ")
+        end
         centerText("Crafting Menu")
+        term.setBackgroundColor(colors.brown)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, 2)
+            term.write(" ")
+        end
         term.setCursorPos(1, 2)
         term.write("<")
         centerText(inputTable[sel].name .. " #" .. tostring(inputTable[sel].count))
@@ -494,7 +527,7 @@ local function drawCraftingMenu(sel, inputTable)
                         if inputTable[sel].recipe[row][slot][1] == "none" or inputTable[sel].recipe[row][slot][1] == "item:minecraft:air" then
                             term.write(" ")
                         else
-                            term.write(utf8.char(keys[inputTable[sel].recipe[row][slot][1]] + 64))
+                            term.write(utf8.char(legendKeys[inputTable[sel].recipe[row][slot][1]] + 64))
                         end
                     end
                     if slot ~= 3 then
@@ -557,65 +590,95 @@ local function drawCraftingMenu(sel, inputTable)
 
         local event, button, x, y
 
-        if debug then
-            event, button, x, y = os.pullEvent("mouse_click")
-            term.setCursorPos(x, y)
-            term.write("? " .. tostring(x) .. " " .. tostring(y))
-            --sleep(5)
-        else
-            event, button, x, y = os.pullEvent("mouse_click")
-        end
-        log(tostring(x) .. " " .. tostring(y) .. " need: " .. tostring((width * .25)) .. " " .. tostring(height - (height * .25) + 2))
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event ~= "mouse_click" or event ~= "key" or event ~= "mouse_scroll"
 
-        --if x > 8 and y >= (height * .25) and y < (height * .25) + 8 and type(legend[y - math.ceil((height * .25))]) ~= "nil" then
-        if x > 8 and y >= 4 and y <= 4 + 8 and type(legend[y - 3]) ~= "nil" then
-            --Item on legend is clicked, open subMenu
-
-            local craftable = isCraftable(legend[y - 3].item)
-            log(textutils.serialise(craftable))
-
-            if craftable ~= false then
-                log("craftable ~= false")
-                drawCraftingMenu(1, craftable)
+        if event == "key" then
+            local key = button
+            if key == keys.right then
+                amount = amount + 1
+            elseif key == keys.left then
+                if amount > 1 then
+                    amount = amount - 1
+                end
+            elseif key == keys.comma then
+                if type(inputTable[sel - 1]) ~= "nil" then
+                    done = true
+                    drawCraftingMenu(sel - 1, inputTable)
+                end
+            elseif key == keys.period then
+                if type(inputTable[sel + 1]) ~= "nil" then
+                    done = true
+                    drawCraftingMenu(sel + 1, inputTable)
+                end
+            elseif key == keys.backspace then
+                done = true
+            elseif key == keys.enter or key == keys.numPadEnter then
+                done = true
+                craftRecipe(inputTable[sel], amount, canCraft)
             end
-        elseif (x == math.floor(width * .25) and y == math.floor(height - (height * .25) + 2))
-        then
-            if amount > 1 then
-                amount = amount - 1
+
+
+        elseif event == "mouse_scroll" then
+            if button == -1 then
+                amount = amount + 1
+            elseif button == 1 then
+                if amount > 1 then
+                    amount = amount - 1
+                end
             end
-        elseif (x == math.floor(width - (width * .25)) and y == math.floor((height - (height * .25) + 2)))
-        then
-            amount = amount + 1
-        elseif (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and (y == math.floor(height - (height * .25) + 3)))
-        then
-            amount = amount + 64
-        elseif (((x < ((width * .25) * 2) + 3) and (x > ((width * .25) * 2) - 3)) and
-            (y == math.floor(height - (height * .25) + 3)))
-        then
-            if amount > 1 + 64 then
-                amount = amount - 64
-            else
+
+
+        elseif event == "mouse_click" then
+            if x > 8 and y >= 4 and y <= 4 + 8 and type(legend[y - 3]) ~= "nil" then
+                --Item on legend is clicked, open subMenu
+
+                local craftable = isCraftable(legend[y - 3].item)
+                log(textutils.serialise(craftable))
+
+                if craftable ~= false then
+                    log("craftable ~= false")
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif (x == math.floor(width * .25) and y == math.floor(height - (height * .25) + 2))
+            then
+                if amount > 1 then
+                    amount = amount - 1
+                end
+            elseif (x == math.floor(width - (width * .25)) and y == math.floor((height - (height * .25) + 2)))
+            then
+                amount = amount + 1
+            elseif (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and (y == math.floor(height - (height * .25) + 3)))
+            then
+                amount = amount + 64
+            elseif (((x < ((width * .25) * 2) + 3) and (x > ((width * .25) * 2) - 3)) and
+                (y == math.floor(height - (height * .25) + 3)))
+            then
+                if amount > 1 + 64 then
+                    amount = amount - 64
+                else
+                    amount = 1
+                end
+            elseif (x == math.floor((width * .25) * 3) and y == math.floor(height - (height * .25) + 3))
+            then
                 amount = 1
-            end
-        elseif (x == math.floor((width * .25) * 3) and y == math.floor(height - (height * .25) + 3))
-        then
-            amount = 1
-        elseif y == (height - 1) then
-            done = true
-            craftRecipe(inputTable[sel], amount, canCraft)
-
-        elseif y == 2 and x == 1 then
-            if type(inputTable[sel - 1]) ~= "nil" then
+            elseif y == (height - 1) then
                 done = true
-                drawCraftingMenu(sel - 1, inputTable)
-            end
-        elseif y == 2 and x == width then
-            if type(inputTable[sel + 1]) ~= "nil" then
+                craftRecipe(inputTable[sel], amount, canCraft)
+            elseif y == 2 and x == 1 then
+                if type(inputTable[sel - 1]) ~= "nil" then
+                    done = true
+                    drawCraftingMenu(sel - 1, inputTable)
+                end
+            elseif y == 2 and x == width then
+                if type(inputTable[sel + 1]) ~= "nil" then
+                    done = true
+                    drawCraftingMenu(sel + 1, inputTable)
+                end
+            elseif y < 2 and x > width - 1 then
                 done = true
-                drawCraftingMenu(sel + 1, inputTable)
             end
-        elseif y < 2 and x > width - 1 then
-            done = true
         end
 
         --sleep(5)
@@ -627,16 +690,27 @@ local function drawMenu(sel)
     local done = false
     while done == false do
         term.setBackgroundColor(colors.green)
-        for k = 1, height - 1, 1 do
+        for k = 3, height - 1, 1 do
             for i = 1, width, 1 do
                 term.setCursorPos(i, k)
                 term.write(" ")
             end
         end
         term.setCursorPos(1, 1)
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, 1)
+            term.write(" ")
+        end
         centerText("Menu")
         term.setCursorPos(1, 2)
+        term.setBackgroundColor(colors.blue)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, 2)
+            term.write(" ")
+        end
         centerText(items[sel].name .. " #" .. tostring(items[sel].count))
+        term.setBackgroundColor(colors.green)
         term.setCursorPos(1, 3)
         if items[sel].nbt ~= nil then
             term.setBackgroundColor(colors.red)
@@ -670,72 +744,95 @@ local function drawMenu(sel)
 
         local event, button, x, y
 
-        if debug then
-            term.setCursorPos((width * .25) + 2, (height * .25) + 4)
-            term.write("X")
-            term.setCursorPos((width * .25) - 2, (height * .25) + 6)
-            term.write("Y")
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event ~= "mouse_click" or event ~= "key" or event ~= "mouse_scroll"
 
-            term.setCursorPos(width - (width * .25) + 2, ((height * .25) + 4))
-            term.write("X")
-            term.setCursorPos((width - (width * .25)) - 2, (height * .25) + 6)
-            term.write("Y")
+        if event == "key" then
+            local key = button
+            if key == keys.right then
+                if amount < items[sel].count then
+                    amount = amount + 1
+                end
+            elseif key == keys.left then
+                if amount > 1 then
+                    amount = amount - 1
+                end
+            elseif key == keys.backspace then
+                done = true
+            elseif key == keys.enter or key == keys.numPadEnter then
+                done = true
+                local result
+                if items[sel].nbt == nil then
+                    result = Item:new(items[sel].name, amount, "", items[sel].tags)
+                else
+                    result = Item:new(items[sel].name, amount, items[sel].nbt, items[sel].tags)
+                end
+                export(result)
+            end
 
-            event, button, x, y = os.pullEvent("mouse_click")
-            term.setCursorPos(x, y)
-            term.write("? " .. tostring(x) .. " " .. tostring(y))
-            sleep(5)
-        else
-            event, button, x, y = os.pullEvent("mouse_click")
-        end
 
-        if (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and
-            ((y > (height * .25) + 4) and (y < (height * .25) + 6)))
-        then
-            if amount > 1 then
-                amount = amount - 1
+        elseif event == "mouse_scroll" then
+            if button == -1 then
+                if amount < items[sel].count then
+                    amount = amount + 1
+                end
+            elseif button == 1 then
+                if amount > 1 then
+                    amount = amount - 1
+                end
             end
-        elseif (((x < (width - (width * .25)) + 2) and (x > (width - (width * .25)) - 2)) and
-            ((y > (height * .25) + 4) and (y < (height * .25) + 6)))
-        then
-            if amount < items[sel].count then
-                amount = amount + 1
-            end
-        elseif (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and
-            ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
-        then
-            if amount + 64 < items[sel].count then
-                amount = amount + 64
-            else
-                amount = items[sel].count
-            end
-        elseif (((x < ((width * .25) * 2) + 3) and (x > ((width * .25) * 2) - 3)) and
-            ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
-        then
-            if amount > 1 + 64 then
-                amount = amount - 64
-            else
+
+
+        elseif event == "mouse_click" then
+            if (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and
+                ((y > (height * .25) + 4) and (y < (height * .25) + 6)))
+            then
+                if amount > 1 then
+                    amount = amount - 1
+                end
+            elseif (((x < (width - (width * .25)) + 2) and (x > (width - (width * .25)) - 2)) and
+                ((y > (height * .25) + 4) and (y < (height * .25) + 6)))
+            then
+                if amount < items[sel].count then
+                    amount = amount + 1
+                end
+            elseif (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and
+                ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
+            then
+                if amount + 64 < items[sel].count then
+                    amount = amount + 64
+                else
+                    amount = items[sel].count
+                end
+            elseif (((x < ((width * .25) * 2) + 3) and (x > ((width * .25) * 2) - 3)) and
+                ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
+            then
+                if amount > 1 + 64 then
+                    amount = amount - 64
+                else
+                    amount = 1
+                end
+            elseif (((x < ((width * .25) * 3) + 3) and (x > ((width * .25) * 3) - 3)) and
+                ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
+            then
                 amount = 1
+            elseif (y < ((height * .25) + 13)) and (y > ((height * .25) + 10)) then
+                amount = items[sel].count
+            elseif y == (height - 1) then
+                done = true
+                local result
+                if items[sel].nbt == nil then
+                    result = Item:new(items[sel].name, amount, "", items[sel].tags)
+                else
+                    result = Item:new(items[sel].name, amount, items[sel].nbt, items[sel].tags)
+                end
+                export(result)
+            elseif y < 2 and x > width - 1 then
+                done = true
+            elseif y == 3 then
+                drawNBTmenu(sel)
             end
-        elseif (((x < ((width * .25) * 3) + 3) and (x > ((width * .25) * 3) - 3)) and
-            ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
-        then
-            amount = 1
-        elseif (y < ((height * .25) + 13)) and (y > ((height * .25) + 10)) then
-            amount = items[sel].count
-        elseif y == (height - 1) then
-            done = true
-            local result
-            if items[sel].nbt == nil then
-                result = Item:new(items[sel].name, amount, "", items[sel].tags)
-            else
-                result = Item:new(items[sel].name, amount, items[sel].nbt, items[sel].tags)
-            end
-            export(result)
-        elseif y < 2 and x > width - 1 then
-            done = true
-        elseif y == 3 then
-            drawNBTmenu(sel)
         end
 
         --sleep(5)
@@ -753,31 +850,39 @@ local function drawList()
             end
             )
             term.setBackgroundColor(colors.blue)
-            for k = 1, height - 1, 1 do
-                for i = 1, width, 1 do
-                    term.setCursorPos(i, k)
-                    term.write(" ")
+            for k, v in pairs(items) do
+                if k > scroll then
+                    if k < (height + scroll) then
+                        local text = ""
+
+                        if v["nbt"] ~= nil then
+                            text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"])
+                        elseif v["details"] == nil then
+                            text = v["name"] .. " - #" .. v["count"]
+                        else
+                            if v["details"]["tags"] ~= nil then
+                                text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"]["tags"])
+                            else
+                                text = v["details"]["displayName"] .. " - #" .. v["count"]
+                            end
+                        end
+
+                        for i = 1, width, 1 do
+                            term.setCursorPos(i, k - scroll)
+                            term.write(" ")
+                        end
+                        term.setCursorPos(1, k - scroll)
+                        term.write(text)
+                        term.setCursorPos(1, height)
+                    end
                 end
             end
-            for k, v in pairs(items) do
-                if k < height then
-                    local text = ""
-
-                    if v["nbt"] ~= nil then
-                        text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"])
-                    elseif v["details"] == nil then
-                        text = v["name"] .. " - #" .. v["count"]
-                    else
-                        if v["details"]["tags"] ~= nil then
-                            text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"]["tags"])
-                        else
-                            text = v["details"]["displayName"] .. " - #" .. v["count"]
-                        end
+            for k = 1, height - 1, 1 do
+                if type(items[k + scroll]) == "nil" then
+                    for i = 1, width, 1 do
+                        term.setCursorPos(i, k)
+                        term.write(" ")
                     end
-
-                    term.setCursorPos(1, k)
-                    term.write(text)
-                    term.setCursorPos(1, height)
                 end
             end
         elseif menuSel == "crafting" then
@@ -788,18 +893,26 @@ local function drawList()
                     filteredRecipes[#filteredRecipes + 1] = v
                 end
             end
-            term.setBackgroundColor(colors.blue)
-            for k = 1, height - 1, 1 do
-                for i = 1, width, 1 do
-                    term.setCursorPos(i, k)
-                    term.write(" ")
+            term.setBackgroundColor(colors.brown)
+            for k, recipe in pairs(filteredRecipes) do
+                if k > scroll then
+                    if k < (height + scroll) then
+                        for i = 1, width, 1 do
+                            term.setCursorPos(i, k - scroll)
+                            term.write(" ")
+                        end
+                        term.setCursorPos(1, k - scroll)
+                        term.write(recipe.name .. " #" .. tostring(recipe.count) .. " - " .. recipe.recipeName:match("(.*):"))
+                        term.setCursorPos(1, height)
+                    end
                 end
             end
-            for k, recipe in pairs(filteredRecipes) do
-                if k < height then
-                    term.setCursorPos(1, k)
-                    term.write(recipe.name .. " #" .. tostring(recipe.count) .. " - " .. recipe.recipeName:match("(.*):"))
-                    term.setCursorPos(1, height)
+            for k = 1, height - 1, 1 do
+                if type(filteredRecipes[k + scroll]) == "nil" then
+                    for i = 1, width, 1 do
+                        term.setCursorPos(i, k)
+                        term.write(" ")
+                    end
                 end
             end
 
@@ -832,13 +945,7 @@ local function drawList()
             term.write(" Storage ")
             term.setBackgroundColor(colors.blue)
         end
-
-
-
-
     end
-
-    --sleep(5)
 end
 
 local function inputHandler()
@@ -846,16 +953,50 @@ local function inputHandler()
         local event, key
         repeat
             event, key = os.pullEvent()
-        until event ~= "char" or event ~= "key"
-        if event == "char" or event == "key" then
+        until event ~= "char" or event ~= "key" or event ~= "mouse_scroll"
+        if (event == "char" or event == "key" or event == "mouse_scroll") and menu == false then
             --term.setCursorPos(1,height)
             if event == "char" then
                 search = search .. key
+            elseif event == "mouse_scroll" then
+                if key == 1 then
+                    scroll = scroll + 1
+                    drawList()
+                elseif key == -1 then
+                    if scroll > 0 then
+                        scroll = scroll - 1
+                        drawList()
+                    end
+                end
+            elseif key == keys.pageUp then
+                if scroll >= (height - 1) then
+                    scroll = scroll - (height - 1)
+                    drawList()
+                elseif scroll > 0 then
+                    scroll = 0
+                    drawList()
+                end
+            elseif key == keys.pageDown then
+                scroll = scroll + (height - 1)
+                drawList()
+            elseif key == keys.home then
+                scroll = 0
+                drawList()
+            elseif key == keys.up then
+                if scroll > 0 then
+                    scroll = scroll - 1
+                    drawList()
+                end
+            elseif key == keys.down then
+                scroll = scroll + 1
+                drawList()
             elseif key == keys.backspace then
                 search = search:sub(1, -2)
             elseif key == keys.enter or key == keys.numPadEnter then
+                scroll = 0
                 drawList()
             elseif key == keys.tab then
+                scroll = 0
                 if menuSel == "storage" then
                     menuSel = "crafting"
                 elseif menuSel == "crafting" then
@@ -864,6 +1005,7 @@ local function inputHandler()
                 drawList()
             elseif key == keys.delete then
                 search = ""
+                scroll = 0
                 drawList()
             end
         end
@@ -885,7 +1027,6 @@ local function touchHandler()
         if y == height - 1 and x > width - 8 then
             --Import button pressed
             importAll()
-
         elseif settings.get("crafting") == true and y == height - 2 and x > width - 8 then
             --Storage menu button pressed
             menuSel = "storage"
@@ -894,14 +1035,14 @@ local function touchHandler()
             --Crafting menu button pressed
             menuSel = "crafting"
             drawList()
-        elseif (items[y] ~= nil or displayedRecipes[y] ~= nil) and y ~= height then
+        elseif (items[y + scroll] ~= nil or displayedRecipes[y + scroll] ~= nil) and y ~= height then
             menu = true
             if menuSel == "crafting" then
-                if displayedRecipes[y] ~= nil then
-                    drawCraftingMenu(y, displayedRecipes)
+                if displayedRecipes[y + scroll] ~= nil then
+                    drawCraftingMenu(y + scroll, displayedRecipes)
                 end
-            elseif items[y] ~= nil then
-                drawMenu(y)
+            elseif items[y + scroll] ~= nil then
+                drawMenu(y + scroll)
             end
 
             menu = false
