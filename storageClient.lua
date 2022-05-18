@@ -602,6 +602,8 @@ local function drawCraftingMenu(sel, inputTable)
                 if amount > 1 then
                     amount = amount - 1
                 end
+            elseif key == keys.home then
+                amount = 1
             elseif key == keys.comma then
                 if type(inputTable[sel - 1]) ~= "nil" then
                     done = true
@@ -617,6 +619,51 @@ local function drawCraftingMenu(sel, inputTable)
             elseif key == keys.enter or key == keys.numPadEnter then
                 done = true
                 craftRecipe(inputTable[sel], amount, canCraft)
+            elseif key == keys.numPad1 and type(legend[1]) ~= "nil" then
+                local craftable = isCraftable(legend[1].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.numPad2 and type(legend[2]) ~= "nil" then
+                local craftable = isCraftable(legend[2].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.numPad3 and type(legend[3]) ~= "nil" then
+                local craftable = isCraftable(legend[3].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.numPad4 and type(legend[4]) ~= "nil" then
+                local craftable = isCraftable(legend[4].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.numPad5 and type(legend[5]) ~= "nil" then
+                local craftable = isCraftable(legend[5].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.numPad6 and type(legend[6]) ~= "nil" then
+                local craftable = isCraftable(legend[6].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.numPad7 and type(legend[7]) ~= "nil" then
+                local craftable = isCraftable(legend[7].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.numPad8 and type(legend[8]) ~= "nil" then
+                local craftable = isCraftable(legend[8].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.numPad9 and type(legend[9]) ~= "nil" then
+                local craftable = isCraftable(legend[9].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
             end
 
 
@@ -740,7 +787,7 @@ local function drawMenu(sel)
 
         term.setBackgroundColor(colors.red)
         term.setCursorPos(1, height - (height * .25) + 4)
-        centerText("Request")
+        centerText(" Request ")
 
         local event, button, x, y
 
@@ -758,6 +805,10 @@ local function drawMenu(sel)
                 if amount > 1 then
                     amount = amount - 1
                 end
+            elseif key == keys['end'] then
+                amount = items[sel].count
+            elseif key == keys.home then
+                amount = 1
             elseif key == keys.backspace then
                 done = true
             elseif key == keys.enter or key == keys.numPadEnter then
@@ -948,6 +999,24 @@ local function drawList()
     end
 end
 
+local function openMenu(sel)
+    menu = true
+    if menuSel == "crafting" then
+        if displayedRecipes[sel + scroll] ~= nil then
+            drawCraftingMenu(sel + scroll, displayedRecipes)
+        end
+    elseif items[sel + scroll] ~= nil then
+        drawMenu(sel + scroll)
+    end
+
+    menu = false
+    term.clear()
+    term.setCursorPos(1, 1)
+    centerText("Requesting...")
+    sleep(0.1)
+    drawList()
+end
+
 local function inputHandler()
     while true do
         local event, key
@@ -968,45 +1037,65 @@ local function inputHandler()
                         drawList()
                     end
                 end
-            elseif key == keys.pageUp then
-                if scroll >= (height - 1) then
-                    scroll = scroll - (height - 1)
+            elseif event == "char" or event == "key" then
+                if key == keys.pageUp then
+                    if scroll >= (height - 1) then
+                        scroll = scroll - (height - 1)
+                        drawList()
+                    elseif scroll > 0 then
+                        scroll = 0
+                        drawList()
+                    end
+                elseif key == keys.pageDown then
+                    scroll = scroll + (height - 1)
                     drawList()
-                elseif scroll > 0 then
+                elseif key == keys.home then
                     scroll = 0
                     drawList()
-                end
-            elseif key == keys.pageDown then
-                scroll = scroll + (height - 1)
-                drawList()
-            elseif key == keys.home then
-                scroll = 0
-                drawList()
-            elseif key == keys.up then
-                if scroll > 0 then
-                    scroll = scroll - 1
+                elseif key == keys.up then
+                    if scroll > 0 then
+                        scroll = scroll - 1
+                        drawList()
+                    end
+                elseif key == keys.down then
+                    scroll = scroll + 1
                     drawList()
+                elseif key == keys.backspace then
+                    search = search:sub(1, -2)
+                elseif key == keys.enter or key == keys.numPadEnter then
+                    scroll = 0
+                    drawList()
+                elseif key == keys.tab then
+                    scroll = 0
+                    if menuSel == "storage" then
+                        menuSel = "crafting"
+                    elseif menuSel == "crafting" then
+                        menuSel = "storage"
+                    end
+                    drawList()
+                elseif key == keys.delete then
+                    search = ""
+                    scroll = 0
+                    drawList()
+                elseif key == keys.numPad1 then
+                    openMenu(1)
+                elseif key == keys.numPad2 then
+                    openMenu(2)
+                elseif key == keys.numPad3 then
+                    openMenu(3)
+                elseif key == keys.numPad4 then
+                    openMenu(4)
+                elseif key == keys.numPad5 then
+                    openMenu(5)
+                elseif key == keys.numPad6 then
+                    openMenu(6)
+                elseif key == keys.numPad7 then
+                    openMenu(7)
+                elseif key == keys.numPad8 then
+                    openMenu(8)
+                elseif key == keys.numPad9 then
+                    openMenu(9)
                 end
-            elseif key == keys.down then
-                scroll = scroll + 1
-                drawList()
-            elseif key == keys.backspace then
-                search = search:sub(1, -2)
-            elseif key == keys.enter or key == keys.numPadEnter then
-                scroll = 0
-                drawList()
-            elseif key == keys.tab then
-                scroll = 0
-                if menuSel == "storage" then
-                    menuSel = "crafting"
-                elseif menuSel == "crafting" then
-                    menuSel = "storage"
-                end
-                drawList()
-            elseif key == keys.delete then
-                search = ""
-                scroll = 0
-                drawList()
             end
         end
 
@@ -1036,22 +1125,7 @@ local function touchHandler()
             menuSel = "crafting"
             drawList()
         elseif (items[y + scroll] ~= nil or displayedRecipes[y + scroll] ~= nil) and y ~= height then
-            menu = true
-            if menuSel == "crafting" then
-                if displayedRecipes[y + scroll] ~= nil then
-                    drawCraftingMenu(y + scroll, displayedRecipes)
-                end
-            elseif items[y + scroll] ~= nil then
-                drawMenu(y + scroll)
-            end
-
-            menu = false
-            term.clear()
-            term.setCursorPos(1, 1)
-            centerText("Requesting...")
-            sleep(0.1)
-            drawList()
-            -- export(result)
+            openMenu(y)
         end
     end
 end
