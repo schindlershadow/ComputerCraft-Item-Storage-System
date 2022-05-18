@@ -635,7 +635,7 @@ local function calculateNumberOfItems(recipe, amount)
     for row = 1, #recipe do
         for slot = 1, #recipe[row], 1 do
             for itemSlot = 1, #recipe[row][slot], 1 do
-                if recipe[row][slot][itemSlot] ~= "none" or recipe[row][slot][itemSlot] ~= "item:minecraft:air" then
+                if recipe[row][slot][itemSlot] ~= "none" and recipe[row][slot][itemSlot] ~= "item:minecraft:air" then
                     local recipeItemName = recipe[row][slot][itemSlot]
                     --print(dump(recipeName))
                     if type(numNeeded[recipeItemName]) == "nil" then
