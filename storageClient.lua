@@ -137,6 +137,17 @@ local function broadcastCraftingServer()
     end
 end
 
+local function pingStorageServer()
+    rednet.send(server, "ping")
+    local id, message = rednet.receive(nil, 1)
+    if type(message) == "string" and id == server and message == "ack" then
+        return message
+    else
+        sleep(0.2)
+        return pingStorageServer()
+    end
+end
+
 local function findInTable(arr, element)
     for i, value in pairs(arr) do
         if value.name == element.name and value.nbt == element.nbt then
@@ -202,6 +213,7 @@ end
 
 local function importAll()
     rednet.send(server, "importAll")
+    pingStorageServer()
 end
 
 local function export(item)
@@ -214,6 +226,13 @@ local function centerText(text)
     local x1, y1 = term.getCursorPos()
     term.setCursorPos((math.floor(x / 2) - (math.floor(#text / 2))), y1)
     write(text)
+end
+
+local function loadingScreen()
+    term.setBackgroundColor(colors.red)
+    term.clear()
+    term.setCursorPos(1,2)
+    centerText("Loading...")
 end
 
 local function drawNBTmenu(sel)
@@ -615,17 +634,20 @@ local function drawCraftingMenu(sel, inputTable)
                 amount = 1
             elseif key == keys.comma then
                 if type(inputTable[sel - 1]) ~= "nil" then
+                    loadingScreen()
                     done = true
                     drawCraftingMenu(sel - 1, inputTable)
                 end
             elseif key == keys.period then
                 if type(inputTable[sel + 1]) ~= "nil" then
+                    loadingScreen()
                     done = true
                     drawCraftingMenu(sel + 1, inputTable)
                 end
             elseif key == keys.backspace then
                 done = true
             elseif key == keys.enter or key == keys.numPadEnter then
+                loadingScreen()
                 done = true
                 craftRecipe(inputTable[sel], amount, canCraft)
             elseif key == keys.numPad1 and type(legend[1]) ~= "nil" then
@@ -720,15 +742,18 @@ local function drawCraftingMenu(sel, inputTable)
             then
                 amount = 1
             elseif y == (height - 1) then
+                loadingScreen()
                 done = true
                 craftRecipe(inputTable[sel], amount, canCraft)
             elseif y == 2 and x == 1 then
                 if type(inputTable[sel - 1]) ~= "nil" then
+                    loadingScreen()
                     done = true
                     drawCraftingMenu(sel - 1, inputTable)
                 end
             elseif y == 2 and x == width then
                 if type(inputTable[sel + 1]) ~= "nil" then
+                    loadingScreen()
                     done = true
                     drawCraftingMenu(sel + 1, inputTable)
                 end
@@ -823,6 +848,7 @@ local function drawMenu(sel)
             elseif key == keys.backspace then
                 done = true
             elseif key == keys.enter or key == keys.numPadEnter then
+                loadingScreen()
                 done = true
                 local result
                 if items[sel].nbt == nil then
@@ -882,6 +908,7 @@ local function drawMenu(sel)
             elseif (y < ((height * .25) + 13)) and (y > ((height * .25) + 10)) then
                 amount = items[sel].count
             elseif y == (height - 1) then
+                loadingScreen()
                 done = true
                 local result
                 if items[sel].nbt == nil then
@@ -891,6 +918,7 @@ local function drawMenu(sel)
                 end
                 export(result)
             elseif y < 2 and x > width - 1 then
+                loadingScreen()
                 done = true
             elseif y == 3 then
                 if items[sel].nbt ~= nil then
@@ -1038,7 +1066,9 @@ local function inputHandler()
             if event == "mouse_click" then
                 if y == height - 1 and x > width - 8 then
                     --Import button pressed
+                    loadingScreen()
                     importAll()
+                    drawList()
                 elseif settings.get("crafting") == true and y == height - 2 and x > width - 8 then
                     --Storage menu button pressed
                     menuSel = "storage"
