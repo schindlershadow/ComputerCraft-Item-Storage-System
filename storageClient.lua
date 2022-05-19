@@ -388,12 +388,15 @@ local function craftRecipe(recipe, amount, canCraft)
 
         id, message = rednet.receive()
     until id == craftingServer and type(message) == "boolean"
+    term.setCursorPos(1, height-1)
     if message == true then
-        term.write("\n\nCrafting Complete! :D")
+        term.setBackgroundColor(colors.green)
+        centerText(" Crafting Complete! :D ")
     elseif message == false then
-        term.write("\n\nCrafting Failed! D:")
+        term.setBackgroundColor(colors.red)
+        centerText(" Crafting Failed! D: ")
     end
-    sleep(5)
+    sleep(3)
 
     return message
 end
@@ -428,6 +431,7 @@ local function isCraftable(itemName)
 end
 
 local function drawCraftingMenu(sel, inputTable)
+    menu = true
     if type(inputTable) == "nil" then
         log("type(inputTable) == nil")
         inputTable = displayedRecipes
@@ -729,9 +733,11 @@ local function drawCraftingMenu(sel, inputTable)
 
         --sleep(5)
     end
+    menu = false
 end
 
 local function drawMenu(sel)
+    menu = true
     local amount = 1
     local done = false
     while done == false do
@@ -881,12 +887,15 @@ local function drawMenu(sel)
             elseif y < 2 and x > width - 1 then
                 done = true
             elseif y == 3 then
-                drawNBTmenu(sel)
+                if items[sel].nbt ~= nil then
+                    drawNBTmenu(sel)
+                end
             end
         end
 
         --sleep(5)
     end
+    menu = false
 end
 
 local function drawList()
@@ -999,32 +1008,44 @@ local function drawList()
 end
 
 local function openMenu(sel)
-    menu = true
     if menuSel == "crafting" then
         if displayedRecipes[sel + scroll] ~= nil then
             drawCraftingMenu(sel + scroll, displayedRecipes)
+            sleep(0.1)
+            drawList()
         end
     elseif items[sel + scroll] ~= nil then
         drawMenu(sel + scroll)
+        sleep(0.1)
+        drawList()
     end
-
-    menu = false
-    term.clear()
-    term.setCursorPos(1, 1)
-    centerText("Requesting...")
-    sleep(0.1)
-    drawList()
 end
 
 local function inputHandler()
     while true do
-        local event, key
+        local event, key, x, y
         repeat
-            event, key = os.pullEvent()
-        until event == "char" or event == "key" or event == "mouse_scroll"
-        if (event == "char" or event == "key" or event == "mouse_scroll") and menu == false then
+            event, key, x, y = os.pullEvent()
+        until event == "char" or event == "key" or event == "mouse_scroll" or event == "mouse_click"
+        if (event == "char" or event == "key" or event == "mouse_scroll" or event == "mouse_click") and menu == false then
             --term.setCursorPos(1,height)
-            if event == "char" then
+            if event == "mouse_click" then
+                if y == height - 1 and x > width - 8 then
+                    --Import button pressed
+                    importAll()
+                elseif settings.get("crafting") == true and y == height - 2 and x > width - 8 then
+                    --Storage menu button pressed
+                    menuSel = "storage"
+                    drawList()
+                elseif settings.get("crafting") == true and y == height - 3 and x > width - 8 then
+                    --Crafting menu button pressed
+                    menuSel = "crafting"
+                    drawList()
+                elseif (items[y + scroll] ~= nil or displayedRecipes[y + scroll] ~= nil) and y ~= height then
+                    openMenu(y)
+                end
+
+            elseif event == "char" then
                 search = search .. key
             elseif event == "mouse_scroll" then
                 if key == 1 then
@@ -1112,26 +1133,6 @@ local function inputHandler()
     end
 end
 
-local function touchHandler()
-    while true do
-        local event, button, x, y = os.pullEvent("mouse_click")
-        if y == height - 1 and x > width - 8 then
-            --Import button pressed
-            importAll()
-        elseif settings.get("crafting") == true and y == height - 2 and x > width - 8 then
-            --Storage menu button pressed
-            menuSel = "storage"
-            drawList()
-        elseif settings.get("crafting") == true and y == height - 3 and x > width - 8 then
-            --Crafting menu button pressed
-            menuSel = "crafting"
-            drawList()
-        elseif (items[y + scroll] ~= nil or displayedRecipes[y + scroll] ~= nil) and y ~= height then
-            openMenu(y)
-        end
-    end
-end
-
 broadcastStorageServer()
 broadcastCraftingServer()
 term.clear()
@@ -1145,8 +1146,6 @@ for i = 1, width, 1 do
 end
 
 while true do
-    parallel.waitForAny(touchHandler, inputHandler)
-
-    --inputHandler()
+    inputHandler()
     sleep(0.1)
 end
