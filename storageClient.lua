@@ -221,13 +221,16 @@ local function getItems()
 end
 
 local function import(item)
+    pingStorageServer()
     rednet.send(server, "import")
     rednet.send(server, item:getTable())
+    items = getItems()
 end
 
 local function importAll()
-    rednet.send(server, "importAll")
     pingStorageServer()
+    rednet.send(server, "importAll")
+    items = getItems()
 end
 
 local function export(item)
@@ -252,6 +255,7 @@ local function loadingScreen(text)
     centerText(text)
     term.setCursorPos(1, 4)
     centerText("Loading...")
+    term.setCursorPos(1, 6)
 end
 
 local function drawDetailsmenu(sel)
@@ -656,20 +660,20 @@ local function drawCraftingMenu(sel, inputTable)
                 amount = 1
             elseif key == keys.comma then
                 if type(inputTable[sel - 1]) ~= "nil" then
-                    loadingScreen()
+                    loadingScreen("Communication with Crafting Server")
                     done = true
                     drawCraftingMenu(sel - 1, inputTable)
                 end
             elseif key == keys.period then
                 if type(inputTable[sel + 1]) ~= "nil" then
-                    loadingScreen()
+                    loadingScreen("Communication with Crafting Server")
                     done = true
                     drawCraftingMenu(sel + 1, inputTable)
                 end
             elseif key == keys.backspace then
                 done = true
             elseif key == keys.enter or key == keys.numPadEnter then
-                loadingScreen()
+                loadingScreen("Communication with Crafting Server")
                 done = true
                 craftRecipe(inputTable[sel], amount, canCraft)
             elseif key == keys.numPad1 and type(legend[1]) ~= "nil" then
@@ -764,18 +768,18 @@ local function drawCraftingMenu(sel, inputTable)
             then
                 amount = 1
             elseif y == (height - 1) then
-                loadingScreen()
+                loadingScreen("Communication with Crafting Server")
                 done = true
                 craftRecipe(inputTable[sel], amount, canCraft)
             elseif y == 2 and x == 1 then
                 if type(inputTable[sel - 1]) ~= "nil" then
-                    loadingScreen()
+                    loadingScreen("Communication with Crafting Server")
                     done = true
                     drawCraftingMenu(sel - 1, inputTable)
                 end
             elseif y == 2 and x == width then
                 if type(inputTable[sel + 1]) ~= "nil" then
-                    loadingScreen()
+                    loadingScreen("Communication with Crafting Server")
                     done = true
                     drawCraftingMenu(sel + 1, inputTable)
                 end
@@ -1098,7 +1102,7 @@ local function inputHandler()
             if event == "mouse_click" then
                 if y == height - 1 and x > width - 8 then
                     --Import button pressed
-                    loadingScreen()
+                    loadingScreen("Importing from Export chests")
                     importAll()
                     drawList()
                 elseif settings.get("crafting") == true and y == height - 2 and x > width - 8 then
@@ -1149,7 +1153,7 @@ local function inputHandler()
                     scroll = scroll + 1
                     drawList()
                 elseif key == keys.f5 then
-                    loadingScreen()
+                    loadingScreen("Reloading Database")
                     items = getItems()
                     drawList()
                 elseif key == keys.backspace then
@@ -1171,7 +1175,7 @@ local function inputHandler()
                     drawList()
                 elseif key == keys.insert then
                     --Import button pressed
-                    loadingScreen()
+                    loadingScreen("Importing from Export chests")
                     importAll()
                     drawList()
                 elseif key == keys.numPad1 then
@@ -1207,9 +1211,10 @@ local function inputHandler()
     end
 end
 
+loadingScreen("Storage Client")
 broadcastStorageServer()
 broadcastCraftingServer()
-loadingScreen()
+print("Loading Database")
 items = getItems()
 table.sort(
     items,
