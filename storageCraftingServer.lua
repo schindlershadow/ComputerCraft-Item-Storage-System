@@ -357,7 +357,7 @@ end
 local function getDatabaseFromServer()
     rednet.send(server, "getItems")
     local id, message = rednet.receive(nil, 1)
-    if type(message) == "table" then
+    if type(message) == "table" and id == server then
         for k, v in pairs(message) do
             if not (inTags(v.name)) then
                 if type(message[k]["details"]) == "nil" then
@@ -825,8 +825,8 @@ local function reloadStorageDatabase()
 
     --items, storageUsed = getList(storage)
 
-
-    rednet.send(server, "import")
+    pingServer()
+    rednet.send(server, "forceImport")
     items = getDatabaseFromServer()
     --write("done\n")
     --write("Writing Tags Database....")
@@ -860,21 +860,17 @@ end
 local function dumpAll()
     local reload = false
     for i = 1, 16, 1 do
-        turtle.select(i)
         local item = turtle.getItemDetail(i)
-        turtle.dropDown()
-
         if type(item) ~= "nil" then
+            turtle.select(i)
+            turtle.dropDown()
             reload = true
         end
-
     end
     if reload then
-
-        --sleep(5)
         reloadStorageDatabase()
+        pingServer()
     end
-
 end
 
 local function getAllRecipes(itemName)
