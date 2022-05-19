@@ -257,7 +257,7 @@ local function drawNBTmenu(sel)
         local event, button, x, y
         repeat
             event, button, x, y = os.pullEvent()
-        until event ~= "mouse_click" or event ~= "key"
+        until event == "mouse_click" or event == "key"
 
         if event == "key" then
             local key = button
@@ -436,16 +436,15 @@ local function drawCraftingMenu(sel, inputTable)
     local amount = 1
     local done = false
     while done == false do
-        rednet.send(craftingServer, "numNeeded")
-        sleep(0.1)
-        inputTable[sel].amount = amount
-        rednet.send(craftingServer, inputTable[sel])
         local id2, message2
         repeat
-            id2, message2 = rednet.receive()
+            rednet.send(craftingServer, "numNeeded")
+            sleep(0.1)
+            inputTable[sel].amount = amount
+            rednet.send(craftingServer, inputTable[sel])
+            id2, message2 = rednet.receive(nil, 0.5)
         until id2 == craftingServer and type(message2) == "table"
         local numNeeded = message2
-
         local legend = {}
         local legendKeys = {}
         local canCraft = true
@@ -592,7 +591,7 @@ local function drawCraftingMenu(sel, inputTable)
 
         repeat
             event, button, x, y = os.pullEvent()
-        until event ~= "mouse_click" or event ~= "key" or event ~= "mouse_scroll"
+        until event == "mouse_click" or event == "key" or event == "mouse_scroll"
 
         if event == "key" then
             local key = button
@@ -793,7 +792,7 @@ local function drawMenu(sel)
 
         repeat
             event, button, x, y = os.pullEvent()
-        until event ~= "mouse_click" or event ~= "key" or event ~= "mouse_scroll"
+        until event == "mouse_click" or event == "key" or event == "mouse_scroll"
 
         if event == "key" then
             local key = button
@@ -1022,7 +1021,7 @@ local function inputHandler()
         local event, key
         repeat
             event, key = os.pullEvent()
-        until event ~= "char" or event ~= "key" or event ~= "mouse_scroll"
+        until event == "char" or event == "key" or event == "mouse_scroll"
         if (event == "char" or event == "key" or event == "mouse_scroll") and menu == false then
             --term.setCursorPos(1,height)
             if event == "char" then
