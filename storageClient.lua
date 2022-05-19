@@ -493,7 +493,7 @@ local function drawCraftingMenu(sel, inputTable)
         log("type(inputTable) == nil")
         inputTable = displayedRecipes
     end
-    log(inputTable)
+    --log(inputTable)
     local amount = 1
     local done = false
     while done == false do
@@ -524,24 +524,22 @@ local function drawCraftingMenu(sel, inputTable)
         end
 
         term.setBackgroundColor(colors.green)
-        for k = 3, height - 1, 1 do
-            for i = 1, width, 1 do
-                term.setCursorPos(i, k)
-                term.write(" ")
-            end
-        end
+        term.clear()
         term.setCursorPos(1, 1)
         term.setBackgroundColor(colors.black)
-        for i = 1, width, 1 do
-            term.setCursorPos(i, 1)
-            term.write(" ")
+        local tmpText = ""
+        for i = 1, width, 1 do            
+            tmpText = tmpText .. " "
         end
+        term.write(tmpText)
         centerText("Crafting Menu")
+        term.setCursorPos(1, 2)
         term.setBackgroundColor(colors.brown)
-        for i = 1, width, 1 do
-            term.setCursorPos(i, 2)
-            term.write(" ")
+        tmpText = ""
+        for i = 1, width, 1 do            
+            tmpText = tmpText .. " "
         end
+        term.write(tmpText)
         term.setCursorPos(1, 2)
         term.write("<")
         centerText(inputTable[sel].name .. " #" .. tostring(inputTable[sel].count))
@@ -666,13 +664,11 @@ local function drawCraftingMenu(sel, inputTable)
                 amount = 1
             elseif key == keys.comma then
                 if type(inputTable[sel - 1]) ~= "nil" then
-                    loadingScreen("Communication with Crafting Server")
                     done = true
                     drawCraftingMenu(sel - 1, inputTable)
                 end
             elseif key == keys.period then
                 if type(inputTable[sel + 1]) ~= "nil" then
-                    loadingScreen("Communication with Crafting Server")
                     done = true
                     drawCraftingMenu(sel + 1, inputTable)
                 end
@@ -809,31 +805,33 @@ local function drawMenu(sel, list)
     local done = false
     while done == false do
         term.setBackgroundColor(colors.green)
-        for k = 3, height - 1, 1 do
-            for i = 1, width, 1 do
-                term.setCursorPos(i, k)
-                term.write(" ")
-            end
-        end
+        term.clear()
         term.setCursorPos(1, 1)
         term.setBackgroundColor(colors.black)
-        for i = 1, width, 1 do
-            term.setCursorPos(i, 1)
-            term.write(" ")
+        local tmpText = ""
+        for i = 1, width, 1 do            
+            tmpText = tmpText .. " "
         end
-        centerText("Menu")
+        term.write(tmpText)
+        
+        if filteredItems[sel].details ~= nil and filteredItems[sel].details.displayName ~= nil then
+            centerText(filteredItems[sel].details.displayName .. " Item Menu")
+        else
+            centerText("Item Menu")
+        end
         term.setCursorPos(1, 2)
         term.setBackgroundColor(colors.blue)
+        tmpText = ""
         for i = 1, width, 1 do
-            term.setCursorPos(i, 2)
-            term.write(" ")
+            tmpText = tmpText .. " "
         end
+        term.write(tmpText)
         centerText(filteredItems[sel].name .. " #" .. tostring(filteredItems[sel].count))
         term.setBackgroundColor(colors.green)
         term.setCursorPos(1, 3)
         if filteredItems[sel].details ~= nil then
             term.setBackgroundColor(colors.red)
-            centerText(" Show Item tags ")
+            centerText(" Show Item details ")
             term.setBackgroundColor(colors.green)
         end
         term.setCursorPos(1, (height * .25) + 4)
@@ -881,6 +879,20 @@ local function drawMenu(sel, list)
                 amount = filteredItems[sel].count
             elseif key == keys.home then
                 amount = 1
+            elseif key == keys.comma then
+                if type(filteredItems[sel - 1]) ~= "nil" then
+                    done = true
+                    drawMenu(sel - 1, filteredItems)
+                end
+            elseif key == keys.period then
+                if type(filteredItems[sel + 1]) ~= "nil" then
+                    done = true
+                    drawMenu(sel + 1, filteredItems)
+                end
+            elseif key == keys.s then
+                if filteredItems[sel].details ~= nil then
+                    drawDetailsmenu(sel)
+                end
             elseif key == keys.backspace then
                 done = true
             elseif key == keys.enter or key == keys.numPadEnter then
