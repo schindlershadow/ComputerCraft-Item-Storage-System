@@ -446,7 +446,7 @@ local function drawCraftingMenu(sel, inputTable)
             sleep(0.1)
             inputTable[sel].amount = amount
             rednet.send(craftingServer, inputTable[sel])
-            id2, message2 = rednet.receive(nil, 0.5)
+            id2, message2 = rednet.receive(nil, 1.5)
         until id2 == craftingServer and type(message2) == "table"
         local numNeeded = message2
         local legend = {}
