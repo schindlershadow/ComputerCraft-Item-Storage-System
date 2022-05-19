@@ -148,6 +148,26 @@ local function pingStorageServer()
     end
 end
 
+local function centerText(text)
+    local x, y = term.getSize()
+    local x1, y1 = term.getCursorPos()
+    term.setCursorPos((math.floor(x / 2) - (math.floor(#text / 2))), y1)
+    write(text)
+end
+
+local function loadingScreen(text)
+    if type(text) == nil then
+        text = ""
+    end
+    term.setBackgroundColor(colors.red)
+    term.clear()
+    term.setCursorPos(1, 2)
+    centerText(text)
+    term.setCursorPos(1, 4)
+    centerText("Loading...")
+    term.setCursorPos(1, 6)
+end
+
 local function findInTable(arr, element)
     for i, value in pairs(arr) do
         if value.name == element.name and value.nbt == element.nbt then
@@ -228,34 +248,20 @@ local function import(item)
 end
 
 local function importAll()
+    loadingScreen("Importing from Export chests")
+    print("Waiting for server to be ready")
     pingStorageServer()
+    print("Importing")
     rednet.send(server, "importAll")
+    pingStorageServer()
+    print("Import Complete")
+    print("Reloading Database")
     items = getItems()
 end
 
 local function export(item)
     rednet.send(server, "export")
     rednet.send(server, { item = item:getTable(), chest = settings.get("exportChestName") })
-end
-
-local function centerText(text)
-    local x, y = term.getSize()
-    local x1, y1 = term.getCursorPos()
-    term.setCursorPos((math.floor(x / 2) - (math.floor(#text / 2))), y1)
-    write(text)
-end
-
-local function loadingScreen(text)
-    if text == nil then
-        text = ""
-    end
-    term.setBackgroundColor(colors.red)
-    term.clear()
-    term.setCursorPos(1, 2)
-    centerText(text)
-    term.setCursorPos(1, 4)
-    centerText("Loading...")
-    term.setCursorPos(1, 6)
 end
 
 local function drawDetailsmenu(sel)
@@ -887,7 +893,8 @@ local function drawMenu(sel, list)
                     result = Item:new(filteredItems[sel].name, amount, filteredItems[sel].nbt, filteredItems[sel].tags)
                 end
                 export(result)
-                loadingScreen("Reloading Database")
+                print("Export Complete")
+                print("Reloading Database")
                 items = getItems()
             end
 
@@ -949,7 +956,8 @@ local function drawMenu(sel, list)
                     result = Item:new(filteredItems[sel].name, amount, filteredItems[sel].nbt, filteredItems[sel].tags)
                 end
                 export(result)
-                loadingScreen("Reloading Database")
+                print("Export Complete")
+                print("Reloading Database")
                 items = getItems()
             elseif y < 2 and x > width - 1 then
                 loadingScreen("Communication with Storage Server")
@@ -1102,7 +1110,6 @@ local function inputHandler()
             if event == "mouse_click" then
                 if y == height - 1 and x > width - 8 then
                     --Import button pressed
-                    loadingScreen("Importing from Export chests")
                     importAll()
                     drawList()
                 elseif settings.get("crafting") == true and y == height - 2 and x > width - 8 then
@@ -1175,7 +1182,6 @@ local function inputHandler()
                     drawList()
                 elseif key == keys.insert then
                     --Import button pressed
-                    loadingScreen("Importing from Export chests")
                     importAll()
                     drawList()
                 elseif key == keys.numPad1 then
