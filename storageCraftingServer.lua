@@ -826,7 +826,9 @@ local function reloadStorageDatabase()
     --items, storageUsed = getList(storage)
 
 
-    rednet.send(server, "import")
+    rednet.send(server, "reloadStorageDatabase")
+    --Wait on storage system to be ready
+    pingServer()
     items = getDatabaseFromServer()
     --write("done\n")
     --write("Writing Tags Database....")
@@ -860,19 +862,17 @@ end
 local function dumpAll()
     local reload = false
     for i = 1, 16, 1 do
-        turtle.select(i)
         local item = turtle.getItemDetail(i)
-        turtle.dropDown()
-
         if type(item) ~= "nil" then
+            turtle.select(i)
+            turtle.dropDown()
             reload = true
         end
-
     end
     if reload then
-
-        --sleep(5)
         reloadStorageDatabase()
+        --Wait on storage system to be ready
+        pingServer()
     end
 
 end
