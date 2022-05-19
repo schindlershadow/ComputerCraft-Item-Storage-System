@@ -177,9 +177,9 @@ local function getStorageSize(storage)
         return storageSize, storageMaxSize
     end
     if storageSize ~= 0 then
-    print("")
-    print("Storage change detected")
-    print("")
+        print("")
+        print("Storage change detected")
+        print("")
     end
 
     slots = 0
@@ -218,7 +218,7 @@ local function getStorageSize(storage)
 end
 
 local function pingClients(message)
-    for k,v in pairs(clients) do
+    for k, v in pairs(clients) do
         rednet.send(v, message)
     end
 end
@@ -531,6 +531,8 @@ local function storageHandler()
             print("")
         elseif message == "ping" then
             rednet.send(id, "ack")
+        elseif message == "reloadStorageDatabase" then
+            reloadStorageDatabase()
         elseif message == "getItems" then
             if settings.get("debug") then
                 print(dump(items))
@@ -543,6 +545,26 @@ local function storageHandler()
             end
             local filteredTable = search(message2, items)
             rednet.send(id, filteredTable[1])
+        elseif message == "forceImport" then
+            local inputStorage = getInputStorage()
+            local list = getList(inputStorage)
+            --check if list is not empty
+            if next(list) then
+                local localStorage = storage
+                for i, item in pairs(list) do
+                    local chest, slot = findFreeSpace(item, storage)
+                    if chest == nil then
+                        --TODO: implement space full alert
+                        print("No free space found!")
+                        reloadStorageDatabase()
+                    else
+                        --send to found slot
+                        print("Import: " .. item.name .. " #" .. tostring(item.count))
+                        peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                    end
+                end
+                reloadStorageDatabase()
+            end
         elseif message == "import" then
             local id2, message2
             repeat
