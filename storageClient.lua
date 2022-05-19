@@ -202,6 +202,7 @@ local function filterItems()
 end
 
 local function getItems()
+    pingStorageServer()
     rednet.send(server, "getItems")
     local id, message = rednet.receive(nil, 1)
     if type(message) == "table" and id == server then
@@ -1070,17 +1071,19 @@ local function drawList(list)
 end
 
 local function openMenu(sel)
-    local filteredItems = filterItems()
     if menuSel == "crafting" then
         if displayedRecipes[sel + scroll] ~= nil then
             drawCraftingMenu(sel + scroll, displayedRecipes)
-            sleep(0.1)
-            drawList()
+            local filteredItems = filterItems()
+            drawList(filteredItems)
         end
-    elseif filteredItems[sel + scroll] ~= nil then
-        drawMenu(sel + scroll)
-        sleep(0.1)
-        drawList(filteredItems)
+    else
+        local filteredItems = filterItems()
+        if filteredItems[sel + scroll] ~= nil then
+            drawMenu(sel + scroll)
+            filteredItems = filterItems()
+            drawList(filteredItems)
+        end
     end
 end
 
