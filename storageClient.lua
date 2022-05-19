@@ -170,6 +170,9 @@ local function removeDuplicates(arr)
     local newArray = {} -- new array that will be arr, but without duplicates
     for _, element in pairs(arr) do
         if not inTable(newArray, element) then -- making sure we had not added it yet to prevent duplicates
+            if element.details == nil then
+                element.details = peripheral.wrap(element.chestName).getItemDetail(element.slot)
+            end
             table.insert(newArray, element)
         else
             local index = findInTable(newArray, element)
@@ -181,25 +184,35 @@ local function removeDuplicates(arr)
     return newArray -- returning the new, duplicate removed array
 end
 
+local function filterItems()
+    local filteredTable = {}
+    for k, v in pairs(items) do
+        if v["details"] == nil then
+            if string.find(string.lower(v["name"]), string.lower(search)) or string.find(string.lower(v["name"]), string.lower(search:gsub(" ", "_"))) then
+                local tab = v
+                tab.details = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+                table.insert(filteredTable, tab)
+            end
+        elseif string.find(string.lower(v["details"]["displayName"]), string.lower(search)) or string.find(string.lower(v["details"]["displayName"]), string.lower(search:gsub(" ", "_"))) or string.find(string.lower(v["name"]), string.lower(search)) or string.find(string.lower(v["name"]), string.lower(search:gsub(" ", "_"))) then
+            table.insert(filteredTable, v)
+        end
+    end
+    local outputTable = removeDuplicates(filteredTable)
+    return outputTable
+end
+
 local function getItems()
     rednet.send(server, "getItems")
     local id, message = rednet.receive(nil, 1)
     if type(message) == "table" and id == server then
-        if search == "" then
-            return removeDuplicates(message)
+        local tab = removeDuplicates(message)
+        table.sort(
+            tab,
+            function(a, b)
+            return a.count > b.count
         end
-        local filteredTable = {}
-        for k, v in pairs(message) do
-            if v["details"] == nil then
-                if string.find(string.lower(v["name"]), string.lower(search)) or string.find(string.lower(v["name"]), string.lower(search:gsub(" ", "_"))) then
-                    table.insert(filteredTable, v)
-                end
-            elseif string.find(string.lower(v["details"]["displayName"]), string.lower(search)) or string.find(string.lower(v["details"]["displayName"]), string.lower(search:gsub(" ", "_"))) then
-                table.insert(filteredTable, v)
-            end
-        end
-        local outputTable = removeDuplicates(filteredTable)
-        return outputTable
+        )
+        return tab
     else
         sleep(0.2)
         return getItems()
@@ -231,11 +244,12 @@ end
 local function loadingScreen()
     term.setBackgroundColor(colors.red)
     term.clear()
-    term.setCursorPos(1,2)
+    term.setCursorPos(1, 2)
     centerText("Loading...")
 end
 
-local function drawNBTmenu(sel)
+local function drawDetailsmenu(sel)
+    local filteredItems = filterItems()
     local amount = 1
     local done = false
     while done == false do
@@ -252,18 +266,18 @@ local function drawNBTmenu(sel)
             term.setCursorPos(i, 1)
             term.write(" ")
         end
-        centerText("NBT Menu")
+        centerText("Details Menu")
         term.setCursorPos(1, 2)
         term.setBackgroundColor(colors.blue)
         for i = 1, width, 1 do
             term.setCursorPos(i, 2)
             term.write(" ")
         end
-        centerText(items[sel].name .. " #" .. tostring(items[sel].count))
+        centerText(filteredItems[sel].name .. " #" .. tostring(filteredItems[sel].count))
         term.setBackgroundColor(colors.green)
         term.setCursorPos(1, 3)
-        if items[sel].nbt ~= nil then
-            write(dump(items[sel].details))
+        if filteredItems[sel].details ~= nil then
+            write(dump(filteredItems[sel].details))
         end
         term.setCursorPos(width, 1)
         term.setBackgroundColor(colors.red)
@@ -413,7 +427,7 @@ local function craftRecipe(recipe, amount, canCraft)
     if ttl < 1 then
         message = false
     end
-    term.setCursorPos(1, height-1)
+    term.setCursorPos(1, height - 1)
     if message == true then
         term.setBackgroundColor(colors.green)
         centerText(" Crafting Complete! :D ")
@@ -767,8 +781,12 @@ local function drawCraftingMenu(sel, inputTable)
     menu = false
 end
 
-local function drawMenu(sel)
+local function drawMenu(sel, list)
     menu = true
+    local filteredItems = list
+    if filteredItems == nil then
+        filteredItems = filterItems()
+    end
     local amount = 1
     local done = false
     while done == false do
@@ -792,12 +810,12 @@ local function drawMenu(sel)
             term.setCursorPos(i, 2)
             term.write(" ")
         end
-        centerText(items[sel].name .. " #" .. tostring(items[sel].count))
+        centerText(filteredItems[sel].name .. " #" .. tostring(filteredItems[sel].count))
         term.setBackgroundColor(colors.green)
         term.setCursorPos(1, 3)
-        if items[sel].nbt ~= nil then
+        if filteredItems[sel].details ~= nil then
             term.setBackgroundColor(colors.red)
-            centerText("Show NBT tags")
+            centerText(" Show Item tags ")
             term.setBackgroundColor(colors.green)
         end
         term.setCursorPos(1, (height * .25) + 4)
@@ -834,7 +852,7 @@ local function drawMenu(sel)
         if event == "key" then
             local key = button
             if key == keys.right then
-                if amount < items[sel].count then
+                if amount < filteredItems[sel].count then
                     amount = amount + 1
                 end
             elseif key == keys.left then
@@ -842,7 +860,7 @@ local function drawMenu(sel)
                     amount = amount - 1
                 end
             elseif key == keys['end'] then
-                amount = items[sel].count
+                amount = filteredItems[sel].count
             elseif key == keys.home then
                 amount = 1
             elseif key == keys.backspace then
@@ -851,10 +869,10 @@ local function drawMenu(sel)
                 loadingScreen()
                 done = true
                 local result
-                if items[sel].nbt == nil then
-                    result = Item:new(items[sel].name, amount, "", items[sel].tags)
+                if filteredItems[sel].nbt == nil then
+                    result = Item:new(filteredItems[sel].name, amount, "", filteredItems[sel].tags)
                 else
-                    result = Item:new(items[sel].name, amount, items[sel].nbt, items[sel].tags)
+                    result = Item:new(filteredItems[sel].name, amount, filteredItems[sel].nbt, filteredItems[sel].tags)
                 end
                 export(result)
             end
@@ -862,7 +880,7 @@ local function drawMenu(sel)
 
         elseif event == "mouse_scroll" then
             if button == -1 then
-                if amount < items[sel].count then
+                if amount < filteredItems[sel].count then
                     amount = amount + 1
                 end
             elseif button == 1 then
@@ -882,16 +900,16 @@ local function drawMenu(sel)
             elseif (((x < (width - (width * .25)) + 2) and (x > (width - (width * .25)) - 2)) and
                 ((y > (height * .25) + 4) and (y < (height * .25) + 6)))
             then
-                if amount < items[sel].count then
+                if amount < filteredItems[sel].count then
                     amount = amount + 1
                 end
             elseif (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and
                 ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
             then
-                if amount + 64 < items[sel].count then
+                if amount + 64 < filteredItems[sel].count then
                     amount = amount + 64
                 else
-                    amount = items[sel].count
+                    amount = filteredItems[sel].count
                 end
             elseif (((x < ((width * .25) * 2) + 3) and (x > ((width * .25) * 2) - 3)) and
                 ((y > (height * .25) + 6) and (y < (height * .25) + 10)))
@@ -906,23 +924,23 @@ local function drawMenu(sel)
             then
                 amount = 1
             elseif (y < ((height * .25) + 13)) and (y > ((height * .25) + 10)) then
-                amount = items[sel].count
+                amount = filteredItems[sel].count
             elseif y == (height - 1) then
                 loadingScreen()
                 done = true
                 local result
-                if items[sel].nbt == nil then
-                    result = Item:new(items[sel].name, amount, "", items[sel].tags)
+                if filteredItems[sel].nbt == nil then
+                    result = Item:new(filteredItems[sel].name, amount, "", filteredItems[sel].tags)
                 else
-                    result = Item:new(items[sel].name, amount, items[sel].nbt, items[sel].tags)
+                    result = Item:new(filteredItems[sel].name, amount, filteredItems[sel].nbt, filteredItems[sel].tags)
                 end
                 export(result)
             elseif y < 2 and x > width - 1 then
                 loadingScreen()
                 done = true
             elseif y == 3 then
-                if items[sel].nbt ~= nil then
-                    drawNBTmenu(sel)
+                if filteredItems[sel].details ~= nil then
+                    drawDetailsmenu(sel)
                 end
             end
         end
@@ -932,31 +950,30 @@ local function drawMenu(sel)
     menu = false
 end
 
-local function drawList()
+local function drawList(list)
     if menu == false then
         if menuSel == "storage" then
-            items = getItems()
-            table.sort(
-                items,
-                function(a, b)
-                return a.count > b.count
+            local filteredItems = list
+            if filteredItems == nil then
+                filteredItems = filterItems()
             end
-            )
             term.setBackgroundColor(colors.blue)
-            for k, v in pairs(items) do
+            for k, v in pairs(filteredItems) do
                 if k > scroll then
                     if k < (height + scroll) then
                         local text = ""
-
-                        if v["nbt"] ~= nil then
-                            text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"])
-                        elseif v["details"] == nil then
+                        if v["details"] == nil then
                             text = v["name"] .. " - #" .. v["count"]
                         else
-                            if v["details"]["tags"] ~= nil then
-                                text = v["details"]["displayName"] .. " - #" .. v["count"] .. " " .. dump(v["details"]["tags"])
-                            else
-                                text = v["details"]["displayName"] .. " - #" .. v["count"]
+                            text = v["details"]["displayName"] .. " - #" .. v["count"]
+                            if v["details"]["damage"] ~= nil then
+                                text = text .. " Durability:" .. tostring(math.floor(100 * ((v["details"]["maxDamage"] - v["details"]["damage"]) / v["details"]["maxDamage"])) .. "%")
+                            end
+                            if v["details"]["enchantments"] ~= nil then
+                                text = text .. " Enchanted"
+                            end
+                            if v["nbt"] ~= nil and settings.get("debug") then
+                                text = text .. " NBT:" .. dump(v["nbt"])
                             end
                         end
 
@@ -971,7 +988,7 @@ local function drawList()
                 end
             end
             for k = 1, height - 1, 1 do
-                if type(items[k + scroll]) == "nil" then
+                if type(filteredItems[k + scroll]) == "nil" then
                     for i = 1, width, 1 do
                         term.setCursorPos(i, k)
                         term.write(" ")
@@ -1042,16 +1059,17 @@ local function drawList()
 end
 
 local function openMenu(sel)
+    local filteredItems = filterItems()
     if menuSel == "crafting" then
         if displayedRecipes[sel + scroll] ~= nil then
             drawCraftingMenu(sel + scroll, displayedRecipes)
             sleep(0.1)
             drawList()
         end
-    elseif items[sel + scroll] ~= nil then
+    elseif filteredItems[sel + scroll] ~= nil then
         drawMenu(sel + scroll)
         sleep(0.1)
-        drawList()
+        drawList(filteredItems)
     end
 end
 
@@ -1116,6 +1134,10 @@ local function inputHandler()
                 elseif key == keys.down then
                     scroll = scroll + 1
                     drawList()
+                elseif key == keys.f5 then
+                    loadingScreen()
+                    items = getItems()
+                    drawList()
                 elseif key == keys.backspace then
                     search = search:sub(1, -2)
                 elseif key == keys.enter or key == keys.numPadEnter then
@@ -1135,7 +1157,9 @@ local function inputHandler()
                     drawList()
                 elseif key == keys.insert then
                     --Import button pressed
+                    loadingScreen()
                     importAll()
+                    drawList()
                 elseif key == keys.numPad1 then
                     openMenu(1)
                 elseif key == keys.numPad2 then
@@ -1171,8 +1195,14 @@ end
 
 broadcastStorageServer()
 broadcastCraftingServer()
-term.clear()
-term.setCursorPos(1, 1)
+loadingScreen()
+items = getItems()
+table.sort(
+    items,
+    function(a, b)
+    return a.count > b.count
+end
+)
 drawList()
 
 term.setBackgroundColor(colors.black)
