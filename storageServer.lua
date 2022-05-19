@@ -2,7 +2,7 @@ local clients = {}
 
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
-settings.define("exportChests", { description = "The peripheral name of the export chest", { "minecraft:chest" }, type = "table" })
+settings.define("exportChests", { description = "The peripheral name of the export chest", { "minecraft:chest_0" }, type = "table" })
 settings.define(
     "importChests",
     { description = "The peripheral name of the import chests", default = { "minecraft:chest_2" }, type = "table" }
@@ -14,12 +14,12 @@ settings.define("craftingChest", { description = "The peripheral name of the cra
 if settings.load() == false then
     print("No settings have been found! Default values will be used!")
     settings.set("debug", false)
-    settings.set("exportChests", { "minecraft:chest" })
+    settings.set("exportChests", { "minecraft:chest_0" })
     settings.set("importChests", { "minecraft:chest_2" })
     settings.set("craftingChest", "minecraft:chest_3")
     print("Stop the server and edit .settings file with correct settings")
     settings.save()
-    sleep(1)
+    sleep(5)
 end
 
 --Open all modems to rednet

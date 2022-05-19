@@ -24,7 +24,7 @@ if settings.load() == false then
     settings.set("craftingChest", "minecraft:chest_3")
     print("Stop the server and edit .settings file with correct settings")
     settings.save()
-    sleep(1)
+    sleep(5)
 end
 
 --Open all modems to rednet
@@ -70,7 +70,7 @@ local function broadcast()
         server = tonumber(message)
         return tonumber(message)
     else
-        sleep(1)
+        sleep(0.5)
         return broadcast()
     end
 end
@@ -1103,7 +1103,6 @@ local function getBestRecipe(allRecipes, id)
     end
     print("Recipe score: " .. tostring(bestScore))
     log("Recipe score: " .. tostring(bestScore))
-    --sleep(5)
 
     return bestRecipe, bestCount
 
@@ -1419,7 +1418,6 @@ local function craftBranch(recipeObj, ttl, amount, id)
                             print("Cannot craft " .. itemName .. ": no recipes found for: " .. item)
                             updateClient(id, "logUpdate", "Cannot craft " .. itemName .. ": no recipes found for: " .. item)
                             log(("no recipes found for: " .. item))
-                            sleep(1)
                             return false
                         end
                         --Remove existing amount
@@ -1818,5 +1816,5 @@ while true do
         parallel.waitForAny(debugMenu, serverHandler)
         --serverHandler()
     end
-    sleep(1)
+    sleep(0.2)
 end

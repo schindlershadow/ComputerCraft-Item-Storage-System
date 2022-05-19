@@ -14,7 +14,7 @@ local menuSel = "storage"
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
 settings.define("crafting", { description = "Enables crafting support", default = "false", type = "boolean" })
-settings.define("exportChestName", { description = "Name of the export chest for this client", default = "minecraft:chest", type = "string" })
+settings.define("exportChestName", { description = "Name of the export chest for this client", default = "minecraft:chest_0", type = "string" })
 
 local logging = true
 local debug = false
@@ -24,7 +24,7 @@ if settings.load() == false then
     print("No settings have been found! Default values will be used!")
     settings.set("debug", false)
     settings.set("crafting", false)
-    settings.set("exportChestName", "minecraft:chest")
+    settings.set("exportChestName", "minecraft:chest_0")
     print("Stop the client and edit .settings file with correct settings")
     settings.save()
     sleep(5)
@@ -98,7 +98,7 @@ local function broadcastStorageServer()
         server = tonumber(message)
         return tonumber(message)
     else
-        sleep(1)
+        sleep(0.4)
         return broadcastStorageServer()
     end
 end
@@ -112,9 +112,6 @@ local function getRecipes()
         end)
 
         return message
-
-
-
     else
         sleep(0.2)
         return getRecipes()
@@ -297,6 +294,7 @@ local function craftRecipe(recipe, amount, canCraft)
     term.clear()
     local id, message
     local nowCrafting = recipe.name
+    local ttl = 5
     repeat
         if id == craftingServer and type(message) == "table" and message.type == "craftingUpdate" then
             log(textutils.serialise(message))
@@ -316,6 +314,11 @@ local function craftRecipe(recipe, amount, canCraft)
                     logs[#logs + 1] = message[1]
                 end
             end
+            ttl = 5
+        end
+
+        if type(message) == "nil" then
+            ttl = ttl - 1
         end
 
         term.clear()
@@ -386,8 +389,11 @@ local function craftRecipe(recipe, amount, canCraft)
         end
 
 
-        id, message = rednet.receive()
-    until id == craftingServer and type(message) == "boolean"
+        id, message = rednet.receive(nil, 5)
+    until (id == craftingServer and type(message) == "boolean") or ttl < 1
+    if ttl < 1 then
+        message = false
+    end
     term.setCursorPos(1, height-1)
     if message == true then
         term.setBackgroundColor(colors.green)
