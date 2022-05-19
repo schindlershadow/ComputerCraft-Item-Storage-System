@@ -191,7 +191,7 @@ local function removeDuplicates(arr)
     for _, element in pairs(arr) do
         if not inTable(newArray, element) then -- making sure we had not added it yet to prevent duplicates
             if element.details == nil then
-                element.details = peripheral.wrap(element.chestName).getItemDetail(element.slot)
+                --element.details = peripheral.wrap(element.chestName).getItemDetail(element.slot)
             end
             table.insert(newArray, element)
         else
@@ -210,7 +210,7 @@ local function filterItems()
         if v["details"] == nil then
             if string.find(string.lower(v["name"]), string.lower(search)) or string.find(string.lower(v["name"]), string.lower(search:gsub(" ", "_"))) then
                 local tab = v
-                tab.details = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+                --tab.details = peripheral.wrap(v.chestName).getItemDetail(v.slot)
                 table.insert(filteredTable, tab)
             end
         elseif string.find(string.lower(v["details"]["displayName"]), string.lower(search)) or string.find(string.lower(v["details"]["displayName"]), string.lower(search:gsub(" ", "_"))) or string.find(string.lower(v["name"]), string.lower(search)) or string.find(string.lower(v["name"]), string.lower(search:gsub(" ", "_"))) then
@@ -986,6 +986,10 @@ local function drawList(list)
                 if k > scroll then
                     if k < (height + scroll) then
                         local text = ""
+                        if v["details"] == nil then
+                            v.details = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+                            filteredItems[k].details = v.details
+                        end
                         if v["details"] == nil then
                             text = v["name"] .. " - #" .. v["count"]
                         else
