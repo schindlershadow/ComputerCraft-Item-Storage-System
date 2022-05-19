@@ -545,6 +545,15 @@ local function storageHandler()
             end
             local filteredTable = search(message2, items)
             rednet.send(id, filteredTable[1])
+        elseif message == "getItemDetails" then
+            local id2, message2 = rednet.receive()
+            if settings.get("debug") then
+                print(dump(message2))
+            end
+            if type(message2) == "table" then
+                local details = peripheral.wrap(message2.chestName).getItemDetail(message2.slot)
+                rednet.send(id2, details)
+            end
         elseif message == "forceImport" then
             local inputStorage = getInputStorage()
             local list = getList(inputStorage)

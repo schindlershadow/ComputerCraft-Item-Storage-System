@@ -284,6 +284,9 @@ local function addTag(item)
     --Get the tags which are keys in table item.details.tags
     local keyset = {}
     local n = 0
+    if type(item.details) == "nil" then
+        item.details = peripheral.wrap(item.chestName).getItemDetail(item.slot)
+    end
     for k, v in pairs(item.details.tags) do
         n = n + 1
         keyset[n] = k
@@ -792,6 +795,11 @@ local function isCraftable(searchTerm)
     end
 end
 
+local function reloadServerDatabase()
+    rednet.send(server, "reloadStorageDatabase")
+    pingServer()
+end
+
 local function patchStorageDatabase(itemName, count)
     print("patching db item:" .. itemName .. " #" .. tostring(count))
     log("patching db item:" .. itemName .. " #" .. tostring(count))
@@ -1249,7 +1257,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                             updateClient(id, "logUpdate", "Getting: " .. searchResult.name:match(".+:(.+)"))
                             local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], moveCount)
                             --Ask the server to reload database now that something has been changed
-                            rednet.send(server, "reloadStorageDatabase")
+                            reloadServerDatabase()
                             log("itemsMoved: " .. tostring(itemsMoved))
                             while itemsMoved < moveCount do
                                 --try again
@@ -1273,7 +1281,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                                 end
                                 local newItemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(newSearchResult["chestName"], newSearchResult["slot"], itemsLeft)
                                 --Ask the server to reload database now that something has been changed
-                                rednet.send(server, "reloadStorageDatabase")
+                                reloadServerDatabase()
                                 itemsMoved = itemsMoved + newItemsMoved
                             end
                             --Move items from crafting chest to turtle inventory

@@ -148,6 +148,20 @@ local function pingStorageServer()
     end
 end
 
+local function getItemDetails(item)
+    if type(item) ~= "nil" and type(item.chestName) ~= "nil" and type(item.slot) ~= "nil" then
+        rednet.send(server, "getItemDetails")
+        rednet.send(server, item)
+        local id, message = rednet.receive(nil, 5)
+        if type(message) == "table" and id == server then
+            return message
+        else
+            sleep(0.2)
+            return getItemDetails()
+        end
+    end
+end
+
 local function centerText(text)
     local x, y = term.getSize()
     local x1, y1 = term.getCursorPos()
@@ -442,18 +456,29 @@ local function craftRecipe(recipe, amount, canCraft)
     until (id == craftingServer and type(message) == "boolean") or ttl < 1
     if ttl < 1 then
         message = false
+        term.setBackgroundColor(colors.red)
+        centerText(" Connection Timeout! ")
+        print()
     end
     term.setCursorPos(1, height - 1)
     if message == true then
         term.setBackgroundColor(colors.green)
         centerText(" Crafting Complete! :D ")
-        items = getItems()
     elseif message == false then
         term.setBackgroundColor(colors.red)
         centerText(" Crafting Failed! D: ")
-        items = getItems()
     end
-    --sleep(3)
+    term.setBackgroundColor(colors.black)
+    print()
+    term.setBackgroundColor(colors.blue)
+    centerText(" Press any button to continue... ")
+
+    local event, button, x, y
+    repeat
+        event, button, x, y = os.pullEvent()
+    until event == "mouse_click" or event == "key" or event == "mouse_scroll"
+    items = getItems()
+    --sleep(10)
 
     return message
 end
@@ -528,7 +553,7 @@ local function drawCraftingMenu(sel, inputTable)
         term.setCursorPos(1, 1)
         term.setBackgroundColor(colors.black)
         local tmpText = ""
-        for i = 1, width, 1 do            
+        for i = 1, width, 1 do
             tmpText = tmpText .. " "
         end
         term.write(tmpText)
@@ -536,7 +561,7 @@ local function drawCraftingMenu(sel, inputTable)
         term.setCursorPos(1, 2)
         term.setBackgroundColor(colors.brown)
         tmpText = ""
-        for i = 1, width, 1 do            
+        for i = 1, width, 1 do
             tmpText = tmpText .. " "
         end
         term.write(tmpText)
@@ -647,7 +672,6 @@ local function drawCraftingMenu(sel, inputTable)
 
 
         local event, button, x, y
-
         repeat
             event, button, x, y = os.pullEvent()
         until event == "mouse_click" or event == "key" or event == "mouse_scroll"
@@ -809,11 +833,11 @@ local function drawMenu(sel, list)
         term.setCursorPos(1, 1)
         term.setBackgroundColor(colors.black)
         local tmpText = ""
-        for i = 1, width, 1 do            
+        for i = 1, width, 1 do
             tmpText = tmpText .. " "
         end
         term.write(tmpText)
-        
+
         if filteredItems[sel].details ~= nil and filteredItems[sel].details.displayName ~= nil then
             centerText(filteredItems[sel].details.displayName .. " Item Menu")
         else
@@ -999,7 +1023,11 @@ local function drawList(list)
                     if k < (height + scroll) then
                         local text = ""
                         if v["details"] == nil then
-                            v.details = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+                            if type(peripheral.wrap(v.chestName)) == "nil" then
+                                v.details = getItemDetails(v)
+                            else
+                                v.details = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+                            end
                             filteredItems[k].details = v.details
                         end
                         if v["details"] == nil then
