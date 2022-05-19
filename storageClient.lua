@@ -241,10 +241,15 @@ local function centerText(text)
     write(text)
 end
 
-local function loadingScreen()
+local function loadingScreen(text)
+    if text == nil then
+        text = ""
+    end
     term.setBackgroundColor(colors.red)
     term.clear()
     term.setCursorPos(1, 2)
+    centerText(text)
+    term.setCursorPos(1, 4)
     centerText("Loading...")
 end
 
@@ -431,11 +436,13 @@ local function craftRecipe(recipe, amount, canCraft)
     if message == true then
         term.setBackgroundColor(colors.green)
         centerText(" Crafting Complete! :D ")
+        items = getItems()
     elseif message == false then
         term.setBackgroundColor(colors.red)
         centerText(" Crafting Failed! D: ")
+        items = getItems()
     end
-    sleep(3)
+    --sleep(3)
 
     return message
 end
@@ -866,7 +873,7 @@ local function drawMenu(sel, list)
             elseif key == keys.backspace then
                 done = true
             elseif key == keys.enter or key == keys.numPadEnter then
-                loadingScreen()
+                loadingScreen("Exporting Items")
                 done = true
                 local result
                 if filteredItems[sel].nbt == nil then
@@ -875,6 +882,8 @@ local function drawMenu(sel, list)
                     result = Item:new(filteredItems[sel].name, amount, filteredItems[sel].nbt, filteredItems[sel].tags)
                 end
                 export(result)
+                loadingScreen("Reloading Database")
+                items = getItems()
             end
 
 
@@ -926,7 +935,7 @@ local function drawMenu(sel, list)
             elseif (y < ((height * .25) + 13)) and (y > ((height * .25) + 10)) then
                 amount = filteredItems[sel].count
             elseif y == (height - 1) then
-                loadingScreen()
+                loadingScreen("Exporting Items")
                 done = true
                 local result
                 if filteredItems[sel].nbt == nil then
@@ -935,8 +944,10 @@ local function drawMenu(sel, list)
                     result = Item:new(filteredItems[sel].name, amount, filteredItems[sel].nbt, filteredItems[sel].tags)
                 end
                 export(result)
+                loadingScreen("Reloading Database")
+                items = getItems()
             elseif y < 2 and x > width - 1 then
-                loadingScreen()
+                loadingScreen("Communication with Storage Server")
                 done = true
             elseif y == 3 then
                 if filteredItems[sel].details ~= nil then
