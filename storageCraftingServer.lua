@@ -1345,7 +1345,6 @@ end
 local function craftBranch(recipeObj, ttl, amount, id)
     local recipe = recipeObj.recipe
     local itemName = recipeObj.name
-    local score = 0
 
     if type(amount) == "nil" then
         amount = 1
@@ -1489,7 +1488,9 @@ local function craftBranch(recipeObj, ttl, amount, id)
                             if failed then
                                 --print("got nothing for " .. item)
                                 log("got nothing for " .. item)
-                                return false
+                                if k >= #slot then
+                                    return false
+                                end
                             else
                                 skip = true
                             end
