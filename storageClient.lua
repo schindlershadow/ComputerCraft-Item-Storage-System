@@ -1,3 +1,4 @@
+math.randomseed(os.time())
 local modem = peripheral.find("modem", rednet.open)
 local width, height = term.getSize()
 local server = 0
@@ -98,7 +99,7 @@ local function broadcastStorageServer()
         server = tonumber(message)
         return tonumber(message)
     else
-        sleep(0.4)
+        sleep(math.random()%1)
         return broadcastStorageServer()
     end
 end
@@ -129,7 +130,7 @@ local function broadcastCraftingServer()
             recipes = getRecipes()
             return tonumber(message)
         else
-            sleep(1)
+            sleep(math.random()%1)
             return broadcastCraftingServer()
         end
     else
@@ -143,7 +144,7 @@ local function pingStorageServer()
     if type(message) == "string" and id == server and message == "ack" then
         return message
     else
-        sleep(0.2)
+        sleep(math.random()%0.2)
         return pingStorageServer()
     end
 end
@@ -156,7 +157,7 @@ local function getItemDetails(item)
         if type(message) == "table" and id == server then
             return message
         else
-            sleep(0.2)
+            sleep(math.random()%0.2)
             return getItemDetails()
         end
     end
@@ -249,7 +250,7 @@ local function getItems()
         )
         return tab
     else
-        sleep(0.2)
+        sleep(math.random()%0.2)
         return getItems()
     end
 end
@@ -528,7 +529,7 @@ local function drawCraftingMenu(sel, inputTable)
             sleep(0.1)
             inputTable[sel].amount = amount
             rednet.send(craftingServer, inputTable[sel])
-            id2, message2 = rednet.receive(nil, 1.5)
+            id2, message2 = rednet.receive(nil, 1)
         until id2 == craftingServer and type(message2) == "table"
         local numNeeded = message2
         local legend = {}

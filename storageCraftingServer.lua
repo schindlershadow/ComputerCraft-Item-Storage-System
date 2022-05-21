@@ -1,3 +1,4 @@
+math.randomseed(os.time())
 local tags = {}
 local clients = {}
 local recipes = {}
@@ -70,7 +71,7 @@ local function broadcast()
         server = tonumber(message)
         return tonumber(message)
     else
-        sleep(0.5)
+        sleep(math.random()%1)
         return broadcast()
     end
 end
@@ -373,7 +374,7 @@ local function getDatabaseFromServer()
         end
         return message
     else
-        sleep(0.2)
+        sleep(math.random()%0.2)
         return getDatabaseFromServer()
     end
 end
@@ -384,7 +385,7 @@ local function pingServer()
     if type(message) == "string" and id == server and message == "ack" then
         return message
     else
-        sleep(0.2)
+        sleep(math.random()%0.2)
         return pingServer()
     end
 end
@@ -834,7 +835,9 @@ local function reloadStorageDatabase()
     --items, storageUsed = getList(storage)
 
     pingServer()
-    rednet.send(server, "forceImport")
+    rednet.send(server, "reloadStorageDatabase")
+    pingServer()
+    --rednet.send(server, "forceImport")
     items = getDatabaseFromServer()
     --write("done\n")
     --write("Writing Tags Database....")
@@ -876,6 +879,7 @@ local function dumpAll()
         end
     end
     if reload then
+        rednet.send(server, "forceImport")
         reloadStorageDatabase()
         pingServer()
     end
@@ -1256,8 +1260,6 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                             log("Getting: " .. searchResult.name)
                             updateClient(id, "logUpdate", "Getting: " .. searchResult.name:match(".+:(.+)"))
                             local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], moveCount)
-                            --Ask the server to reload database now that something has been changed
-                            reloadServerDatabase()
                             log("itemsMoved: " .. tostring(itemsMoved))
                             while itemsMoved < moveCount do
                                 --try again
@@ -1281,9 +1283,11 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                                 end
                                 local newItemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(newSearchResult["chestName"], newSearchResult["slot"], itemsLeft)
                                 --Ask the server to reload database now that something has been changed
-                                reloadServerDatabase()
+                                --reloadServerDatabase()
                                 itemsMoved = itemsMoved + newItemsMoved
                             end
+                            --Ask the server to reload database now that something has been changed
+                            rednet.send(server, "reloadStorageDatabase")
                             --Move items from crafting chest to turtle inventory
                             turtle.suckUp()
                             --Check the items just moved
@@ -1325,7 +1329,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                 log("recipeObj.name: " .. recipeObj.name .. " numInTurtle(recipeObj.name): " .. tostring(numInTurtle(recipeObj.name)))
                 crafted = crafted + numInTurtle(recipeObj.name)
                 --Wait on storage system to be ready
-                pingServer()
+                --pingServer()
             end
             dumpAll()
         end
