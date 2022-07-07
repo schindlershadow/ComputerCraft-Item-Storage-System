@@ -529,7 +529,7 @@ local function drawCraftingMenu(sel, inputTable)
             sleep(0.1)
             inputTable[sel].amount = amount
             rednet.send(craftingServer, inputTable[sel])
-            id2, message2 = rednet.receive(nil, 1)
+            id2, message2 = rednet.receive(nil, 0.5)
         until id2 == craftingServer and type(message2) == "table"
         local numNeeded = message2
         local legend = {}
@@ -703,6 +703,51 @@ local function drawCraftingMenu(sel, inputTable)
                 loadingScreen("Communication with Crafting Server")
                 done = true
                 craftRecipe(inputTable[sel], amount, canCraft)
+            elseif key == keys.one and type(legend[1]) ~= "nil" then
+                local craftable = isCraftable(legend[1].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.two and type(legend[2]) ~= "nil" then
+                local craftable = isCraftable(legend[2].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.three and type(legend[3]) ~= "nil" then
+                local craftable = isCraftable(legend[3].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.four and type(legend[4]) ~= "nil" then
+                local craftable = isCraftable(legend[4].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.five and type(legend[5]) ~= "nil" then
+                local craftable = isCraftable(legend[5].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.six and type(legend[6]) ~= "nil" then
+                local craftable = isCraftable(legend[6].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.seven and type(legend[7]) ~= "nil" then
+                local craftable = isCraftable(legend[7].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.eight and type(legend[8]) ~= "nil" then
+                local craftable = isCraftable(legend[8].item)
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
+            elseif key == keys.nine and type(legend[9]) ~= "nil" then
+                local craftable = isCraftable(legend[9].item) 
+                if craftable ~= false then
+                    drawCraftingMenu(1, craftable)
+                end
             elseif key == keys.numPad1 and type(legend[1]) ~= "nil" then
                 local craftable = isCraftable(legend[1].item)
                 if craftable ~= false then
