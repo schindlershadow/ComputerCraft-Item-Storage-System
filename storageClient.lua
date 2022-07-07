@@ -1274,6 +1274,24 @@ local function inputHandler()
                     --Import button pressed
                     importAll()
                     drawList()
+                elseif key == keys.one then
+                    openMenu(1)
+                elseif key == keys.two then
+                    openMenu(2)
+                elseif key == keys.three then
+                    openMenu(3)
+                elseif key == keys.four then
+                    openMenu(4)
+                elseif key == keys.five then
+                    openMenu(5)
+                elseif key == keys.six then
+                    openMenu(6) 
+                elseif key == keys.seven then
+                    openMenu(7)
+                elseif key == keys.eight then
+                    openMenu(8)
+                elseif key == keys.nine then
+                    openMenu(9)
                 elseif key == keys.numPad1 then
                     openMenu(1)
                 elseif key == keys.numPad2 then
