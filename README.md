@@ -55,3 +55,11 @@ Server Startup
 Server interface
 
 ![server interface](https://user-images.githubusercontent.com/7072789/169101058-5fdf8f29-a8a7-4706-bd63-d95453363df6.png)
+
+Dumping recipes for modded recipes:
+- Add crafttweaker to your modpack: https://www.curseforge.com/minecraft/mc-mods/crafttweaker
+- Start a single player world and run `/ct recipes`
+- find the text file in logs/crafttweaker.log
+- Use grep or other text filtering program to filter the text `grep craftingTable crafttweaker.log > recipes`
+- host the text file somewhere on the internet like pastebin
+- edit .settings file on crafting server to use the new recipe file.
