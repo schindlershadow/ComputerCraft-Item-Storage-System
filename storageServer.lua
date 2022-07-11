@@ -324,7 +324,7 @@ local function findFreeSpace(item, storage)
         --print("Item was found in the system")
         for k, v in pairs(filteredTable) do
             --text = v["name"] .. " #" .. v["count"]
-            --print(v["name"] .. " #" .. v["count"] .. " " .. v["chestName"] .. " " .. v["slot"])
+            print(v["name"] .. " #" .. v["count"] .. " " .. v["chestName"] .. " " .. v["slot"])
             local limit
             --workaround for storage drawers mod. slot 1 reports the true item limit, slots 2..n report 0
             if find(v["chestName"], "storagedrawers:") then
@@ -337,15 +337,15 @@ local function findFreeSpace(item, storage)
                     limit = 64
                 end
             else
-                --getItemLimit is broken on cc-restitched
-                --limit = wrap(v["chestName"]).getItemLimit(v["slot"])
+                limit = wrap(v["chestName"]).getItemLimit(v["slot"])
 
-                local slotItem = wrap(v["chestName"]).getItemDetail(v["slot"])
-                if type(slotItem) ~= "nil" then
-                    limit = slotItem.maxCount
-                else
-                    limit = 64
-                end
+                --Old wordaround for when getItemLimit was broken on cc-restitched
+                --local slotItem = wrap(v["chestName"]).getItemDetail(v["slot"])
+                --if type(slotItem) ~= "nil" then
+                --    limit = slotItem.maxCount
+                --else
+                --    limit = 64
+                --end
             end
 
             --if the slot is not full, then it has free space
