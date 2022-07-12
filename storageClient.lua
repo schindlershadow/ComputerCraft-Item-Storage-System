@@ -499,7 +499,7 @@ local function isCraftable(itemName)
     rednet.send(craftingServer, "craftable")
     sleep(0.1)
     rednet.send(craftingServer, itemName)
-    local ttl = 5
+    local ttl = 10
     local id2, message2
     repeat
         id2, message2 = rednet.receive(nil, 0.5)
@@ -637,7 +637,7 @@ local function drawCraftingMenu(sel, inputTable)
             else
                 term.setBackgroundColor(colors.red)
             end
-            term.write(utf8.char(i + 64) .. ": " .. legend[i].item:match(":([%w,_]*)$") .. " - Need #" .. tostring(legend[i].count) .. " Have #" .. tostring(legend[i].have) .. " ")
+            term.write(utf8.char(i + 64) .. ": " .. legend[i].item:match(":([%w,_,/]*)$") .. " - Need #" .. tostring(legend[i].count) .. " Have #" .. tostring(legend[i].have) .. " ")
             --term.write(utf8.char(i + 64) .. ": #" .. legend[i].count .. " " .. legend[i].item)
         end
 
@@ -813,8 +813,8 @@ local function drawCraftingMenu(sel, inputTable)
                 local craftable = isCraftable(legend[y - 3].item)
                 log(textutils.serialise(craftable))
 
-                if craftable ~= false then
-                    log("craftable ~= false")
+                if craftable ~= false and craftable ~= nil then
+                    log("craftable: " .. tostring(craftable))
                     drawCraftingMenu(1, craftable)
                 end
             elseif (x == math.floor(width * .25) and y == math.floor(height - (height * .25) + 2))
