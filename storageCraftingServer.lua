@@ -504,7 +504,8 @@ local function getRecipes()
     --Do a bunch of replacements to convert to lua code
     for i = 1, #lines, 1 do
         local line = lines[i]
-        if string.find(line, '|') or string.find(line, 'withTag') then
+        --ignore recipes that need a tag or damage value 
+        if string.find(line, '|') or string.find(line, 'withTag') or string.find(line, 'withDamage') then
             line = ""
         else
             line = string.gsub(line, "<", '"')
@@ -532,6 +533,7 @@ local function getRecipes()
         end
         outFile.close()
         --print(tostring(count))
+        --print(fileNumber)
         require(tostring(fileNumber) .. fileName)
         fs.delete(tostring(fileNumber) .. fileName)
         fileNumber = fileNumber + 1
