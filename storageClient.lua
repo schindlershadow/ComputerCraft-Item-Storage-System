@@ -99,7 +99,7 @@ local function broadcastStorageServer()
         server = tonumber(message)
         return tonumber(message)
     else
-        sleep(math.random()%1)
+        sleep(0.5+(math.random()%1))
         return broadcastStorageServer()
     end
 end
@@ -131,7 +131,7 @@ local function broadcastCraftingServer()
             recipes = getRecipes()
             return tonumber(message)
         else
-            sleep(math.random()%1)
+            sleep(0.5+(math.random()%1))
             return broadcastCraftingServer()
         end
     else
@@ -145,7 +145,7 @@ local function pingStorageServer()
     if type(message) == "string" and id == server and message == "ack" then
         return message
     else
-        sleep(math.random()%0.2)
+        sleep(0.5+(math.random()%0.2))
         return pingStorageServer()
     end
 end
@@ -158,7 +158,7 @@ local function getItemDetails(item)
         if type(message) == "table" and id == server then
             return message
         else
-            sleep(math.random()%0.2)
+            sleep(0.5+(math.random()%0.2))
             return getItemDetails()
         end
     end
@@ -251,7 +251,7 @@ local function getItems()
         )
         return tab
     else
-        sleep(math.random()%0.2)
+        sleep(0.5+(math.random()%0.2))
         return getItems()
     end
 end
