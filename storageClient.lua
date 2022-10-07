@@ -127,6 +127,7 @@ local function broadcastCraftingServer()
         if type(tonumber(message)) == "number" and id == tonumber(message) then
             print("Server set to: " .. tostring(message))
             craftingServer = tonumber(message)
+            print("Loading Recipes...")
             recipes = getRecipes()
             return tonumber(message)
         else
