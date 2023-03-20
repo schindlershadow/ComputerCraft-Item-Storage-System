@@ -337,15 +337,15 @@ local function findFreeSpace(item, storage)
                     limit = 64
                 end
             else
-                limit = wrap(v["chestName"]).getItemLimit(v["slot"])
+                --limit = wrap(v["chestName"]).getItemLimit(v["slot"])
 
-                --Old wordaround for when getItemLimit was broken on cc-restitched
-                --local slotItem = wrap(v["chestName"]).getItemDetail(v["slot"])
-                --if type(slotItem) ~= "nil" then
-                --    limit = slotItem.maxCount
-                --else
-                --    limit = 64
-                --end
+                --workaround for getItemLimit being broken on cc-restitched as of ver 1.101.2
+                local slotItem = wrap(v["chestName"]).getItemDetail(v["slot"])
+                if type(slotItem) ~= "nil" then
+                    limit = slotItem.maxCount
+                else
+                    limit = 64
+                end
             end
 
             --if the slot is not full, then it has free space
