@@ -1705,6 +1705,7 @@ local function serverHandler()
             turtle.craft()
         elseif message == "craftItem" then
             local id2, message2
+            rednet.send(id, "craftItem")
             repeat
                 id2, message2 = rednet.receive()
             until id2 == id
@@ -1721,6 +1722,7 @@ local function serverHandler()
             end
         elseif message == "autoCraftItem" then
             local id2, message2
+            rednet.send(id, "autoCraftItem")
             repeat
                 id2, message2 = rednet.receive()
             until id2 == id
@@ -1744,6 +1746,7 @@ local function serverHandler()
             rednet.send(id, number)
         elseif message == "numNeeded" then
             local id2, message2
+            rednet.send(id, "numNeeded")
             repeat
                 id2, message2 = rednet.receive()
             until id2 == id

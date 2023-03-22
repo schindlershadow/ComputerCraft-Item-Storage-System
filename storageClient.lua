@@ -347,13 +347,17 @@ local function craftRecipe(recipe, amount, canCraft)
             table[row][slot] = 0
         end
     end
-    if canCraft == true then
-        rednet.send(craftingServer, "craftItem")
-    else
-        rednet.send(craftingServer, "autoCraftItem")
-    end
+    local id1, message1
+    repeat
+        if canCraft == true then
+            rednet.send(craftingServer, "craftItem")
+        else
+            rednet.send(craftingServer, "autoCraftItem")
+        end
+        id1, message1 = rednet.receive(nil, 0.5)
+    until id1 == craftingServer and ( message1 == "craftItem" or  message1 == "autoCraftItem" )
 
-    sleep(0.1)
+    --sleep(0.1)
     recipe.amount = amount
     rednet.send(craftingServer, recipe)
     term.clear()
@@ -524,13 +528,17 @@ local function drawCraftingMenu(sel, inputTable)
     local amount = 1
     local done = false
     while done == false do
+        loadingScreen("Loading request from Crafting Server...")
         local id2, message2
         repeat
-            rednet.send(craftingServer, "numNeeded")
-            sleep(0.1)
+            local id3, message3
+            repeat
+                rednet.send(craftingServer, "numNeeded")
+                id3, message3 = rednet.receive(nil, 1)
+            until id3 == craftingServer and message3 == "numNeeded"
             inputTable[sel].amount = amount
             rednet.send(craftingServer, inputTable[sel])
-            id2, message2 = rednet.receive(nil, 0.5)
+            id2, message2 = rednet.receive(nil, 1)
         until id2 == craftingServer and type(message2) == "table"
         local numNeeded = message2
         local legend = {}
@@ -1327,8 +1335,11 @@ local function inputHandler()
 end
 
 loadingScreen("Storage Client")
+sleep(0.5+(math.random()%1))
 broadcastStorageServer()
+sleep(0.5+(math.random()%1))
 broadcastCraftingServer()
+sleep(0.5+(math.random()%1))
 print("Loading Database")
 items = getItems()
 table.sort(
