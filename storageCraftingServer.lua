@@ -1751,7 +1751,7 @@ local function serverHandler()
             rednet.send(id, "numNeeded")
             repeat
                 id2, message2 = rednet.receive()
-            until id2 == id
+            until id2 == id and type(message2.amount) ~= "nil" and type(message2.count) ~= "nil"
             local amount = math.ceil(message2.amount / message2.count)
             rednet.send(id, calculateNumberOfItems(message2.recipe, amount))
         elseif message == "craftable" then
