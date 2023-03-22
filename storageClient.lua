@@ -483,6 +483,7 @@ local function craftRecipe(recipe, amount, canCraft)
     repeat
         event, button, x, y = os.pullEvent()
     until event == "mouse_click" or event == "key" or event == "mouse_scroll"
+    loadingScreen("Loading request from Storage Server...")
     items = getItems()
     --sleep(10)
 
@@ -535,6 +536,7 @@ local function drawCraftingMenu(sel, inputTable)
             repeat
                 rednet.send(craftingServer, "numNeeded")
                 id3, message3 = rednet.receive(nil, 1)
+                sleep(0.1)
             until id3 == craftingServer and message3 == "numNeeded"
             inputTable[sel].amount = amount
             rednet.send(craftingServer, inputTable[sel])
