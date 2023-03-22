@@ -1260,7 +1260,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                             --Move the items from the system to crafting chest
                             print("Getting: " .. searchResult.name:match(".+:(.+)"))
                             log("Getting: " .. searchResult.name)
-                            updateClient(id, "logUpdate", "Getting: " .. searchResult.name:match(".+:(.+)"))
+                            updateClient(id, "logUpdate", searchResult.name:match(".+:(.+)"))
                             local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], moveCount)
                             log("itemsMoved: " .. tostring(itemsMoved))
                             while itemsMoved < moveCount do
@@ -1428,9 +1428,11 @@ local function craftBranch(recipeObj, ttl, amount, id)
                         end
 
 
+                        local missing = numNeeded[item] - have
                         if #allRecipes < 1 then
                             print("Cannot craft " .. itemName .. ": no recipes found for: " .. item)
-                            updateClient(id, "logUpdate", "Cannot craft " .. itemName .. ": no recipes found for: " .. item)
+                            updateClient(id,"logUpdate", "Cannot craft " .. itemName:match(".+:(.+)"))
+                            updateClient(id, "logUpdate", "Missing " .. tostring(missing) .. " " .. item:match(".+:(.+)"))
                             log(("no recipes found for: " .. item))
                             return false
                         end
