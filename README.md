@@ -3,13 +3,20 @@
 
  Required mods: ComputerCraft
 
- storageServer.lua - Server file (rename to startup for autostart)
+ Installation:
+  `pastebin run nziARhYn`
  
- storageClient.lua - Client files (supports pocket computers with wireless modem)
+  It is reccomended to label your import, export and crafting chest before running the install
  
- A .settings file on the server will be generated at first boot, edit this file with the name of your export chest and any import chests
+ The network name of the chest will be displayed in chat when you rightclick the modem its connected to, click on the name to copy to clipboard. You can now paste this during install using (Ctrl + V)
  
- The name of the chest will be displayed in chat when you rightclick the modem, click on the name to copy to clipboard
+  Import chests are chests where if any item is entered, it will automatically be pulled into the system
+  
+  Export chests are chests where a client can request items be sent to. This must be configured on both the server and client side
+ 
+  Crafting chest is the chest the system puts items into for the crafty turtle to grab. This is only needed if autocrafting is enabled. This chest should be located on the block above your crafty turtle. An import chest must also be set under the turtle
+  
+  Any chest on the network not set to be a crafting, import or export chest will be used for item storage
  
  Supports just about any type of storage block
 
@@ -56,10 +63,10 @@ Server interface
 
 ![server interface](https://user-images.githubusercontent.com/7072789/169101058-5fdf8f29-a8a7-4706-bd63-d95453363df6.png)
 
-Dumping recipes for modded recipes:
-- Add crafttweaker to your modpack: https://www.curseforge.com/minecraft/mc-mods/crafttweaker
+Dumping recipes:
+- Add crafttweaker to your mods folder: https://www.curseforge.com/minecraft/mc-mods/crafttweaker
 - Start a single player world and run `/ct recipes`
-- find the text file in logs/crafttweaker.log
+- Find the text file in logs/crafttweaker.log
 - Use grep or other text filtering program to filter the text `grep craftingTable crafttweaker.log > recipes`
-- host the text file somewhere on the internet like pastebin
-- edit .settings file on crafting server to use the new recipe file.
+- Host the text file somewhere on the internet like pastebin
+- Paste the URL during install (Ctrl + V)
