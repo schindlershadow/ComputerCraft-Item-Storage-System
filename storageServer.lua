@@ -1,18 +1,26 @@
+math.randomseed(os.time() + (7 * os.getComputerID()))
+local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
 local clients = {}
+local serverLAN, serverWireless
 
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
-settings.define("exportChests", { description = "The peripheral name of the export chest", { "minecraft:chest_0" }, type = "table" })
+settings.define("exportChests",
+    { description = "The peripheral name of the export chest", { "minecraft:chest_0" }, type = "table" })
 settings.define(
     "importChests",
     { description = "The peripheral name of the import chests", default = { "minecraft:chest_2" }, type = "table" }
 )
-settings.define("craftingChest", { description = "The peripheral name of the crafting chest", "minecraft:chest_3", type = "string" })
+settings.define("craftingChest",
+    { description = "The peripheral name of the crafting chest", "minecraft:chest_3", type = "string" })
+settings.define("serverName",
+    { description = "The hostname of this server", "StorageServer" .. tostring(os.getComputerID()), type = "string" })
 
 
 --Settings fails to load
 if settings.load() == false then
     print("No settings have been found! Default values will be used!")
+    settings.set("serverName", "StorageServer" .. tostring(os.getComputerID()))
     settings.set("debug", false)
     settings.set("exportChests", { "minecraft:chest_0" })
     settings.set("importChests", { "minecraft:chest_2" })
@@ -22,20 +30,17 @@ if settings.load() == false then
     sleep(5)
 end
 
---Open all modems to rednet
-peripheral.find("modem", rednet.open)
-
 --Table of all wired modems
 local modems = {
     peripheral.find(
         "modem",
         function(name, modem)
-        if modem.isWireless() then
-            return false
-        else
-            return true
+            if modem.isWireless() then
+                return false
+            else
+                return true
+            end
         end
-    end
     )
 }
 
@@ -52,6 +57,28 @@ local function dump(o)
         return s
     else
         return tostring(o)
+    end
+end
+
+local function log(text)
+    local logFile = fs.open("logs/server.log", "a")
+    if type(text) == "string" then
+        logFile.writeLine(os.date("%A/%d/%B/%Y %I:%M%p") .. ", " .. text)
+    else
+        logFile.writeLine(os.date("%A/%d/%B/%Y %I:%M%p") .. ", " .. textutils.serialise(text))
+    end
+    logFile.close()
+end
+
+local function debugLog(text)
+    if settings.get("debug") then
+        local logFile = fs.open("logs/serverdebug.log", "a")
+        if type(text) == "string" then
+            logFile.writeLine(os.date("%A/%d/%B/%Y %I:%M%p") .. ", " .. text)
+        else
+            logFile.writeLine(os.date("%A/%d/%B/%Y %I:%M%p") .. ", " .. textutils.serialise(text))
+        end
+        logFile.close()
     end
 end
 
@@ -211,26 +238,28 @@ local function getStorageSize(storage)
         end
         local speed = (epoch("utc") / 1000) - time
         speedHistory[#speedHistory + 1] = speed
-        term.write(floor(speed * 1000) / 1000 .. " seconds per storage   ETA: " .. (floor((#storage - i) * average(speedHistory))) .. " seconds left                                        ")
+        term.write(floor(speed * 1000) / 1000 ..
+            " seconds per storage   ETA: " ..
+            (floor((#storage - i) * average(speedHistory))) .. " seconds left                                        ")
         time = epoch("utc") / 1000
     end
     return slots, total
 end
 
 local function pingClients(message)
+    --log(textutils.serialise(clients))
     for k, v in pairs(clients) do
-        rednet.send(v, message)
+        cryptoNet.send(v, { message })
     end
 end
 
 --Note: Large performance hit on larger systems
 local function reloadStorageDatabase()
-    write("Reloading database..")
+    print("Reloading database..")
     storage = getStorage()
-    write("..")
+    --This part is slow
     items, storageUsed = getList(storage)
-    write("done\n")
-    write("Writing storage database....")
+    print("Writing storage database....")
 
     if fs.exists("storage.db") then
         fs.delete("storage.db")
@@ -246,7 +275,17 @@ local function reloadStorageDatabase()
     storageFile.write(textutils.serialise(decoded))
     storageFile.close()
     pingClients("databaseReload")
-    write("done\n")
+    os.queueEvent("databaseReloaded")
+    print("Database reload complete")
+end
+
+local function threadedStorageDatabaseReload()
+    --os.startThread(reloadStorageDatabase)
+    reloadStorageDatabase()
+    --local event
+    --repeat
+    --    event = os.pullEvent("databaseReloaded")
+    --until event == "databaseReloaded"
 end
 
 local function search(string, InputTable)
@@ -324,7 +363,7 @@ local function findFreeSpace(item, storage)
         --print("Item was found in the system")
         for k, v in pairs(filteredTable) do
             --text = v["name"] .. " #" .. v["count"]
-            print(v["name"] .. " #" .. v["count"] .. " " .. v["chestName"] .. " " .. v["slot"])
+            --print(v["name"] .. " #" .. v["count"] .. " " .. v["chestName"] .. " " .. v["slot"])
             local limit
             --workaround for storage drawers mod. slot 1 reports the true item limit, slots 2..n report 0
             if find(v["chestName"], "storagedrawers:") then
@@ -413,7 +452,8 @@ local function getItem(requestItem, chest)
             end
         end
     end
-    reloadStorageDatabase()
+    --reloadStorageDatabase()
+    threadedStorageDatabaseReload()
 end
 
 --debug function
@@ -500,7 +540,8 @@ local function importHandler()
                     peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
                 end
             end
-            reloadStorageDatabase()
+            --reloadStorageDatabase()
+            threadedStorageDatabaseReload()
             sleep(5)
         end
 
@@ -508,127 +549,200 @@ local function importHandler()
     end
 end
 
-local function storageHandler()
-    while true do
-        local id, message = rednet.receive()
-        print(("Computer %d sent message %s"):format(id, message))
-        if message == "storageServer" then
-            rednet.send(id, tostring(os.computerID()))
-            local uniq = true
-            for i in pairs(clients) do
-                if clients[i] == id then
-                    uniq = false
+local function onCryptoNetEvent(event)
+    -- When a client logs in
+    if event[1] == "login" then
+        local username = event[2]
+        -- The socket of the client that just logged in
+        local socket = event[3]
+        -- The logged-in username is also stored in the socket
+        print(socket.username .. " just logged in.")
+        -- Received a message from the client
+    elseif event[1] == "encrypted_message" then
+        local socket = event[3]
+        -- Check the username to see if the client is logged in or allow without login if wired
+        if socket.username ~= nil or socket.sender == settings.get("serverName") then
+            local message = event[2][1]
+            local data = event[2][2]
+            if socket.username == nil then
+                socket.username = "LAN Host"
+            end
+            print(socket.username .. " requested: " .. tostring(message))
+            log("User: " .. socket.username .. " Client: " .. socket.target .. " request: " .. tostring(message))
+            if message == "storageServer" then
+                cryptoNet.send(socket, { message, settings.get("serverName") })
+                local uniq = true
+                for i in pairs(clients) do
+                    if clients[i] == socket then
+                        uniq = false
+                    end
                 end
-            end
-            if uniq then
-                clients[#clients + 1] = id
-            end
-            print("")
-            print("clients: ")
-            for i in pairs(clients) do
-                print(tostring(clients[i]))
-            end
-            print("")
-        elseif message == "ping" then
-            rednet.send(id, "ack")
-        elseif message == "reloadStorageDatabase" then
-            reloadStorageDatabase()
-        elseif message == "getItems" then
-            if settings.get("debug") then
-                print(dump(items))
-            end
-            rednet.send(id, items)
-        elseif message == "getItem" then
-            local id2, message2 = rednet.receive()
-            if settings.get("debug") then
-                print(dump(message2))
-            end
-            local filteredTable = search(message2, items)
-            rednet.send(id, filteredTable[1])
-        elseif message == "getItemDetails" then
-            local id2, message2 = rednet.receive()
-            if settings.get("debug") then
-                print(dump(message2))
-            end
-            if type(message2) == "table" then
-                local details = peripheral.wrap(message2.chestName).getItemDetail(message2.slot)
-                rednet.send(id2, details)
-            end
-        elseif message == "forceImport" then
-            local inputStorage = getInputStorage()
-            local list = getList(inputStorage)
-            --check if list is not empty
-            if next(list) then
-                local localStorage = storage
+                if uniq then
+                    clients[#clients + 1] = socket
+                end
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+                local count = 0
+                for _ in pairs(clients) do count = count + 1 end
+                print("Clients: " .. tostring(count))
+                for i in pairs(clients) do
+                    print(string.sub(tostring(clients[i].target), 1,5) .. ":" .. tostring(clients[i].sender))
+                end
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+            elseif message == "getServerType" then
+                cryptoNet.send(socket, { message, "StorageServer" })
+            elseif message == "ping" then
+                cryptoNet.send(socket, { "ping", "ack" })
+            elseif message == "reloadStorageDatabase" then
+                cryptoNet.send(socket, { message })
+                --reloadStorageDatabase()
+                threadedStorageDatabaseReload()
+            elseif message == "getItems" then
+                if settings.get("debug") then
+                    --log(dump(items))
+                end
+                cryptoNet.sendUnencrypted(socket, { "getItems", items })
+            elseif message == "getItem" then
+                if settings.get("debug") then
+                    print(dump(data))
+                end
+                local filteredTable = search(data, items)
+                cryptoNet.send(socket, { message, filteredTable[1] })
+            elseif message == "getItemDetails" then
+                if settings.get("debug") then
+                    print(dump(data))
+                end
+                if type(data) == "table" then
+                    local details = peripheral.wrap(data.chestName).getItemDetail(data.slot)
+                    cryptoNet.send(socket, { message, details })
+                end
+            elseif message == "forceImport" then
+                local inputStorage = getInputStorage()
+                local list = getList(inputStorage)
+                --check if list is not empty
+                if next(list) then
+                    local localStorage = storage
+                    for i, item in pairs(list) do
+                        local chest, slot = findFreeSpace(item, storage)
+                        if chest == nil then
+                            --TODO: implement space full alert
+                            print("No free space found!")
+                            reloadStorageDatabase()
+                        else
+                            --send to found slot
+                            print("Import: " .. item.name .. " #" .. tostring(item.count))
+                            peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                        end
+                    end
+                    reloadStorageDatabase()
+                end
+            elseif message == "import" then
+                local inputStorage = getExportChests()
+                local list = getList(inputStorage)
+                local filteredTable = search(data, list)
+                if type(filteredTable) ~= "nil" then
+                    for i, item in pairs(filteredTable) do
+                        local chest, slot = findFreeSpace(item, storage)
+                        if chest == nil then
+                            --TODO: implement space full alert
+                            print("No free space found!")
+                            reloadStorageDatabase()
+                            --sleep(5)
+                        else
+                            --send to found slot
+                            print("Import: " .. item.name .. " #" .. tostring(item.count))
+                            peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                        end
+                    end
+                end
+                --reloadStorageDatabase()
+                threadedStorageDatabaseReload()
+            elseif message == "importAll" then
+                local inputStorage = getExportChests()
+                local list = getList(inputStorage)
                 for i, item in pairs(list) do
                     local chest, slot = findFreeSpace(item, storage)
                     if chest == nil then
                         --TODO: implement space full alert
                         print("No free space found!")
-                        reloadStorageDatabase()
+                        sleep(5)
                     else
                         --send to found slot
                         print("Import: " .. item.name .. " #" .. tostring(item.count))
                         peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
                     end
                 end
-                reloadStorageDatabase()
-            end
-        elseif message == "import" then
-            local id2, message2
-            repeat
-                id2, message2 = rednet.receive()
-            until id == id2
-            local inputStorage = getExportChests()
-            local list = getList(inputStorage)
-            local filteredTable = search(message2, list)
-            for i, item in pairs(filteredTable) do
-                local chest, slot = findFreeSpace(item, storage)
-                if chest == nil then
-                    --TODO: implement space full alert
-                    print("No free space found!")
-                    reloadStorageDatabase()
-                    --sleep(5)
-                else
-                    --send to found slot
-                    print("Import: " .. item.name .. " #" .. tostring(item.count))
-                    peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                --reloadStorageDatabase()
+                threadedStorageDatabaseReload()
+                cryptoNet.send(socket, { message })
+            elseif message == "export" then
+                print("Exporting Item(s): " .. dump(data["item"]))
+                log("Export: " .. dump(data["item"]))
+                getItem(data["item"], data["chest"])
+                --reloadStorageDatabase()
+                threadedStorageDatabaseReload()
+            elseif message == "storageUsed" then
+                cryptoNet.send(socket, { message, storageUsed })
+            elseif message == "storageSize" then
+                cryptoNet.send(socket, { message, storageSize })
+            elseif message == "storageMaxSize" then
+                cryptoNet.send(socket, { message, storageMaxSize })
+            elseif message == "getCertificate" then
+                local fileContents = nil
+                local filePath = socket.sender .. ".crt"
+                if fs.exists(filePath) then
+                    local file = fs.open(filePath, "r")
+                    fileContents = file.readAll()
+                    file.close()
                 end
+                cryptoNet.send(socket, { message, fileContents })
             end
-            reloadStorageDatabase()
-        elseif message == "importAll" then
-            local inputStorage = getExportChests()
-            local list = getList(inputStorage)
-            for i, item in pairs(list) do
-                local chest, slot = findFreeSpace(item, storage)
-                if chest == nil then
-                    --TODO: implement space full alert
-                    print("No free space found!")
-                    sleep(5)
-                else
-                    --send to found slot
-                    print("Import: " .. item.name .. " #" .. tostring(item.count))
-                    peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
-                end
-            end
-            reloadStorageDatabase()
-        elseif message == "export" then
-            local id2, message2
-            repeat
-                id2, message2 = rednet.receive()
-            until id == id2
-
-            print("Exporting Item(s): " .. dump(message2["item"]))
-            getItem(message2["item"], message2["chest"])
-            reloadStorageDatabase()
-        elseif message == "storageUsed" then
-            rednet.send(id, storageUsed)
-        elseif message == "storageSize" then
-            rednet.send(id, storageSize)
-        elseif message == "storageMaxSize" then
-            rednet.send(id, storageMaxSize)
+        else
+            --User is not logged in
+            cryptoNet.send(socket, "Sorry, I only talk to logged in users.")
         end
     end
+end
+
+function onStart()
+    --clear out old log
+    if fs.exists("logs/server.log") then
+        fs.delete("logs/server.log")
+    end
+    --Close any old connections and servers
+    cryptoNet.closeAll()
+
+    local wirelessModem = nil
+    local wiredModem = nil
+
+    print("Looking for connected modems...")
+
+    for _, side in ipairs(peripheral.getNames()) do
+        if peripheral.getType(side) == "modem" then
+          local modem = peripheral.wrap(side)
+          if modem.isWireless() then
+            wirelessModem = modem
+            wirelessModem.side = side
+            print("Wireless modem found on "..side.." side")
+            debugLog("Wireless modem found on " .. side .. " side")
+          else
+            wiredModem = modem
+            wiredModem.side = side
+            print("Wired modem found on "..side.." side")
+            debugLog("Wired modem found on " .. side .. " side")
+          end
+        end
+      end
+
+    -- Start the cryptoNet server
+    if type(wiredModem) ~="nil" then
+        serverLAN = cryptoNet.host(settings.get("serverName", true, false, wiredModem.side))
+    end
+
+    if type(wirelessModem) ~="nil" then
+        serverWireless = cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
+    end
+    
+    importHandler()
 end
 
 term.clear()
@@ -670,22 +784,45 @@ if settings.get("debug") == false then
     storageSize, storageMaxSize = getStorageSize(storage)
     write("\ndone\n\n")
     print("Storage size is: " .. tostring(storageSize) .. " slots")
-    print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format((storageUsed / storageMaxSize) * 100)) .. "% items")
+    print("Items in the system: " ..
+        tostring(storageUsed) ..
+        "/" ..
+        tostring(storageMaxSize) .. " " .. tostring(("%.3g"):format((storageUsed / storageMaxSize) * 100)) .. "% items")
 else
     print("Items in the system: " .. tostring(storageUsed) .. " items")
 end
+
+
+if not fs.exists("cryptoNet") then
+    print("")
+    print("cryptoNet API not found on disk, downloading...")
+    local response = http.get(cryptoNetURL)
+    if response then
+        local file = fs.open("cryptoNet", "w")
+        file.write(response.readAll())
+        file.close()
+        response.close()
+        print("File downloaded as '" .. "cryptoNet" .. "'.")
+    else
+        print("Failed to download file from " .. cryptoNetURL)
+    end
+end
+os.loadAPI("cryptoNet")
 
 
 print("")
 print("Server Ready")
 print("")
 
-
-while true do
-    if settings.get("debug") then
-        parallel.waitForAll(debugMenu, storageHandler, importHandler)
-    else
-        parallel.waitForAll(storageHandler, importHandler)
-    end
-    sleep(1)
+cryptoNet.setLoggingEnabled(true)
+if settings.get("debug") then
+    --cryptoNet.setLoggingEnabled(true)
+    --parallel.waitForAll(debugMenu, storageHandler, importHandler)
+    --debugMenu()
+    cryptoNet.startEventLoop(onStart, onCryptoNetEvent)
+else
+    --cryptoNet.setLoggingEnabled(false)
+    --parallel.waitForAll(storageHandler, importHandler)
+    cryptoNet.startEventLoop(onStart, onCryptoNetEvent)
 end
+cryptoNet.closeAll()

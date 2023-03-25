@@ -1,26 +1,38 @@
-math.randomseed(os.time())
+math.randomseed(os.time() + (6 * os.getComputerID()))
 local tags = {}
 local clients = {}
 local recipes = {}
 local server = 0
-local modem = peripheral.find("modem")
+local storageServerSocket
+local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
 
 
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
 --Oneliner bash to extract recipes from craft tweaker output:
 --grep craftingTable crafttweaker.log > recipes
-settings.define("recipeURL", { description = "The URL containing all recipes", "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt", type = "string" })
+settings.define("recipeURL",
+    {
+        description = "The URL containing all recipes",
+        "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt",
+        type = "string"
+    })
 settings.define("recipeFile", { description = "The temp file used for loading recipes", "recipes", type = "string" })
-settings.define("craftingChest", { description = "The peripheral name of the crafting chest", "minecraft:chest_3", type = "string" })
-
+settings.define("craftingChest",
+    { description = "The peripheral name of the crafting chest", "minecraft:chest_3", type = "string" })
+settings.define("serverName",
+    { description = "The hostname of this server", "CraftingServer" .. tostring(os.getComputerID()), type = "string" })
+settings.define("StorageServer", { description = "storage server hostname", default = "StorageServer", type = "string" })
 
 --Settings fails to load
 if settings.load() == false then
     print("No settings have been found! Default values will be used!")
     print("Only vanilla recipes will be loaded, change the recipeURL in .settings for modded Minecraft")
+    settings.set("serverName", "CraftingServer" .. tostring(os.getComputerID()))
+    settings.set("StorageServer", "StorageServer")
     settings.set("debug", false)
-    settings.set("recipeURL", "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt")
+    settings.set("recipeURL",
+        "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt")
     settings.set("recipeFile", "recipes")
     settings.set("craftingChest", "minecraft:chest_3")
     print("Stop the server and edit .settings file with correct settings")
@@ -28,8 +40,6 @@ if settings.load() == false then
     sleep(5)
 end
 
---Open all modems to rednet
-peripheral.find("modem", rednet.open)
 
 --Dumps a table to string
 local function dump(o)
@@ -48,31 +58,26 @@ local function dump(o)
 end
 
 local function log(text)
+    local logFile = fs.open("logs/craftingServer.log", "a")
+    if type(text) == "string" then
+        logFile.writeLine(os.date("%A/%d/%B/%Y %I:%M%p") .. ", " .. text)
+    else
+        logFile.writeLine(os.date("%A/%d/%B/%Y %I:%M%p") .. ", " .. textutils.serialise(text))
+    end
+
+    logFile.close()
+end
+
+local function debugLog(text)
     if settings.get("debug") then
         local logFile = fs.open("logs/craftingServerDebug.log", "a")
         if type(text) == "string" then
-
-            logFile.writeLine(text)
-
+            logFile.writeLine(os.date("%A/%d/%B/%Y %I:%M%p") .. ", " .. text)
         else
-            logFile.writeLine(textutils.serialise(text))
+            logFile.writeLine(os.date("%A/%d/%B/%Y %I:%M%p") .. ", " .. textutils.serialise(text))
         end
 
         logFile.close()
-    end
-end
-
-local function broadcast()
-    print("Searching for storageServer server")
-    rednet.broadcast("storageServer")
-    local id, message = rednet.receive(nil, 5)
-    if type(tonumber(message)) == "number" and id == tonumber(message) then
-        print("Server set to: " .. tostring(message))
-        server = tonumber(message)
-        return tonumber(message)
-    else
-        sleep(math.random()%1)
-        return broadcast()
     end
 end
 
@@ -115,7 +120,6 @@ function addShaped(recipeName, name, arg3, arg4)
     end
 
     recipes[#recipes + 1] = tab
-
 end
 
 function addShapeless(recipeName, name, arg3, arg4)
@@ -152,7 +156,6 @@ function addShapeless(recipeName, name, arg3, arg4)
                 recipe[i] = { recipe[i] }
             end
         end
-
     else
         tab["recipeInput"] = "static"
     end
@@ -174,7 +177,7 @@ function addShapeless(recipeName, name, arg3, arg4)
     tab["recipe"] = convertedRecipe
 
     if recipeName == "byg:fire_charge_from_byg_coals" then
-        log(textutils.serialise(tab))
+        debugLog(textutils.serialise(tab))
     end
 
     recipes[#recipes + 1] = tab
@@ -207,7 +210,7 @@ local function inTable(arr, element) -- function to check if something is in an 
 end
 
 local function removeDuplicates(arr)
-    local newArray = {} -- new array that will be arr, but without duplicates
+    local newArray = {}                        -- new array that will be arr, but without duplicates
     for _, element in pairs(arr) do
         if not inTable(newArray, element) then -- making sure we had not added it yet to prevent duplicates
             table.insert(newArray, element)
@@ -248,7 +251,6 @@ end
 
 --Check if item name is in tag db
 local function inTags(itemName)
-
     for _, nameTable in pairs(tags) do
         if type(nameTable) == "table" then
             for _, name in pairs(nameTable) do
@@ -259,7 +261,6 @@ local function inTags(itemName)
         end
     end
     return false
-
 end
 
 --Mantain tags lookup
@@ -288,9 +289,11 @@ local function addTag(item)
     if type(item.details) == "nil" then
         item.details = peripheral.wrap(item.chestName).getItemDetail(item.slot)
     end
-    for k, v in pairs(item.details.tags) do
-        n = n + 1
-        keyset[n] = k
+    if type(item.details) ~= "nil" then
+        for k, v in pairs(item.details.tags) do
+            n = n + 1
+            keyset[n] = k
+        end
     end
     --print(dump(keyset))
 
@@ -359,35 +362,20 @@ local function getStorage()
 end
 
 local function getDatabaseFromServer()
-    rednet.send(server, "getItems")
-    local id, message = rednet.receive(nil, 1)
-    if type(message) == "table" and id == server then
-        for k, v in pairs(message) do
-            if not (inTags(v.name)) then
-                if type(message[k]["details"]) == "nil" then
-                    message[k]["details"] = peripheral.wrap(v.chestName).getItemDetail(v.slot)
-                end
-                addTag(message[k])
-            else
-                message[k]["details"] = reconstructTags(v.name)
-            end
-        end
-        return message
-    else
-        sleep(math.random()%0.2)
-        return getDatabaseFromServer()
-    end
+    cryptoNet.send(storageServerSocket, { "getItems" })
+    local event
+    repeat
+        event = os.pullEvent("itemsUpdated")
+    until event == "itemsUpdated"
 end
 
 local function pingServer()
-    rednet.send(server, "ping")
-    local id, message = rednet.receive(nil, 1)
-    if type(message) == "string" and id == server and message == "ack" then
-        return message
-    else
-        sleep(math.random()%0.2)
-        return pingServer()
-    end
+    cryptoNet.send(storageServerSocket, { "ping" })
+
+    local event
+    repeat
+        event = os.pullEvent("storageServerAck")
+    until event == "storageServerAck"
 end
 
 function Split(s, delimiter)
@@ -403,8 +391,6 @@ local function getRecipes()
     print("Loading recipes...")
     print("Recipe URL set to: " .. settings.get("recipeURL"))
     local contents = http.get(settings.get("recipeURL"))
-
-
 
     local fileName = settings.get("recipeFile")
     --local file = fs.open(fileName, "r")
@@ -460,7 +446,6 @@ local function getRecipes()
             for row = 1, #newRecipes, 1 do
                 newLine = newLine .. '['
                 for slot = 1, #newRecipes[row], 1 do
-
                     if #newRecipes[row][slot] == 1 then
                         if string.find(newRecipes[row][slot][1], '%[') then
                             newRecipes[row][slot][1] = '{' .. string.gsub(newRecipes[row][slot][1], '%[', '') .. '}'
@@ -504,7 +489,7 @@ local function getRecipes()
     --Do a bunch of replacements to convert to lua code
     for i = 1, #lines, 1 do
         local line = lines[i]
-        --ignore recipes that need a tag or damage value 
+        --ignore recipes that need a tag or damage value
         if string.find(line, '|') or string.find(line, 'withTag') or string.find(line, 'withDamage') then
             line = ""
         else
@@ -613,7 +598,7 @@ local function searchForItemWithTag(string, InputTable)
     end
 end
 
-local function updateClient(id, message, messageToSend)
+local function updateClient(socket, message, messageToSend)
     local table = {}
     table.type = "craftingUpdate"
 
@@ -625,8 +610,7 @@ local function updateClient(id, message, messageToSend)
     elseif message == "itemUpdate" or message == "logUpdate" then
         table[1] = messageToSend
     end
-    rednet.send(id, table)
-
+    cryptoNet.send(socket, { "craftingUpdate", table })
 end
 
 --Calculate number of each item needed.
@@ -661,13 +645,13 @@ local function calculateNumberOfItems(recipe, amount)
 end
 
 --Checks if crafting materials are in system
-local function haveCraftingMaterials(tableOfRecipes, amount, id)
-    if type(id) == "nil" then
-        id = os.getComputerID()
+local function haveCraftingMaterials(tableOfRecipes, amount, socket)
+    if type(socket) == "nil" then
+        socket = storageServerSocket
     end
-    log("haveCraftingMaterials")
-    log(tableOfRecipes)
-    log("amount:" .. tostring(amount) .. " id:" .. tostring(id))
+    debugLog("haveCraftingMaterials")
+    debugLog(tableOfRecipes)
+    debugLog("amount:" .. tostring(amount))
     if type(amount) == "nil" then
         amount = 1
     end
@@ -684,14 +668,14 @@ local function haveCraftingMaterials(tableOfRecipes, amount, id)
         --sleep(5)
         local craftable = true
 
-        log("haveCraftingMaterials: numNeeded")
+        debugLog("haveCraftingMaterials: numNeeded")
         local numNeeded = calculateNumberOfItems(recipe, amount)
-        log(textutils.serialise(numNeeded))
+        debugLog(textutils.serialise(numNeeded))
         --print(textutils.serialise(numNeeded))
 
 
         craftable = true
-        for i = 1, #recipe, 1 do --row
+        for i = 1, #recipe, 1 do  --row
             local row = recipe[i]
             for k = 1, #row, 1 do --slot
                 local slot = row[k]
@@ -699,8 +683,8 @@ local function haveCraftingMaterials(tableOfRecipes, amount, id)
                 for j = 1, #slot, 1 do --item
                     local item = slot[j]
 
-                    log("item: " .. item)
-                    log("numNeeded[item]: " .. tostring(numNeeded[item]))
+                    debugLog("item: " .. item)
+                    debugLog("numNeeded[item]: " .. tostring(numNeeded[item]))
                     if type(numNeeded[item]) == "nil" then
                         return {}
                     end
@@ -715,22 +699,24 @@ local function haveCraftingMaterials(tableOfRecipes, amount, id)
                         else
                             result, number = search(item, items, numNeeded[item])
                         end
-                        log("found " .. tostring(number) .. " need " .. tostring(numNeeded[item]))
+                        debugLog("found " .. tostring(number) .. " need " .. tostring(numNeeded[item]))
 
                         --If item with exact amount is found, or there is more than what we need
                         if number >= numNeeded[item] then
                             --if "number" is >0 that means the item was found in the system
                             craftable2 = true
                         else
-                            print(tostring(item:match(".+:(.+)")) .. ": Need: " .. tostring(numNeeded[item]) .. " Found: " .. tostring(number))
-                            updateClient(id, "logUpdate", tostring(item:match(".+:(.+)")) .. ": Need: " .. tostring(numNeeded[item]) .. " Found: " .. tostring(number))
+                            print(tostring(item:match(".+:(.+)")) ..
+                                ": Need: " .. tostring(numNeeded[item]) .. " Found: " .. tostring(number))
+                            updateClient(socket, "logUpdate",
+                                tostring(item:match(".+:(.+)")) ..
+                                ": Need: " .. tostring(numNeeded[item]) .. " Found: " .. tostring(number))
                         end
                     end
                 end
                 if not craftable2 then
                     craftable = false
                 end
-
             end
         end
 
@@ -772,7 +758,6 @@ local function isTagCraftable(searchTerm, inputTable)
             if (recipes[i].name == items[k].name) then
                 --return recipes[i].name
                 tab[#tab + 1] = recipes[i].name
-
             end
         end
     end
@@ -799,13 +784,13 @@ local function isCraftable(searchTerm)
 end
 
 local function reloadServerDatabase()
-    rednet.send(server, "reloadStorageDatabase")
-    pingServer()
+    cryptoNet.send(storageServerSocket, { "reloadStorageDatabase" })
+    --pingServer()
 end
 
 local function patchStorageDatabase(itemName, count)
     print("patching db item:" .. itemName .. " #" .. tostring(count))
-    log("patching db item:" .. itemName .. " #" .. tostring(count))
+    debugLog("patching db item:" .. itemName .. " #" .. tostring(count))
     local stringSearch
     if string.find(itemName, 'item:(.+)') then
         stringSearch = string.match(itemName, 'item:(.+)')
@@ -836,11 +821,12 @@ local function reloadStorageDatabase()
 
     --items, storageUsed = getList(storage)
 
-    pingServer()
-    rednet.send(server, "reloadStorageDatabase")
-    pingServer()
-    --rednet.send(server, "forceImport")
-    items = getDatabaseFromServer()
+    --pingServer()
+    reloadServerDatabase()
+    --cryptoNet.send(storageServerSocket, { "reloadStorageDatabase" })
+    --pingServer()
+    getDatabaseFromServer()
+
     --write("done\n")
     --write("Writing Tags Database....")
 
@@ -881,7 +867,7 @@ local function dumpAll()
         end
     end
     if reload then
-        rednet.send(server, "forceImport")
+        cryptoNet.send(storageServerSocket, { "forceImport" })
         reloadStorageDatabase()
         pingServer()
     end
@@ -934,23 +920,23 @@ local function getAllTagRecipes(searchTerm)
 end
 
 local function recipeContains(recipe, itemName)
-    log("recipeContains itemName: " .. itemName)
+    debugLog("recipeContains itemName: " .. itemName)
     --log(textutils.serialise(recipe))
     for i = 1, #recipe.recipe, 1 do --row
         local row = recipe.recipe[i]
-        for j = 1, #row, 1 do --slot
+        for j = 1, #row, 1 do       --slot
             local slot = row[j]
-            for k = 1, #slot, 1 do --item
+            for k = 1, #slot, 1 do  --item
                 local item = slot[k]
                 --log("recipeContains: " .. item .. ", " .. itemName)
                 if item == itemName then
-                    log("recipeContains: true")
+                    debugLog("recipeContains: true")
                     return true
                 end
                 if string.find(item, 'tag:(.+)') then
                     item = string.match(item, 'tag:(.+)')
                     if tags[itemName] == item then
-                        log("recipeContains: true")
+                        debugLog("recipeContains: true")
                         return true
                     end
                 end
@@ -958,38 +944,38 @@ local function recipeContains(recipe, itemName)
                     item = string.match(item, 'item:(.+)')
                 end
                 if item == itemName then
-                    log("recipeContains: true")
+                    debugLog("recipeContains: true")
                     return true
                 end
             end
         end
     end
-    log("recipeContains: false")
+    debugLog("recipeContains: false")
     return false
 end
 
 --returns score, input recipe, name of recipe item output, time-to-live, amount of item output recipe creates
-local function scoreBranch(recipe, itemName, ttl, amount, id)
+local function scoreBranch(recipe, itemName, ttl, amount, socket)
     local score = 0
 
     if type(amount) == "nil" then
         amount = 1
     end
 
-    log("scoreBranch: " .. textutils.serialise(itemName))
+    debugLog("scoreBranch: " .. textutils.serialise(itemName))
     --print("scoreBranch: " .. textutils.serialise(itemName))
-    log("ttl is " .. tostring(ttl))
+    debugLog("ttl is " .. tostring(ttl))
     --log(textutils.serialise(recipe))
 
     if ttl < 1 then
         --print("ttl is 0")
-        log("ttl is 0")
+        debugLog("ttl is 0")
         --log(recipe)
         return 0
     end
 
 
-    for i = 1, #recipe, 1 do --row
+    for i = 1, #recipe, 1 do  --row
         local row = recipe[i]
         for j = 1, #row, 1 do --slot
             local slot = row[j]
@@ -997,7 +983,7 @@ local function scoreBranch(recipe, itemName, ttl, amount, id)
             for k = 1, #slot, 1 do --item
                 local item = slot[k]
                 if item ~= "none" and item ~= "item:minecraft:air" and not skip then
-                    log("searching for: " .. textutils.serialise(item))
+                    debugLog("searching for: " .. textutils.serialise(item))
                     --if item is in the system, increase score
                     local searchResult
                     if string.find(item, "tag:") then
@@ -1010,14 +996,13 @@ local function scoreBranch(recipe, itemName, ttl, amount, id)
 
                     if type(searchResult) ~= "nil" then
                         --print(item .. " found in system")
-                        log(item .. " found in system")
+                        debugLog(item .. " found in system")
                         score = score + ((1 + ttl) * amount)
-                        log("score: " .. tostring(score))
+                        debugLog("score: " .. tostring(score))
                         --no need to check the other possible items
                         skip = true
                         break
                     else
-
                         local allRecipes
                         ---need to check for tags
                         if string.find(item, 'tag:%w+:(.+)') then
@@ -1030,15 +1015,15 @@ local function scoreBranch(recipe, itemName, ttl, amount, id)
 
                         if type(allRecipes) == "nil" then
                             print(item .. " is unknown to the system")
-                            log(item .. " is unknown to the system")
+                            debugLog(item .. " is unknown to the system")
                             return 0
                         elseif #allRecipes < 1 then
                             print("no recipes found for: " .. item)
-                            log(("no recipes found for: " .. item))
-                            updateClient(id, "logUpdate", "no recipes found for: " .. tostring(item))
+                            debugLog(("no recipes found for: " .. item))
+                            updateClient(socket, "logUpdate", "no recipes found for: " .. tostring(item))
                             return 0
                         end
-                        local craftableRecipes = haveCraftingMaterials(allRecipes, 1)
+                        local craftableRecipes = haveCraftingMaterials(allRecipes, 1, socket)
 
                         --If recipe needs orginal item then skip recipe
                         for counting = 1, #craftableRecipes, 1 do
@@ -1049,13 +1034,11 @@ local function scoreBranch(recipe, itemName, ttl, amount, id)
                         end
 
                         if #craftableRecipes > 0 then
-
-
                             --if it has a currently craftable recipe increase score
                             --print(item .. " is currently craftable")
-                            log(item .. " is currently craftable")
+                            debugLog(item .. " is currently craftable")
                             score = score + ((1 + ttl) * amount)
-                            log("score: " .. tostring(score))
+                            debugLog("score: " .. tostring(score))
                             skip = true
                             break
                         else
@@ -1065,14 +1048,15 @@ local function scoreBranch(recipe, itemName, ttl, amount, id)
 
                             local failed = true
                             for m = 1, #allRecipes, 1 do
-
                                 if recipeContains(allRecipes[m], itemName) == false and recipeContains(allRecipes[m], item) == false then
-                                    log("checking recipe: " .. allRecipes[m].name .. " from: " .. allRecipes[m].recipeName)
+                                    debugLog("checking recipe: " ..
+                                        allRecipes[m].name .. " from: " .. allRecipes[m].recipeName)
                                     ttl = ttl - 1
-                                    local scoreTab = scoreBranch(allRecipes[m].recipe, allRecipes[m].name, ttl - 1, allRecipes[m].count, id)
+                                    local scoreTab = scoreBranch(allRecipes[m].recipe, allRecipes[m].name, ttl - 1,
+                                        allRecipes[m].count, socket)
                                     if scoreTab > 0 then
                                         score = score + scoreTab
-                                        log("score: " .. tostring(score))
+                                        debugLog("score: " .. tostring(score))
                                         skip = true
                                         failed = false
                                         break
@@ -1081,7 +1065,7 @@ local function scoreBranch(recipe, itemName, ttl, amount, id)
                             end
                             if failed then
                                 print("No recipe found for " .. item)
-                                log("No recipe found for " .. item)
+                                debugLog("No recipe found for " .. item)
                                 return score
                             end
                         end
@@ -1093,7 +1077,7 @@ local function scoreBranch(recipe, itemName, ttl, amount, id)
 
     ttl = ttl - 1
     --score = score + ttl
-    log("return score: " .. tostring(score))
+    debugLog("return score: " .. tostring(score))
     return score
 end
 
@@ -1103,7 +1087,7 @@ local function getBestRecipe(allRecipes, id)
     local bestCount = 1
     for i = 1, #allRecipes, 1 do
         local score = scoreBranch(allRecipes[i].recipe, allRecipes[i].name, 20, allRecipes[i].count, id)
-        log("recipe: " .. allRecipes[i].recipeName .. " score: " .. score)
+        debugLog("recipe: " .. allRecipes[i].recipeName .. " score: " .. score)
         if score > bestScore then
             bestRecipe = allRecipes[i]
             bestScore = score
@@ -1112,29 +1096,28 @@ local function getBestRecipe(allRecipes, id)
     end
 
     if bestScore == 0 then
-        log("uncraftable")
+        debugLog("uncraftable")
         return nil
     end
     print("Recipe score: " .. tostring(bestScore))
-    log("Recipe score: " .. tostring(bestScore))
+    debugLog("Recipe score: " .. tostring(bestScore))
 
     return bestRecipe, bestCount
-
 end
 
 --Get items and craft
-local function craftRecipe(recipeObj, timesToCraft, id)
+local function craftRecipe(recipeObj, timesToCraft, socket)
     local recipe = recipeObj.recipe
-    log("craftRecipe")
-    log(recipeObj)
-    log("timesToCraft:" .. tostring(timesToCraft) .. " id:" .. tostring(id))
+    debugLog("craftRecipe")
+    debugLog(recipeObj)
+    debugLog("timesToCraft:" .. tostring(timesToCraft) .. " id:" .. tostring(socket))
 
     --amount and id is optional
     if type(timesToCraft) == "nil" then
         timesToCraft = 1
     end
-    if type(id) == "nil" then
-        id = os.getComputerID()
+    if type(socket) == "nil" then
+        socket = os.getComputerID()
     end
 
     local outputAmount = timesToCraft * recipeObj.count
@@ -1151,7 +1134,8 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                     --Find a sample of the item in system
                     searchResult[k] = search(recipe[row][slot][k], items, 1)
                     if type(searchResult[k]) ~= "nil" then
-                        local maxCount = peripheral.wrap(searchResult[k].chestName).getItemDetail(searchResult[k].slot).maxCount
+                        local itemDetail = peripheral.wrap(searchResult[k].chestName).getItemDetail(searchResult[k].slot)
+                        local maxCount = itemDetail.maxCount
                         if maxCount < 64 then
                             stackLimited = true
                             --Update new stack limit
@@ -1166,7 +1150,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
         end
     end
 
-    log("stackLimited: " .. tostring(stackLimited) .. " stackLimit:" .. tostring(stackLimit))
+    debugLog("stackLimited: " .. tostring(stackLimited) .. " stackLimit:" .. tostring(stackLimit))
 
     --calculate number of items to be moved at once
     local moveCount = timesToCraft
@@ -1175,7 +1159,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
     elseif moveCount > 64 then
         moveCount = 64
     end
-    log("moveCount:" .. tostring(moveCount))
+    debugLog("moveCount:" .. tostring(moveCount))
 
     --In case of garbage in the turtle's inventory
     dumpAll()
@@ -1221,7 +1205,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                                 found = true
                                 lastGoodIndex = k
                             end
-                            log("insystem[k]:" .. tostring(insystem[k]) .. " moveCount:" .. tostring(moveCount))
+                            debugLog("insystem[k]:" .. tostring(insystem[k]) .. " moveCount:" .. tostring(moveCount))
                         end
 
 
@@ -1232,8 +1216,9 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                             for j = 1, #foundIndexs, 1 do
                                 if not foundIndexs[j] then
                                     print("craftRecipe: Cannot find enough " .. recipe[row][slot][j] .. " in system")
-                                    log(("craftRecipe: Cannot find enough " .. recipe[row][slot][j] .. " in system"))
-                                    updateClient(id, "logUpdate", "craftRecipe: Cannot find enough " .. recipe[row][slot][j] .. " in system")
+                                    debugLog(("craftRecipe: Cannot find enough " .. recipe[row][slot][j] .. " in system"))
+                                    updateClient(socket, "logUpdate",
+                                        "craftRecipe: Cannot find enough " .. recipe[row][slot][j] .. " in system")
                                 end
                             end
                             dumpAll()
@@ -1259,14 +1244,17 @@ local function craftRecipe(recipeObj, timesToCraft, id)
 
                             --Move the items from the system to crafting chest
                             print("Getting: " .. searchResult.name:match(".+:(.+)"))
-                            log("Getting: " .. searchResult.name)
-                            updateClient(id, "logUpdate", searchResult.name:match(".+:(.+)"))
-                            local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(searchResult["chestName"], searchResult["slot"], moveCount)
-                            log("itemsMoved: " .. tostring(itemsMoved))
+                            debugLog("Getting: " .. searchResult.name)
+                            updateClient(socket, "logUpdate", searchResult.name:match(".+:(.+)"))
+                            local itemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(
+                                searchResult["chestName"], searchResult["slot"], moveCount)
+                            debugLog("itemsMoved: " .. tostring(itemsMoved))
                             while itemsMoved < moveCount do
                                 --try again
                                 local itemsLeft = moveCount - itemsMoved
-                                log("try again: itemsMoved:" .. tostring(itemsMoved) .. " < moveCount:" .. tostring(moveCount) .. " Items left:" .. tostring(itemsLeft))
+                                debugLog("try again: itemsMoved:" ..
+                                    tostring(itemsMoved) ..
+                                    " < moveCount:" .. tostring(moveCount) .. " Items left:" .. tostring(itemsLeft))
                                 reloadStorageDatabase()
                                 --use same item as searchResult to avoid stacking issues
                                 local newSearchResult = search("item:" .. searchResult.name, items, itemsLeft)
@@ -1275,40 +1263,41 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                                     newSearchResult = search("item:" .. searchResult.name, items, 1)
                                     if type(newSearchResult) == "nil" then
                                         print("failed to move item: " .. searchResult.name)
-                                        log("failed to move item: " .. searchResult.name)
-                                        updateClient(id, "logUpdate", "failed to move item: " .. searchResult.name)
+                                        debugLog("failed to move item: " .. searchResult.name)
+                                        updateClient(socket, "logUpdate", "failed to move item: " .. searchResult.name)
                                         failed = true
                                         break
                                     else
                                         itemsLeft = 1
                                     end
                                 end
-                                local newItemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(newSearchResult["chestName"], newSearchResult["slot"], itemsLeft)
+                                local newItemsMoved = peripheral.wrap(settings.get("craftingChest")).pullItems(
+                                    newSearchResult["chestName"], newSearchResult["slot"], itemsLeft)
                                 --Ask the server to reload database now that something has been changed
                                 --reloadServerDatabase()
                                 itemsMoved = itemsMoved + newItemsMoved
                             end
                             --Ask the server to reload database now that something has been changed
-                            rednet.send(server, "reloadStorageDatabase")
+                            reloadServerDatabase()
                             --Move items from crafting chest to turtle inventory
                             turtle.suckUp()
                             --Check the items just moved
                             local slotDetail = turtle.getItemDetail()
                             if type(slotDetail) == "nil" then
                                 print("failed to get item: " .. searchResult.name)
-                                updateClient(id, "logUpdate", "failed to get item: " .. searchResult.name)
+                                updateClient(socket, "logUpdate", "failed to get item: " .. searchResult.name)
                                 dumpAll()
                                 failed = true
-                                log(searchResult)
+                                debugLog(searchResult)
                                 break
                             else
-                                log("slotDetail:" .. textutils.serialise(slotDetail))
+                                debugLog("slotDetail:" .. textutils.serialise(slotDetail))
                                 --Send crafting status update to client
                                 local table = {}
                                 table[1] = row
                                 table[2] = slot
                                 table[3] = slotDetail.count
-                                updateClient(id, "slotUpdate", table)
+                                updateClient(socket, "slotUpdate", table)
                             end
                         end
                     end
@@ -1328,7 +1317,8 @@ local function craftRecipe(recipeObj, timesToCraft, id)
                 return false
             else
                 --crafted = crafted + craftedItem.count
-                log("recipeObj.name: " .. recipeObj.name .. " numInTurtle(recipeObj.name): " .. tostring(numInTurtle(recipeObj.name)))
+                debugLog("recipeObj.name: " ..
+                    recipeObj.name .. " numInTurtle(recipeObj.name): " .. tostring(numInTurtle(recipeObj.name)))
                 crafted = crafted + numInTurtle(recipeObj.name)
                 --Wait on storage system to be ready
                 --pingServer()
@@ -1336,7 +1326,7 @@ local function craftRecipe(recipeObj, timesToCraft, id)
             dumpAll()
         end
 
-        log("crafted:" .. tostring(crafted))
+        debugLog("crafted:" .. tostring(crafted))
     end
     return true
 end
@@ -1351,42 +1341,42 @@ local function getCountFromRecipe(recipe)
 end
 
 --Brute-force recersive crafting
-local function craftBranch(recipeObj, ttl, amount, id)
+local function craftBranch(recipeObj, ttl, amount, socket)
     local recipe = recipeObj.recipe
     local itemName = recipeObj.name
 
     if type(amount) == "nil" then
         amount = 1
     end
-    if type(id) == "nil" then
-        id = os.computerID()
+    if type(socket) == "nil" then
+        socket = storageServerSocket
     end
 
 
     --Send item status update to client
-    updateClient(id, "craftingUpdate", itemName)
-    log("craftBranch: " .. textutils.serialise(itemName) .. " id:" .. tostring(id))
+    updateClient(socket, "craftingUpdate", itemName)
+    debugLog("craftBranch: " .. textutils.serialise(itemName) .. " id:" .. tostring(socket))
     --print("craftBranch: " .. textutils.serialise(itemName))
     --log(textutils.serialise(recipe))
     --print(textutils.serialise(recipe))
 
     if ttl < 1 then
         --print("ttl is 0")
-        log("ttl is 0")
+        debugLog("ttl is 0")
         --log(recipe)
         return false
     end
-    log(tostring(ttl))
+    debugLog(tostring(ttl))
 
     local numNeeded = calculateNumberOfItems(recipe, amount)
 
     for k, v in pairs(numNeeded) do
         --print("Need: " .. k .. " #" .. v)
-        log("numNeeded: " .. k .. " #" .. v)
+        debugLog("numNeeded: " .. k .. " #" .. v)
     end
 
     local craftedAnything = false
-    for i = 1, #recipe, 1 do --row
+    for i = 1, #recipe, 1 do  --row
         local row = recipe[i]
         for j = 1, #row, 1 do --slot
             local slot = row[j]
@@ -1394,7 +1384,7 @@ local function craftBranch(recipeObj, ttl, amount, id)
             for k = 1, #slot, 1 do --item
                 local item = slot[k]
                 if item ~= "none" and item ~= "item:minecraft:air" and skip == false then
-                    log("processing: " .. tostring(numNeeded[item]) .. " " .. item)
+                    debugLog("processing: " .. tostring(numNeeded[item]) .. " " .. item)
                     --if item is in the system
                     local searchResult
                     local have = 0
@@ -1405,17 +1395,17 @@ local function craftBranch(recipeObj, ttl, amount, id)
                     else
                         searchResult, have = search(item, items, numNeeded[item])
                     end
-                    log(tostring(have) .. " found in system")
+                    debugLog(tostring(have) .. " found in system")
 
                     if type(searchResult) ~= "nil" or have >= numNeeded[item] then
                         --Item was found in the system
                         --print(item .. " found in system")
-                        log(item .. " found in system")
+                        debugLog(item .. " found in system")
                         --no need to check the other possible items
                         skip = true
                         break
                     else
-                        log("have: " .. tostring(have) .. " Need: " .. tostring(numNeeded[item]) .. " of " .. item)
+                        debugLog("have: " .. tostring(have) .. " Need: " .. tostring(numNeeded[item]) .. " of " .. item)
 
                         local allRecipes
                         ---need to check for tags
@@ -1431,9 +1421,10 @@ local function craftBranch(recipeObj, ttl, amount, id)
                         local missing = numNeeded[item] - have
                         if #allRecipes < 1 then
                             print("Cannot craft " .. itemName .. ": no recipes found for: " .. item)
-                            updateClient(id,"logUpdate", "Cannot craft " .. itemName:match(".+:(.+)"))
-                            updateClient(id, "logUpdate", "Missing " .. tostring(missing) .. " " .. item:match(".+:(.+)"))
-                            log(("no recipes found for: " .. item))
+                            updateClient(socket, "logUpdate", "Cannot craft " .. itemName:match(".+:(.+)"))
+                            updateClient(socket, "logUpdate",
+                                "Missing " .. tostring(missing) .. " " .. item:match(".+:(.+)"))
+                            debugLog(("no recipes found for: " .. item))
                             return false
                         end
                         --Remove existing amount
@@ -1446,36 +1437,36 @@ local function craftBranch(recipeObj, ttl, amount, id)
                         --if numNeeded[item] > 64 then
                         --    numNeeded[item] = 64
                         --end
-                        local craftableRecipes = haveCraftingMaterials(allRecipes, numNeeded[item], id)
+                        local craftableRecipes = haveCraftingMaterials(allRecipes, numNeeded[item], socket)
                         if #craftableRecipes > 0 then
                             --Get best recipe then craft it
                             --print(item .. " is currently craftable")
-                            log(item .. " is currently craftable")
+                            debugLog(item .. " is currently craftable")
 
                             local recipeToCraft
                             local outputAmount = 1
                             --get the best recipe
                             if #craftableRecipes > 1 then
                                 --print("More than one craftable recipe, Searching for best recipe")
-                                log("More than one craftable recipe, Searching for best recipe")
-                                recipeToCraft, outputAmount = getBestRecipe(craftableRecipes, id)
+                                debugLog("More than one craftable recipe, Searching for best recipe")
+                                recipeToCraft, outputAmount = getBestRecipe(craftableRecipes, socket)
                             else
                                 recipeToCraft = craftableRecipes[1]
                                 outputAmount = craftableRecipes[1].count
                             end
                             --log(recipeToCraft)
-                            log("numNeeded[item]: " .. tostring(numNeeded[item]))
-                            log("outputAmount: " .. tostring(outputAmount))
+                            debugLog("numNeeded[item]: " .. tostring(numNeeded[item]))
+                            debugLog("outputAmount: " .. tostring(outputAmount))
                             --Send status update to client
-                            updateClient(id, "itemUpdate", item)
-                            local status = craftRecipe(recipeToCraft, numNeeded[item], id)
+                            updateClient(socket, "itemUpdate", item)
+                            local status = craftRecipe(recipeToCraft, numNeeded[item], socket)
                             if status == false then
                                 print("crafting failed")
-                                log("crafting failed")
-                                updateClient(id, "logUpdate", "crafting failed")
+                                debugLog("crafting failed")
+                                updateClient(socket, "logUpdate", "crafting failed")
                                 return false
                             else
-                                log("breaking")
+                                debugLog("breaking")
                                 craftedAnything = true
                                 skip = true
                                 break
@@ -1487,7 +1478,8 @@ local function craftBranch(recipeObj, ttl, amount, id)
                                 ttl = ttl - 1
                                 if recipeContains(allRecipes[m], itemName) == false and recipeContains(allRecipes[m], item) == false then
                                     --local result = craftBranch(allRecipes[m], ttl, numNeeded[item], id)
-                                    local result = craftBranch(allRecipes[m], ttl, math.ceil(numNeeded[item] / allRecipes[m].count), id)
+                                    local result = craftBranch(allRecipes[m], ttl,
+                                        math.ceil(numNeeded[item] / allRecipes[m].count), socket)
                                     if result then
                                         failed = false
                                         craftedAnything = true
@@ -1497,7 +1489,7 @@ local function craftBranch(recipeObj, ttl, amount, id)
                             end
                             if failed then
                                 --print("got nothing for " .. item)
-                                log("got nothing for " .. item)
+                                debugLog("got nothing for " .. item)
                                 if k >= #slot then
                                     return false
                                 end
@@ -1511,21 +1503,22 @@ local function craftBranch(recipeObj, ttl, amount, id)
         end
     end
 
-    log("craftedAnything: " .. tostring(craftedAnything))
+    debugLog("craftedAnything: " .. tostring(craftedAnything))
     local craft = false
     --This is to ensure the materials needed to craft parent were not used in child recipe
     if craftedAnything then
         local tab = {}
         tab.recipe = recipe
-        local craftable = haveCraftingMaterials({ tab }, amount, id)
+        local craftable = haveCraftingMaterials({ tab }, amount, socket)
         if #craftable < 1 then
-            local status = craftBranch(recipeObj, ttl - 1, amount, id)
+            local status = craftBranch(recipeObj, ttl - 1, amount, socket)
             if status == false then
                 print("failed")
-                log("failed")
-                updateClient(id, "logUpdate", "failed")
+                debugLog("failed")
+                updateClient(socket, "logUpdate", "failed")
             end
-            log("This is to ensure the materials needed to craft parent were not used in child recipe: " .. tostring(status))
+            debugLog("This is to ensure the materials needed to craft parent were not used in child recipe: " ..
+                tostring(status))
             return status
         else
             craft = true
@@ -1536,26 +1529,26 @@ local function craftBranch(recipeObj, ttl, amount, id)
 
     --Craft parent item
     if craft then
-        log("Crafting Parent recipe: " .. itemName)
+        debugLog("Crafting Parent recipe: " .. itemName)
         --Send status update to client
-        updateClient(id, "itemUpdate", itemName)
+        updateClient(socket, "itemUpdate", itemName)
         local status
-        status = craftRecipe(recipeObj, amount, id)
+        status = craftRecipe(recipeObj, amount, socket)
         --status = craftRecipe(recipeObj, math.ceil(amount / recipeObj.count), id)
         if status == false then
             print("crafting failed")
-            log("crafting failed")
-            updateClient(id, "logUpdate", "crafting failed")
+            debugLog("crafting failed")
+            updateClient(socket, "logUpdate", "crafting failed")
             return false
         end
-        log("Craft parent item: " .. tostring(status))
+        debugLog("Craft parent item: " .. tostring(status))
         return status
     end
 end
 
-local function craft(item, amount, id)
-    if type(id) == "nil" then
-        id = os.computerID()
+local function craft(item, amount, socket)
+    if type(socket) == "nil" then
+        socket = storageServerSocket
     end
 
     local ttl = 20
@@ -1580,7 +1573,7 @@ local function craft(item, amount, id)
     end
 
     --If one of the recipes are craftable, craft it
-    local craftableRecipes = haveCraftingMaterials(allRecipes, 1, id)
+    local craftableRecipes = haveCraftingMaterials(allRecipes, 1, socket)
     local recipeToCraft
 
     --print(tostring(#craftableRecipes))
@@ -1589,10 +1582,10 @@ local function craft(item, amount, id)
     local outputAmount = 1
     if #craftableRecipes == 0 then
         --print("No currently craftable recipes, Searching for best recipe")
-        recipeToCraft, outputAmount = getBestRecipe(allRecipes, id)
+        recipeToCraft, outputAmount = getBestRecipe(allRecipes, socket)
     elseif #craftableRecipes > 1 then
         --print("More than one craftable recipe, Searching for best recipe")
-        recipeToCraft, outputAmount = getBestRecipe(craftableRecipes, id)
+        recipeToCraft, outputAmount = getBestRecipe(craftableRecipes, socket)
     else
         recipeToCraft = craftableRecipes[1]
         outputAmount = craftableRecipes[1].count
@@ -1601,10 +1594,10 @@ local function craft(item, amount, id)
     if type(recipeToCraft) == "nil" then
         if type(item) == "table" then
             print("No recipe found for: " .. tostring(item.name))
-            updateClient(id, "logUpdate", "No recipe found for: " .. tostring(item.name:match(".+:(.+)")))
+            updateClient(socket, "logUpdate", "No recipe found for: " .. tostring(item.name:match(".+:(.+)")))
         else
             print("No recipe found for: " .. tostring(item))
-            updateClient(id, "logUpdate", "No recipe found for: " .. tostring(item:match(".+:(.+)")))
+            updateClient(socket, "logUpdate", "No recipe found for: " .. tostring(item:match(".+:(.+)")))
         end
         return false
     end
@@ -1617,14 +1610,13 @@ local function craft(item, amount, id)
 
     --print(recipeToCraftInput .. " " .. recipeToCraftType .. " crafting recipe")
 
-    log("Craft: " .. tostring(item) .. ", " .. tostring(ttl) .. ", " .. tostring(amount))
-    return craftBranch(recipeToCraft, ttl, math.ceil(amount / outputAmount), id)
+    debugLog("Craft: " .. tostring(item) .. ", " .. tostring(ttl) .. ", " .. tostring(amount))
+    return craftBranch(recipeToCraft, ttl, math.ceil(amount / outputAmount), socket)
     --return craftBranch(recipeToCraft, ttl, amount, id)
 end
 
 local function debugMenu()
     while true do
-
         print("Main menu")
 
         local input = io.read()
@@ -1676,134 +1668,312 @@ local function debugMenu()
     end
 end
 
-local function serverHandler()
-    while true do
-        local id, message = rednet.receive()
-        if id ~= server then
-            print(("Computer %d sent message %s"):format(id, message))
+local function serverHandler(event)
+    -- When a crafting server logs in to storage server
+    if event[1] == "login" and not next(recipes) then
+        local username = event[2]
+        -- The socket of the client that just logged in
+        local socket = event[3]
+        -- The logged-in username is also stored in the socket
+        print("Login successful using " .. socket.username)
+        -- Received a message from the client
+    elseif event[1] == "login" then
+        local username = event[2]
+        -- The socket of the client that just logged in
+        local socket = event[3]
+        -- The logged-in username is also stored in the socket
+        print(socket.username .. " just logged in.")
+        -- Received a message from the client
+    elseif event[1] == "plain_message" then
+        local message = event[2][1]
+        local data = event[2][2]
+        if message == "getItems" then
+            if type(data) == "table" then
+                for k, v in pairs(data) do
+                    if not (inTags(v.name)) then
+                        if type(data[k]["details"]) == "nil" then
+                            data[k]["details"] = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+                        end
+                        addTag(data[k])
+                    else
+                        data[k]["details"] = reconstructTags(v.name)
+                    end
+                end
+                os.queueEvent("itemsUpdated")
+                items = data
+                --return message
+            else
+                sleep(math.random() % 0.2)
+                return getDatabaseFromServer()
+            end
+        elseif message == "ping" then
+            if type(data) == "string" and data == "ack" then
+                os.queueEvent("storageServerAck")
+            else
+                sleep(0.5 + (math.random() % 0.2))
+                pingServer()
+            end
         end
-        if message == "storageCraftingServer" then
-            rednet.send(id, tostring(os.computerID()))
-            local uniq = true
-            for i in pairs(clients) do
-                if clients[i] == id then
-                    uniq = false
-                end
-            end
-            if uniq then
-                clients[#clients + 1] = id
-            end
-            print("")
-            print("clients: ")
-            for i in pairs(clients) do
-                print(tostring(clients[i]))
-            end
-            print("")
-        elseif message == "databaseReload" then
-            reloadStorageDatabase()
-        elseif message == "getRecipes" then
-            rednet.send(id, recipes)
-        elseif message == "craft" then
-            turtle.craft()
-        elseif message == "craftItem" then
-            local id2, message2
-            rednet.send(id, "craftItem")
-            repeat
-                id2, message2 = rednet.receive()
-            until id2 == id
-            print("Request to craft #" .. tostring(message2.amount) .. " " .. message2.name)
-            log("Request to craft #" .. tostring(message2.amount) .. " " .. message2.name)
-            reloadStorageDatabase()
-            local ableToCraft = craftRecipe(message2, math.ceil(message2.amount / message2.count), id)
-            if ableToCraft then
-                print("Crafting Successful")
-                rednet.send(id, true)
-            else
-                print("Crafting Failed!")
-                rednet.send(id, false)
-            end
-        elseif message == "autoCraftItem" then
-            local id2, message2
-            rednet.send(id, "autoCraftItem")
-            repeat
-                id2, message2 = rednet.receive()
-            until id2 == id
-            print("Request to autocraft #" .. tostring(message2.amount) .. " " .. message2.name)
-            log("Request to autocraft #" .. tostring(message2.amount) .. " " .. message2.name)
-            reloadStorageDatabase()
-            local ableToCraft = craft(message2, message2.amount, id)
-            if ableToCraft then
-                print("Crafting Successful")
-                rednet.send(id, true)
-            else
-                print("Crafting Failed!")
-                rednet.send(id, false)
-            end
-        elseif message == "getAmount" then
-            local id2, message2
-            repeat
-                id2, message2 = rednet.receive()
-            until id2 == id
-            local _, number = search(message2, items, 1)
-            rednet.send(id, number)
-        elseif message == "numNeeded" then
-            local id2, message2
-            rednet.send(id, "numNeeded")
-            repeat
-                id2, message2 = rednet.receive()
-            until id2 == id and type(message2.amount) ~= "nil" and type(message2.count) ~= "nil"
-            local amount = math.ceil(message2.amount / message2.count)
-            rednet.send(id, calculateNumberOfItems(message2.recipe, amount))
-        elseif message == "craftable" then
-            local id2, message2
-            local ttl = 5
-            repeat
-                id2, message2 = rednet.receive(nil, 0.5)
-                if ttl < 1 then
-                    break
-                end
-                ttl = ttl - 1
-            until id2 == id
-            local item = message2
-
-            print("Checking if " .. item .. " is craftable")
-            local allRecipes
-            ---need to check for tags
-            if string.find(item, 'tag:') then
-                allRecipes = getAllTagRecipes(item)
-            elseif string.find(item, "item:") then
-                allRecipes = getAllRecipes(string.match(item, 'item:(.+)'))
-            else
-                allRecipes = getAllRecipes(item)
-            end
-
-            if type(allRecipes) == "nil" then
-                print(item .. " is unknown to the system")
-                rednet.send(id, false)
-            elseif #allRecipes < 1 then
-                print("no recipes found for: " .. item)
-                rednet.send(id, false)
-            else
-                local craftableRecipes = haveCraftingMaterials(allRecipes, 1)
-
-                if #craftableRecipes > 0 then
-                    rednet.send(id, craftableRecipes)
+    elseif event[1] == "encrypted_message" then
+        local socket = event[3]
+        -- Check the username to see if the client is logged in or allow without login if wired
+        if socket.username ~= nil or socket.sender == settings.get("serverName") or socket.target == settings.get("StorageServer") then
+            local message = event[2][1]
+            local data = event[2][2]
+            if socket.username == nil then
+                if socket.target == settings.get("StorageServer") then
+                    socket.username = socket.target
                 else
-                    print("0 craftable recipes")
-                    log(textutils.serialise(allRecipes))
-                    rednet.send(id, allRecipes)
+                    socket.username = "LAN Host"
                 end
             end
+            print(socket.username .. " requested: " .. tostring(message))
+            log("User: " .. socket.username .. " Client: " .. socket.target .. " request: " .. tostring(message))
+            --log(socket.name)
+            --log(socket.channel)
+            log("Sender: " .. socket.sender)
+            --log(socket.name)
+            if message == "storageCraftingServer" then
+                cryptoNet.send(socket, { message, settings.get("serverName") })
+                local uniq = true
+                for i in pairs(clients) do
+                    if clients[i] == id then
+                        uniq = false
+                    end
+                end
+                if uniq then
+                    clients[#clients + 1] = id
+                end
+                print("")
+                print("clients: ")
+                for i in pairs(clients) do
+                    print(tostring(clients[i]))
+                end
+                print("")
+            elseif message == "getServerType" then
+                cryptoNet.send(socket, { message, "CraftingServer" })
+            elseif message == "databaseReload" then
+                getDatabaseFromServer()
+            elseif message == "getRecipes" then
+                cryptoNet.sendUnencrypted(socket, { message, recipes })
+            elseif message == "craft" then
+                turtle.craft()
+            elseif message == "craftItem" then
+                print("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
+                debugLog("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
+                reloadStorageDatabase()
+                local ableToCraft = craftRecipe(data, math.ceil(data.amount / data.count), socket)
+                if ableToCraft then
+                    print("Crafting Successful")
+                    cryptoNet.send(socket, { "craftingUpdate", true })
+                else
+                    print("Crafting Failed!")
+                    cryptoNet.send(socket, { "craftingUpdate", false })
+                end
+            elseif message == "autoCraftItem" then
+                print("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
+                debugLog("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
+                reloadStorageDatabase()
+                local ableToCraft = craft(data, data.amount, socket)
+                if ableToCraft then
+                    print("Crafting Successful")
+                    cryptoNet.send(socket, { message, true })
+                else
+                    print("Crafting Failed!")
+                    cryptoNet.send(socket, { message, false })
+                end
+            elseif message == "getAmount" then
+                local _, number = search(data, items, 1)
+                cryptoNet.send(socket, { message, number })
+            elseif message == "getNumNeeded" then
+                local amount = math.ceil(data.amount / data.count)
+                cryptoNet.send(socket, { message, calculateNumberOfItems(data.recipe, amount) })
+            elseif message == "craftable" then
+                local item = data
 
+                print("Checking if " .. item .. " is craftable")
+                local allRecipes
+                ---need to check for tags
+                if string.find(item, 'tag:') then
+                    allRecipes = getAllTagRecipes(item)
+                elseif string.find(item, "item:") then
+                    allRecipes = getAllRecipes(string.match(item, 'item:(.+)'))
+                else
+                    allRecipes = getAllRecipes(item)
+                end
+
+                if type(allRecipes) == "nil" then
+                    print(item .. " is unknown to the system")
+                    cryptoNet.send(socket, { message, false })
+                elseif #allRecipes < 1 then
+                    print("no recipes found for: " .. item)
+                    cryptoNet.send(socket, { message, false })
+                else
+                    local craftableRecipes = haveCraftingMaterials(allRecipes, 1, socket)
+
+                    if #craftableRecipes > 0 then
+                        cryptoNet.send(socket, { message, craftableRecipes })
+                    else
+                        print("0 craftable recipes")
+                        debugLog(textutils.serialise(allRecipes))
+                        cryptoNet.send(socket, { message, allRecipes })
+                    end
+                end
+            elseif message == "getItems" then
+                if type(data) == "table" then
+                    for k, v in pairs(data) do
+                        if not (inTags(v.name)) then
+                            if type(data[k]["details"]) == "nil" then
+                                data[k]["details"] = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+                            end
+                            addTag(data[k])
+                        else
+                            data[k]["details"] = reconstructTags(v.name)
+                        end
+                    end
+                    os.queueEvent("itemsUpdated")
+                    items = data
+                    --return message
+                else
+                    sleep(math.random() % 0.2)
+                    return getDatabaseFromServer()
+                end
+            elseif message == "ping" then
+                if type(data) == "string" and data == "ack" then
+                    os.queueEvent("storageServerAck")
+                else
+                    sleep(0.5 + (math.random() % 0.2))
+                    pingServer()
+                end
+            elseif message == "getItemDetails" then
+                os.queueEvent("gotItemDetails", data)
+            elseif message == "getCertificate" and socket.target == settings.get("StorageServer") then
+                print("Got new cert from StorageServer")
+                os.queueEvent("gotCertificate", data)
+            elseif message == "getCertificate" then
+                print("Serving cert to client")
+                local fileContents = nil
+                local filePath = socket.sender .. ".crt"
+                debugLog("cert filePath: " .. filePath )
+                if fs.exists(filePath) then
+                    --debugLog("file exists")
+                    local file = fs.open(filePath, "r")
+                    fileContents = file.readAll()
+                    file.close()
+                end
+                debugLog("sending cert: " .. filePath )
+                cryptoNet.send(socket, { message, fileContents })
+            
+            end
+        else
+            --User is not logged in and not wired
+            debugLog("User is not logged in and not wired. Sender: " .. socket.sender .. " Target: " .. socket.target)
+            cryptoNet.send(socket, { "Sorry, I only talk to logged in users" })
+            cryptoNet.send(socket, "Sorry, I only talk to logged in users")
+        end
+    elseif event[1] == "timer" then
+        if event[2] == timeoutConnect and (type(storageServerSocket) == "nil") then
+            --Reboot after failing to connect
+            cryptoNet.closeAll()
+            os.reboot()
         end
     end
 end
 
-log("~~Boot~~")
+function onStart()
+    --clear out old log
+    if fs.exists("logs/craftingServer.log") then
+        fs.delete("logs/craftingServer.log")
+    end
+    --Close any old connections and servers
+    cryptoNet.closeAll()
+    local wirelessModem = nil
+    local wiredModem = nil
+
+    print("Looking for connected modems...")
+
+    for _, side in ipairs(peripheral.getNames()) do
+        if peripheral.getType(side) == "modem" then
+            local modem = peripheral.wrap(side)
+            if modem.isWireless() then
+                wirelessModem = modem
+                wirelessModem.side = side
+                print("Wireless modem found on " .. side .. " side")
+                debugLog("Wireless modem found on " .. side .. " side")
+            else
+                wiredModem = modem
+                wiredModem.side = side
+                print("Wired modem found on " .. side .. " side")
+                debugLog("Wired modem found on " .. side .. " side")
+            end
+        end
+    end
+
+    -- Start the cryptoNet server
+    if type(wiredModem) ~= "nil" then
+        debugLog("Start the wired cryptoNet server")
+        cryptoNet.host(settings.get("serverName", true, false, wiredModem.side))
+    end
+
+    if type(wirelessModem) ~= "nil" then
+        debugLog("Start the wireless cryptoNet server")
+        cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
+    end
+
+    timeoutConnect = os.startTimer(10)
+    -- Connect to the server
+    print("Connecting to server: " .. settings.get("StorageServer"))
+    storageServerSocket = cryptoNet.connect(settings.get("StorageServer"))
+    --timeout no longer needed
+    timeoutConnect = nil
+    -- Log in with a username and password
+    --print("Logging into server:" .. settings.get("StorageServer"))
+    --cryptoNet.login(storageServerSocket, "test", "123")
+
+    --Download the cert from the storageserver if it doesnt exist already
+    local filePath = settings.get("StorageServer") .. ".crt"
+    if not fs.exists(filePath) then
+        debugLog("Download the cert from the storageserver")
+        cryptoNet.send(storageServerSocket, { "getCertificate" })
+        --wait for reply from server
+        debugLog("wait for reply from server")
+        local event, data
+        repeat
+            event, data = os.pullEvent("gotCertificate")
+        until event == "gotCertificate"
+
+        debugLog("write the cert file")
+        --write the file
+        local file = fs.open(filePath, "w")
+        file.write(data)
+        file.close()
+    end
+    cryptoNet.send(storageServerSocket, { "storageServer" })
+
+    getRecipes()
+    getDatabaseFromServer()
+end
+
+debugLog("~~Boot~~")
 
 print("debug mode: " .. tostring(settings.get("debug")))
 print("recipeFile is set to : " .. (settings.get("recipeFile")))
 print("craftingChest is set to: " .. (settings.get("craftingChest")))
+
+if not fs.exists("cryptoNet") then
+    print("")
+    print("cryptoNet API not found on disk, downloading...")
+    local response = http.get(cryptoNetURL)
+    if response then
+        local file = fs.open("cryptoNet", "w")
+        file.write(response.readAll())
+        file.close()
+        response.close()
+        print("File downloaded as '" .. "cryptoNet" .. "'.")
+    else
+        print("Failed to download file from " .. cryptoNetURL)
+    end
+end
 
 if fs.exists("tags.db") then
     print("Reading Tags Database")
@@ -1817,23 +1987,23 @@ if fs.exists("tags.db") then
     end
     print("Tags read: " .. tostring(tags.count))
 end
+os.loadAPI("cryptoNet")
 
-getRecipes()
-broadcast()
-reloadStorageDatabase()
+
 local storage, items, storageUsed
 
 print("")
 print("Crafting Server Ready")
 print("")
 
-while true do
-    if settings.get("debug") then
-        --print(dump(recipes))
-        parallel.waitForAny(debugMenu, serverHandler)
-    else
-        parallel.waitForAny(debugMenu, serverHandler)
-        --serverHandler()
-    end
-    sleep(0.2)
+cryptoNet.setLoggingEnabled(true)
+if settings.get("debug") then
+    --print(dump(recipes))
+    --parallel.waitForAny(debugMenu, serverHandler)
+    cryptoNet.startEventLoop(onStart, serverHandler)
+else
+    cryptoNet.startEventLoop(onStart, serverHandler)
+    --serverHandler()
 end
+
+cryptoNet.closeAll()
