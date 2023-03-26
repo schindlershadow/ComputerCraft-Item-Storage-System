@@ -71,7 +71,7 @@ end
 
 local function log(text)
     if settings.get("debug") then
-        local logFile = fs.open("logs/RSclient.log", "a")
+        local logFile = fs.open("logs/clientDebug.log", "a")
         if type(text) == "string" then
             logFile.writeLine(text)
         else
@@ -115,7 +115,7 @@ end
 
 local function getItemDetails(item)
     if type(item) ~= "nil" and type(item.chestName) ~= "nil" and type(item.slot) ~= "nil" then
-        cryptoNet.send(storageServerSocket, { "getItemDetails" })
+        cryptoNet.send(storageServerSocket, { "getItemDetails", item })
         local event, data
         repeat
             event, data = os.pullEvent("gotItemDetails")
@@ -186,6 +186,7 @@ local function removeDuplicates(arr)
     return newArray -- returning the new, duplicate removed array
 end
 
+--Filters items by search term
 local function filterItems()
     local filteredTable = {}
     for k, v in pairs(items) do
@@ -415,8 +416,15 @@ local function craftRecipe(recipe, amount, canCraft)
         until event == "craftingUpdate" or data == timeoutTimer
         if data == timeoutTimer then
             ttl = 0
+        else
+            message = data
         end
-        message = data
+        --log("data: " .. dump(data))
+        
+        if type(message.message) == "boolean" then
+            message = message.message
+            break
+        end
     until (type(message) == "boolean") or ttl < 1
     if ttl < 1 then
         message = false
@@ -441,7 +449,7 @@ local function craftRecipe(recipe, amount, canCraft)
     repeat
         event, button, x, y = os.pullEvent()
     until event == "mouse_click" or event == "key" or event == "mouse_scroll"
-    loadingScreen("Loading request from Storage Server...")
+    --loadingScreen("Loading request from Storage Server...")
     getItems()
     --sleep(10)
 
@@ -506,8 +514,9 @@ local function isCraftable(itemName)
     local event, data
     repeat
         event, data = os.pullEvent("gotCraftable")
-    until (type(data) == "bool" or type(data) == "table")
-    return data[2]
+    until  event == "gotCraftable"
+    --log("craftable" .. dump(data))
+    return data
 end
 
 local function drawCraftingMenu(sel, inputTable)
@@ -520,9 +529,10 @@ local function drawCraftingMenu(sel, inputTable)
     local amount = 1
     local done = false
     while done == false do
-        loadingScreen("Loading request from Crafting Server...")
+        --loadingScreen("Loading request from Crafting Server...")
 
         inputTable[sel].amount = amount
+        log(inputTable[sel])
         cryptoNet.send(craftingServerSocket, { "getNumNeeded", inputTable[sel] })
 
         local event, data
@@ -1060,11 +1070,13 @@ local function drawList(list)
             end
             --log(filteredItems)
             term.setBackgroundColor(colors.blue)
+
             for k, v in pairs(filteredItems) do
                 if k > scroll then
                     if k < (height + scroll) then
                         local text = ""
-                        if v["details"] == nil and not pocket and not isWirelessModem then
+                        --if v["details"] == nil and not pocket and not isWirelessModem then
+                        if v["details"] == nil then
                             if type(peripheral.wrap(v.chestName)) == "nil" then
                                 v.details = getItemDetails(v)
                             else
@@ -1624,6 +1636,10 @@ function loginScreen()
 end
 
 function onStart()
+    --clear out old log
+    if fs.exists("logs/clientDebug.log") then
+        fs.delete("logs/clientDebug.log")
+    end
     --Close any old connections
     cryptoNet.closeAll()
 
@@ -1858,7 +1874,7 @@ function onCryptoNetEvent(event)
             os.queueEvent("gotServerType", message)
         elseif messageType == "getAmount" then
             os.queueEvent("gotAmount", message)
-        elseif messageType == "getCraftable" then
+        elseif messageType == "craftable" then
             os.queueEvent("gotCraftable", message)
         elseif messageType == "getNumNeeded" then
             os.queueEvent("gotNumNeeded", message)

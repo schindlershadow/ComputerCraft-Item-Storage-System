@@ -637,10 +637,7 @@ local function calculateNumberOfItems(recipe, amount)
             end
         end
     end
-
-
-
-
+    debugLog("calculateNumberOfItems: " .. dump(numNeeded))
     return numNeeded
 end
 
@@ -825,7 +822,12 @@ local function reloadStorageDatabase()
     reloadServerDatabase()
     --cryptoNet.send(storageServerSocket, { "reloadStorageDatabase" })
     --pingServer()
-    getDatabaseFromServer()
+
+    --getDatabaseFromServer()
+    local event
+    repeat
+        event = os.pullEvent("itemsUpdated")
+    until event == "itemsUpdated"
 
     --write("done\n")
     --write("Writing Tags Database....")
@@ -868,7 +870,11 @@ local function dumpAll()
     end
     if reload then
         cryptoNet.send(storageServerSocket, { "forceImport" })
-        reloadStorageDatabase()
+        --reloadStorageDatabase()
+        local event
+        repeat
+            event = os.pullEvent("itemsUpdated")
+        until event == "itemsUpdated"
         pingServer()
     end
 end
@@ -1135,13 +1141,15 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                     searchResult[k] = search(recipe[row][slot][k], items, 1)
                     if type(searchResult[k]) ~= "nil" then
                         local itemDetail = peripheral.wrap(searchResult[k].chestName).getItemDetail(searchResult[k].slot)
-                        local maxCount = itemDetail.maxCount
-                        if maxCount < 64 then
-                            stackLimited = true
-                            --Update new stack limit
-                            if maxCount < stackLimit then
-                                --stack limit will always be the stack limit of the smallest stack limited item
-                                stackLimit = maxCount
+                        if type(itemDetail) ~= "nil" then
+                            local maxCount = itemDetail.maxCount
+                            if maxCount < 64 then
+                                stackLimited = true
+                                --Update new stack limit
+                                if maxCount < stackLimit then
+                                    --stack limit will always be the stack limit of the smallest stack limited item
+                                    stackLimit = maxCount
+                                end
                             end
                         end
                     end
@@ -1218,7 +1226,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                     print("craftRecipe: Cannot find enough " .. recipe[row][slot][j] .. " in system")
                                     debugLog(("craftRecipe: Cannot find enough " .. recipe[row][slot][j] .. " in system"))
                                     updateClient(socket, "logUpdate",
-                                        "craftRecipe: Cannot find enough " .. recipe[row][slot][j] .. " in system")
+                                        "Not enough " .. recipe[row][slot][j]:match(".+:(.+)") .. " in system")
                                 end
                             end
                             dumpAll()
@@ -1262,9 +1270,10 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                     --try to find just 1
                                     newSearchResult = search("item:" .. searchResult.name, items, 1)
                                     if type(newSearchResult) == "nil" then
-                                        print("failed to move item: " .. searchResult.name)
-                                        debugLog("failed to move item: " .. searchResult.name)
-                                        updateClient(socket, "logUpdate", "failed to move item: " .. searchResult.name)
+                                        print("Failed to move item: " .. searchResult.name)
+                                        debugLog("Failed to move item: " .. searchResult.name)
+                                        updateClient(socket, "logUpdate",
+                                            "Failed move: " .. searchResult.name:match(".+:(.+)"))
                                         failed = true
                                         break
                                     else
@@ -1285,7 +1294,8 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             local slotDetail = turtle.getItemDetail()
                             if type(slotDetail) == "nil" then
                                 print("failed to get item: " .. searchResult.name)
-                                updateClient(socket, "logUpdate", "failed to get item: " .. searchResult.name)
+                                updateClient(socket, "logUpdate",
+                                "Failed getting: " .. searchResult.name:match(".+:(.+)"))
                                 dumpAll()
                                 failed = true
                                 debugLog(searchResult)
@@ -1689,6 +1699,7 @@ local function serverHandler(event)
         local data = event[2][2]
         if message == "getItems" then
             if type(data) == "table" then
+                items = data
                 for k, v in pairs(data) do
                     if not (inTags(v.name)) then
                         if type(data[k]["details"]) == "nil" then
@@ -1699,9 +1710,8 @@ local function serverHandler(event)
                         data[k]["details"] = reconstructTags(v.name)
                     end
                 end
+                
                 os.queueEvent("itemsUpdated")
-                items = data
-                --return message
             else
                 sleep(math.random() % 0.2)
                 return getDatabaseFromServer()
@@ -1765,10 +1775,12 @@ local function serverHandler(event)
                 local ableToCraft = craftRecipe(data, math.ceil(data.amount / data.count), socket)
                 if ableToCraft then
                     print("Crafting Successful")
-                    cryptoNet.send(socket, { "craftingUpdate", true })
+                    --cryptoNet.send(socket, { "craftingUpdate", true })
+                    updateClient(socket, true)
                 else
                     print("Crafting Failed!")
-                    cryptoNet.send(socket, { "craftingUpdate", false })
+                    --cryptoNet.send(socket, { "craftingUpdate", false })
+                    updateClient(socket, false)
                 end
             elseif message == "autoCraftItem" then
                 print("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
@@ -1777,10 +1789,12 @@ local function serverHandler(event)
                 local ableToCraft = craft(data, data.amount, socket)
                 if ableToCraft then
                     print("Crafting Successful")
-                    cryptoNet.send(socket, { message, true })
+                    --cryptoNet.send(socket, { message, true })
+                    updateClient(socket, true)
                 else
                     print("Crafting Failed!")
-                    cryptoNet.send(socket, { message, false })
+                    --cryptoNet.send(socket, { message, false })
+                    updateClient(socket, false)
                 end
             elseif message == "getAmount" then
                 local _, number = search(data, items, 1)
@@ -1821,6 +1835,7 @@ local function serverHandler(event)
                 end
             elseif message == "getItems" then
                 if type(data) == "table" then
+                    items = data
                     for k, v in pairs(data) do
                         if not (inTags(v.name)) then
                             if type(data[k]["details"]) == "nil" then
@@ -1831,9 +1846,8 @@ local function serverHandler(event)
                             data[k]["details"] = reconstructTags(v.name)
                         end
                     end
+                    
                     os.queueEvent("itemsUpdated")
-                    items = data
-                    --return message
                 else
                     sleep(math.random() % 0.2)
                     return getDatabaseFromServer()
@@ -1854,16 +1868,15 @@ local function serverHandler(event)
                 print("Serving cert to client")
                 local fileContents = nil
                 local filePath = socket.sender .. ".crt"
-                debugLog("cert filePath: " .. filePath )
+                debugLog("cert filePath: " .. filePath)
                 if fs.exists(filePath) then
                     --debugLog("file exists")
                     local file = fs.open(filePath, "r")
                     fileContents = file.readAll()
                     file.close()
                 end
-                debugLog("sending cert: " .. filePath )
+                debugLog("sending cert: " .. filePath)
                 cryptoNet.send(socket, { message, fileContents })
-            
             end
         else
             --User is not logged in and not wired
@@ -1884,6 +1897,9 @@ function onStart()
     --clear out old log
     if fs.exists("logs/craftingServer.log") then
         fs.delete("logs/craftingServer.log")
+    end
+    if fs.exists("logs/craftingServerDebug.log") then
+        fs.delete("logs/craftingServerDebug.log")
     end
     --Close any old connections and servers
     cryptoNet.closeAll()

@@ -2,6 +2,12 @@ math.randomseed(os.time() + (7 * os.getComputerID()))
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
 local clients = {}
 local serverLAN, serverWireless
+local items = {}
+local detailDB = {}
+local storageUsed = 0
+local storageMaxSize = 0
+local storageSize = 0
+local storages
 
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
@@ -72,7 +78,7 @@ end
 
 local function debugLog(text)
     if settings.get("debug") then
-        local logFile = fs.open("logs/serverdebug.log", "a")
+        local logFile = fs.open("logs/serverDebug.log", "a")
         if type(text) == "string" then
             logFile.writeLine(os.date("%A/%d/%B/%Y %I:%M%p") .. ", " .. text)
         else
@@ -104,7 +110,7 @@ end
 
 local function getExportChests()
     local output = {}
-    exportChests = settings.get("exportChests")
+    local exportChests = settings.get("exportChests")
     for i, chest in pairs(exportChests) do
         output[#output + 1] = peripheral.wrap(chest)
     end
@@ -112,7 +118,7 @@ local function getExportChests()
 end
 
 local function inExportChests(search)
-    exportChests = settings.get("exportChests")
+    local exportChests = settings.get("exportChests")
     for _, chest in pairs(exportChests) do
         if chest == search then
             return true
@@ -122,7 +128,7 @@ local function inExportChests(search)
 end
 
 local function inImportChests(search)
-    importChests = settings.get("importChests")
+    local importChests = settings.get("importChests")
     for _, chest in pairs(importChests) do
         if chest == search then
             return true
@@ -150,20 +156,85 @@ local function getStorage()
     return storage
 end
 
+--Use this to avoid costly peripheral lookups
+local function reconstructDetails(itemName)
+    if type(detailDB[itemName]) ~= "nil" then
+        return detailDB[itemName]
+    end
+    return nil
+end
+
+--Check if item name is in tag db
+local function inDetailsDB(itemName)
+    if type(detailDB[itemName]) ~= "nil" then
+        return true
+    end
+    return false
+end
+
+--Mantain details lookup
+local function addDetailsDB(item)
+    --print("addTag for: " .. item.name)
+
+    --Maintain number of details stored
+    local countDetails
+    if type(detailDB.count) ~= "number" then
+        countDetails = 0
+    else
+        countDetails = detailDB.count
+    end
+
+    --Maintain item count
+    local countItems
+    if type(detailDB.countItems) ~= "number" then
+        countItems = 0
+    else
+        countItems = detailDB.countItems
+    end
+
+    --Add them to details db if they dont exist
+    if type(detailDB[item.name]) == "nil" then
+        --print("Found new item: " .. item.name)
+        --print("Found new detail: " .. item.details.displayName)
+        detailDB[item.name] = item.details
+        countDetails = countDetails + 1
+        countItems = countItems + 1
+    end
+
+    detailDB.count = countDetails
+    detailDB.countItems = countItems
+end
+
 --gets the contents of a table of chests
 local function getList(storage)
     local list = {}
     local itemCount = 0
     local getName = peripheral.getName
     local wrap = peripheral.wrap
+
     for _, chest in pairs(storage) do
         local tmpList = {}
         local name = getName(chest)
         for slot, item in pairs(chest.list()) do
             item["slot"] = slot
             item["chestName"] = name
-            if item.nbt ~= nil then
-                item["details"] = wrap(name).getItemDetail(slot)
+
+            if item.details == nil then
+                --this is a massive time save
+                if not (inDetailsDB(item.name)) or item.nbt ~= nil then
+                    item["details"] = wrap(name).getItemDetail(slot)
+                    if item.nbt == nil then
+                        --print("addDetailsDB")
+                        addDetailsDB(item)
+                    end
+                elseif item.nbt == nil then
+                    --try to generate the details from db
+                    item["details"] = reconstructDetails(item.name)
+                end
+                --if we still dont have details, we must reach out to the chest
+                if item.details == nil then
+                    item["details"] = wrap(name).getItemDetail(slot)
+                end
             end
             itemCount = itemCount + item.count
             --table.insert(list, item)
@@ -171,11 +242,10 @@ local function getList(storage)
             --print(("%d x %s in slot %d"):format(item.count, item.name, slot))
         end
     end
-
     return list, itemCount
 end
 
-function average(t)
+local function average(t)
     local sum = 0
     for _, v in pairs(t) do -- Get the sum of all numbers in t
         sum = sum + v
@@ -213,7 +283,7 @@ local function getStorageSize(storage)
 
     print("")
     print("")
-    x, y = term.getSize()
+    local x, y = term.getSize()
     setCursorPos(1, y - 1)
     write("Progress:      of " .. tostring(#storage) .. " storages processed")
 
@@ -256,9 +326,9 @@ end
 --Note: Large performance hit on larger systems
 local function reloadStorageDatabase()
     print("Reloading database..")
-    storage = getStorage()
+    storages = getStorage()
     --This part is slow
-    items, storageUsed = getList(storage)
+    items, storageUsed = getList(storages)
     print("Writing storage database....")
 
     if fs.exists("storage.db") then
@@ -266,8 +336,7 @@ local function reloadStorageDatabase()
     end
 
     local decoded = {}
-    decoded.items = items
-    decoded.storageUsed = storageUsed
+    decoded.detailDB = detailDB
     decoded.storageMaxSize = storageMaxSize
     decoded.storageSize = storageSize
 
@@ -402,6 +471,7 @@ local function findFreeSpace(item, storage)
             --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
 
             --workaround for storage drawers mod. slot 1 has the size of each slot but only slots 2..n can hold items so loop should start at 2
+            local index
             if find(chestName, "storagedrawers:") then
                 --print("applying storage drawers mod workaround")
                 index = 2
@@ -523,10 +593,10 @@ local function importHandler()
         --check if list is not empty
         --print(dump(list))
         if next(list) then
-            local localStorage = storage
+            local localStorage = storages
             for i, item in pairs(list) do
                 --print("finding free space....")
-                local chest, slot = findFreeSpace(item, storage)
+                local chest, slot = findFreeSpace(item, storages)
                 --print("chest: " .. tostring(chest) .. " slot: " .. tostring(slot))
                 if chest == nil then
                     --TODO: implement space full alert
@@ -585,7 +655,7 @@ local function onCryptoNetEvent(event)
                 for _ in pairs(clients) do count = count + 1 end
                 print("Clients: " .. tostring(count))
                 for i in pairs(clients) do
-                    print(string.sub(tostring(clients[i].target), 1,5) .. ":" .. tostring(clients[i].sender))
+                    print(string.sub(tostring(clients[i].target), 1, 5) .. ":" .. tostring(clients[i].sender))
                 end
                 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
             elseif message == "getServerType" then
@@ -620,9 +690,9 @@ local function onCryptoNetEvent(event)
                 local list = getList(inputStorage)
                 --check if list is not empty
                 if next(list) then
-                    local localStorage = storage
+                    local localStorage = storages
                     for i, item in pairs(list) do
-                        local chest, slot = findFreeSpace(item, storage)
+                        local chest, slot = findFreeSpace(item, storages)
                         if chest == nil then
                             --TODO: implement space full alert
                             print("No free space found!")
@@ -641,7 +711,7 @@ local function onCryptoNetEvent(event)
                 local filteredTable = search(data, list)
                 if type(filteredTable) ~= "nil" then
                     for i, item in pairs(filteredTable) do
-                        local chest, slot = findFreeSpace(item, storage)
+                        local chest, slot = findFreeSpace(item, storages)
                         if chest == nil then
                             --TODO: implement space full alert
                             print("No free space found!")
@@ -660,7 +730,7 @@ local function onCryptoNetEvent(event)
                 local inputStorage = getExportChests()
                 local list = getList(inputStorage)
                 for i, item in pairs(list) do
-                    local chest, slot = findFreeSpace(item, storage)
+                    local chest, slot = findFreeSpace(item, storages)
                     if chest == nil then
                         --TODO: implement space full alert
                         print("No free space found!")
@@ -703,10 +773,13 @@ local function onCryptoNetEvent(event)
     end
 end
 
-function onStart()
+local function onStart()
     --clear out old log
     if fs.exists("logs/server.log") then
         fs.delete("logs/server.log")
+    end
+    if fs.exists("logs/serverDebug.log") then
+        fs.delete("logs/serverDebug.log")
     end
     --Close any old connections and servers
     cryptoNet.closeAll()
@@ -718,30 +791,30 @@ function onStart()
 
     for _, side in ipairs(peripheral.getNames()) do
         if peripheral.getType(side) == "modem" then
-          local modem = peripheral.wrap(side)
-          if modem.isWireless() then
-            wirelessModem = modem
-            wirelessModem.side = side
-            print("Wireless modem found on "..side.." side")
-            debugLog("Wireless modem found on " .. side .. " side")
-          else
-            wiredModem = modem
-            wiredModem.side = side
-            print("Wired modem found on "..side.." side")
-            debugLog("Wired modem found on " .. side .. " side")
-          end
+            local modem = peripheral.wrap(side)
+            if modem.isWireless() then
+                wirelessModem = modem
+                wirelessModem.side = side
+                print("Wireless modem found on " .. side .. " side")
+                debugLog("Wireless modem found on " .. side .. " side")
+            else
+                wiredModem = modem
+                wiredModem.side = side
+                print("Wired modem found on " .. side .. " side")
+                debugLog("Wired modem found on " .. side .. " side")
+            end
         end
-      end
+    end
 
     -- Start the cryptoNet server
-    if type(wiredModem) ~="nil" then
+    if type(wiredModem) ~= "nil" then
         serverLAN = cryptoNet.host(settings.get("serverName", true, false, wiredModem.side))
     end
 
-    if type(wirelessModem) ~="nil" then
+    if type(wirelessModem) ~= "nil" then
         serverWireless = cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
     end
-    
+
     importHandler()
 end
 
@@ -754,11 +827,8 @@ print("craftingChest is set to: " .. (settings.get("craftingChest")))
 print("")
 print("Server is loading, please wait....")
 --list of storage peripherals
-storage = getStorage()
-items = {}
-storageUsed = 0
-storageMaxSize = 0
-storageSize = 0
+storages = getStorage()
+
 
 if fs.exists("storage.db") then
     print("Reading storage database")
@@ -768,20 +838,17 @@ if fs.exists("storage.db") then
 
     local decoded = textutils.unserialize(contents)
     if type(decoded) ~= "nil" then
-        items = decoded.items
-        storageUsed = decoded.storageUsed
+        detailDB = decoded.detailDB
         storageMaxSize = decoded.storageMaxSize
         storageSize = decoded.storageSize
     end
-else
-    items, storageUsed = getList(storage)
 end
 
-
+items, storageUsed = getList(storages)
 
 if settings.get("debug") == false then
     write("\nGetting storage size")
-    storageSize, storageMaxSize = getStorageSize(storage)
+    storageSize, storageMaxSize = getStorageSize(storages)
     write("\ndone\n\n")
     print("Storage size is: " .. tostring(storageSize) .. " slots")
     print("Items in the system: " ..
