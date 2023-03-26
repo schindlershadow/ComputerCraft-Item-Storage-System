@@ -166,8 +166,10 @@ end
 
 --Check if item name is in tag db
 local function inDetailsDB(itemName)
-    if type(detailDB[itemName]) ~= "nil" then
-        return true
+    if type(detailDB) ~= "nil" then
+        if type(detailDB[itemName]) ~= "nil" then
+            return true
+        end
     end
     return false
 end
