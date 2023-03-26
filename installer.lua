@@ -62,6 +62,10 @@ else
     print("")
     if tonumber(input) == 1 then
         type = "storageServer"
+        --prevents issues when updating server version
+        if fs.exists("storage.db") then
+            fs.delete("storage.db")
+        end
         print("Installing Server file: storageServer.lua as startup program")
         download = http.get(
             "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/storageServer.lua")
