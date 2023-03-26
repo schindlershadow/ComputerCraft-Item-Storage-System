@@ -1939,7 +1939,7 @@ function onStart()
     timeoutConnect = os.startTimer(10)
     -- Connect to the server
     print("Connecting to server: " .. settings.get("StorageServer"))
-    storageServerSocket = cryptoNet.connect(settings.get("StorageServer"))
+    storageServerSocket = cryptoNet.connect(settings.get("StorageServer"),5,1,settings.get("StorageServer")..".crt",wiredModem.side)
     --timeout no longer needed
     timeoutConnect = nil
     -- Log in with a username and password
