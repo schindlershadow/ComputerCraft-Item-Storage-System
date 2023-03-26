@@ -129,6 +129,13 @@ if type == "craftingServer" or type == "storageServer" then
     print("Note that other players may see this hostname")
     print("")
     local hostname = io.read()
+    if hostname == "0" then
+        if type == "craftingServer" then
+            hostname = "CraftingServer" .. tostring(os.getComputerID())
+        else
+            hostname = "StorageServer" .. tostring(os.getComputerID())
+        end
+    end
     settings.set("serverName", hostname)
 
     term.clear()
@@ -163,7 +170,7 @@ if type == "craftingServer" or type == "storageServer" then
         print("Enter 0 for a default hostname of StorageServer")
         print("")
         local storageServerHostname = io.read()
-        if storageServerHostname ~= "0" then
+        if storageServerHostname == "0" then
             storageServerHostname = "StorageServer"
         end
         settings.set("StorageServer", storageServerHostname)
