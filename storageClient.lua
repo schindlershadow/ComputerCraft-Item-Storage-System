@@ -1,21 +1,28 @@
-math.randomseed(os.time())
-local modem = peripheral.find("modem", rednet.open)
+math.randomseed(os.time() + (5 * os.getComputerID()))
+local timeoutConnect = nil
 local width, height = term.getSize()
-local server = 0
-local craftingServer = 0
-local search = ""
 local scroll = 0
+local search = ""
 local items = {}
 local recipes = {}
 local displayedRecipes = {}
 local menu = false
 local menuSel = "storage"
+local storageServerSocket, craftingServerSocket
+local isWirelessModem = false
+local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
+local username = ""
+local password = ""
 
 -- Settings
 --Settings
+settings.define("StorageServer", { description = "storage server hostname", default = "StorageServer", type = "string" })
+settings.define("CraftingServer",
+    { description = "crafting server hostname", default = "CraftingServer", type = "string" })
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
 settings.define("crafting", { description = "Enables crafting support", default = "false", type = "boolean" })
-settings.define("exportChestName", { description = "Name of the export chest for this client", default = "minecraft:chest_0", type = "string" })
+settings.define("exportChestName",
+    { description = "Name of the export chest for this client", default = "minecraft:chest_0", type = "string" })
 
 local logging = true
 local debug = false
@@ -23,6 +30,8 @@ local debug = false
 --Settings fails to load
 if settings.load() == false then
     print("No settings have been found! Default values will be used!")
+    --settings.set("StorageServer", "StorageServer")
+    --settings.set("craftingServer", "CraftingServer")
     settings.set("debug", false)
     settings.set("crafting", false)
     settings.set("exportChestName", "minecraft:chest_0")
@@ -62,11 +71,9 @@ end
 
 local function log(text)
     if settings.get("debug") then
-        local logFile = fs.open("logs/RSclient.log", "a")
+        local logFile = fs.open("logs/clientDebug.log", "a")
         if type(text) == "string" then
-
             logFile.writeLine(text)
-
         else
             logFile.writeLine(textutils.serialise(text))
         end
@@ -90,75 +97,34 @@ local function dump(o)
     end
 end
 
-local function broadcastStorageServer()
-    print("Searching for storageServer server")
-    rednet.broadcast("storageServer")
-    local id, message = rednet.receive(nil, 5)
-    if type(tonumber(message)) == "number" and id == tonumber(message) then
-        print("Server set to: " .. tostring(message))
-        server = tonumber(message)
-        return tonumber(message)
-    else
-        sleep(0.5+(math.random()%1))
-        return broadcastStorageServer()
-    end
-end
-
 local function getRecipes()
-    rednet.send(craftingServer, "getRecipes")
-    local id, message = rednet.receive(nil, 1)
-    if type(message) == "table" and id == craftingServer then
-        table.sort(message, function(a, b)
-            return a.name < b.name
-        end)
-
-        return message
-    else
-        sleep(0.2)
-        return getRecipes()
-    end
-end
-
-local function broadcastCraftingServer()
-    if settings.get("crafting") then
-        print("Searching for storageCraftingServer server")
-        rednet.broadcast("storageCraftingServer")
-        local id, message = rednet.receive(nil, 5)
-        if type(tonumber(message)) == "number" and id == tonumber(message) then
-            print("Server set to: " .. tostring(message))
-            craftingServer = tonumber(message)
-            print("Loading Recipes...")
-            recipes = getRecipes()
-            return tonumber(message)
-        else
-            sleep(0.5+(math.random()%1))
-            return broadcastCraftingServer()
-        end
-    else
-        return 0
-    end
+    cryptoNet.send(craftingServerSocket, { "getRecipes" })
+    local event
+    repeat
+        event = os.pullEvent("gotRecipes")
+    until event == "gotRecipes"
 end
 
 local function pingStorageServer()
-    rednet.send(server, "ping")
-    local id, message = rednet.receive(nil, 1)
-    if type(message) == "string" and id == server and message == "ack" then
-        return message
-    else
-        sleep(0.5+(math.random()%0.2))
-        return pingStorageServer()
-    end
+    cryptoNet.send(storageServerSocket, { "ping" })
+    local event
+    repeat
+        event = os.pullEvent("storageServerAck")
+    until event == "storageServerAck"
 end
 
 local function getItemDetails(item)
     if type(item) ~= "nil" and type(item.chestName) ~= "nil" and type(item.slot) ~= "nil" then
-        rednet.send(server, "getItemDetails")
-        rednet.send(server, item)
-        local id, message = rednet.receive(nil, 5)
-        if type(message) == "table" and id == server then
-            return message
+        cryptoNet.send(storageServerSocket, { "getItemDetails", item })
+        local event, data
+        repeat
+            event, data = os.pullEvent("gotItemDetails")
+        until event == "gotItemDetails"
+
+        if type(data) == "table" then
+            return data
         else
-            sleep(0.5+(math.random()%0.2))
+            sleep(0.5 + (math.random() % 0.2))
             return getItemDetails()
         end
     end
@@ -203,12 +169,12 @@ local function inTable(arr, element) -- function to check if something is in an 
 end
 
 local function removeDuplicates(arr)
-    local newArray = {} -- new array that will be arr, but without duplicates
+    local newArray = {}                        -- new array that will be arr, but without duplicates
     for _, element in pairs(arr) do
         if not inTable(newArray, element) then -- making sure we had not added it yet to prevent duplicates
-            if element.details == nil then
-                --element.details = peripheral.wrap(element.chestName).getItemDetail(element.slot)
-            end
+            --if element.details == nil then
+            --element.details = peripheral.wrap(element.chestName).getItemDetail(element.slot)
+            --end
             table.insert(newArray, element)
         else
             local index = findInTable(newArray, element)
@@ -220,6 +186,7 @@ local function removeDuplicates(arr)
     return newArray -- returning the new, duplicate removed array
 end
 
+--Filters items by search term
 local function filterItems()
     local filteredTable = {}
     for k, v in pairs(items) do
@@ -238,46 +205,37 @@ local function filterItems()
 end
 
 local function getItems()
-    pingStorageServer()
-    rednet.send(server, "getItems")
-    local id, message = rednet.receive(nil, 1)
-    if type(message) == "table" and id == server then
-        local tab = removeDuplicates(message)
-        table.sort(
-            tab,
-            function(a, b)
-            return a.count > b.count
-        end
-        )
-        return tab
-    else
-        sleep(0.5+(math.random()%0.2))
-        return getItems()
-    end
+    --pingStorageServer()
+    cryptoNet.send(storageServerSocket, { "getItems" })
+    local event
+    repeat
+        event = os.pullEvent("itemsUpdated")
+    until event == "itemsUpdated"
 end
 
 local function import(item)
-    pingStorageServer()
-    rednet.send(server, "import")
-    rednet.send(server, item:getTable())
-    items = getItems()
+    --pingStorageServer()
+    cryptoNet.send(storageServerSocket, { "import", item:getTable() })
 end
 
 local function importAll()
     loadingScreen("Importing from Export chests")
-    print("Waiting for server to be ready")
-    pingStorageServer()
-    print("Importing")
-    rednet.send(server, "importAll")
-    pingStorageServer()
+    --print("Waiting for server to be ready")
+    --pingStorageServer()
+    --print("Importing")
+    cryptoNet.send(storageServerSocket, { "importAll" })
+    local event
+    repeat
+        event = os.pullEvent("importAllComplete")
+    until event == "importAllComplete"
+    --pingStorageServer()
     print("Import Complete")
     print("Reloading Database")
-    items = getItems()
+    getItems()
 end
 
 local function export(item)
-    rednet.send(server, "export")
-    rednet.send(server, { item = item:getTable(), chest = settings.get("exportChestName") })
+    cryptoNet.send(storageServerSocket, { "export", { item = item:getTable(), chest = settings.get("exportChestName") } })
 end
 
 local function drawDetailsmenu(sel)
@@ -347,29 +305,25 @@ local function craftRecipe(recipe, amount, canCraft)
             table[row][slot] = 0
         end
     end
-    local id1, message1
-    repeat
-        if canCraft == true then
-            rednet.send(craftingServer, "craftItem")
-        else
-            rednet.send(craftingServer, "autoCraftItem")
-        end
-        id1, message1 = rednet.receive(nil, 0.5)
-    until id1 == craftingServer and ( message1 == "craftItem" or  message1 == "autoCraftItem" )
+
 
     --sleep(0.1)
     recipe.amount = amount
-    rednet.send(craftingServer, recipe)
+    if canCraft == true then
+        cryptoNet.send(craftingServerSocket, { "craftItem", recipe })
+    else
+        cryptoNet.send(craftingServerSocket, { "autoCraftItem", recipe })
+    end
     term.clear()
     local id, message
     local nowCrafting = recipe.name
     local ttl = 5
     repeat
-        if id == craftingServer and type(message) == "table" and message.type == "craftingUpdate" then
+        local timeoutTimer = os.startTimer(15)
+        if type(message) == "table" and message.type == "craftingUpdate" then
             log(textutils.serialise(message))
             if message.message == "slotUpdate" then
                 table[message[1]][message[2]] = message[3]
-
             elseif message.message == "itemUpdate" then
                 nowCrafting = message[1]
                 for row = 1, 3, 1 do
@@ -423,8 +377,6 @@ local function craftRecipe(recipe, amount, canCraft)
                 term.write(" ")
             else
                 for slot = 1, 3, 1 do
-
-
                     --log(textutils.serialise(recipe.recipe[row][slot][1]))
                     if table[row][slot] == 0 then
                         term.setBackgroundColor(colors.black)
@@ -458,8 +410,22 @@ local function craftRecipe(recipe, amount, canCraft)
         end
 
 
-        id, message = rednet.receive(nil, 5)
-    until (id == craftingServer and type(message) == "boolean") or ttl < 1
+        local event, data
+        repeat
+            event, data = os.pullEvent()
+        until event == "craftingUpdate" or data == timeoutTimer
+        if data == timeoutTimer then
+            ttl = 0
+        else
+            message = data
+        end
+        --log("data: " .. dump(data))
+        
+        if type(message.message) == "boolean" then
+            message = message.message
+            break
+        end
+    until (type(message) == "boolean") or ttl < 1
     if ttl < 1 then
         message = false
         term.setBackgroundColor(colors.red)
@@ -483,40 +449,74 @@ local function craftRecipe(recipe, amount, canCraft)
     repeat
         event, button, x, y = os.pullEvent()
     until event == "mouse_click" or event == "key" or event == "mouse_scroll"
-    loadingScreen("Loading request from Storage Server...")
-    items = getItems()
+    --loadingScreen("Loading request from Storage Server...")
+    getItems()
     --sleep(10)
 
     return message
 end
 
 local function getAmount(itemName)
-    rednet.send(craftingServer, "getAmount")
-    sleep(0.1)
-    rednet.send(craftingServer, itemName)
-    local id2, message2
+    cryptoNet.send(craftingServerSocket, { "getAmount", itemName })
+
+    local event, data
     repeat
-        id2, message2 = rednet.receive()
-    until id2 == craftingServer and type(message2) == "number"
-    return message2
+        event, data = os.pullEvent("gotAmount")
+    until event == "gotAmount"
+
+    return data
+end
+
+local function getCraftingServerCert()
+    --Download the cert from the crafting server if it doesnt exist already
+    local filePath = settings.get("CraftingServer") .. ".crt"
+    if not fs.exists(filePath) then
+        log("Download the cert from the CraftingServer")
+        cryptoNet.send(craftingServerSocket, { "getCertificate" })
+        --wait for reply from server
+        log("wait for reply from CraftingServer")
+        local event, data
+        repeat
+            event, data = os.pullEvent("gotCertificate")
+        until event == "gotCertificate"
+
+        log("write the cert file")
+        --write the file
+        local file = fs.open(filePath, "w")
+        file.write(data)
+        file.close()
+    end
+end
+
+local function getStorageServerCert()
+    --Download the cert from the storageserver if it doesnt exist already
+    local filePath = settings.get("StorageServer") .. ".crt"
+    if not fs.exists(filePath) then
+        log("Download the cert from the storageserver")
+        cryptoNet.send(storageServerSocket, { "getCertificate" })
+        --wait for reply from server
+        log("wait for reply from server")
+        local event, data
+        repeat
+            event, data = os.pullEvent("gotCertificate")
+        until event == "gotCertificate"
+
+        log("write the cert file")
+        --write the file
+        local file = fs.open(filePath, "w")
+        file.write(data)
+        file.close()
+    end
 end
 
 local function isCraftable(itemName)
-    rednet.send(craftingServer, "craftable")
-    sleep(0.1)
-    rednet.send(craftingServer, itemName)
-    local ttl = 10
-    local id2, message2
+    cryptoNet.send(craftingServerSocket, { "craftable", itemName })
+    local event, data
     repeat
-        id2, message2 = rednet.receive(nil, 0.5)
-        --log("message2: " .. tostring(type(message2)) .. " " .. tostring(message2))
-
-        if ttl < 1 then
-            break
-        end
-        ttl = ttl - 1
-    until id2 == craftingServer and (type(message2) == "bool" or type(message2) == "table")
-    return message2
+        event, data = os.pullEvent("gotCraftable")
+    until  event == "gotCraftable"
+    --log("craftable" .. dump(data))
+    return data
 end
 
 local function drawCraftingMenu(sel, inputTable)
@@ -529,20 +529,18 @@ local function drawCraftingMenu(sel, inputTable)
     local amount = 1
     local done = false
     while done == false do
-        loadingScreen("Loading request from Crafting Server...")
-        local id2, message2
+        --loadingScreen("Loading request from Crafting Server...")
+
+        inputTable[sel].amount = amount
+        log(inputTable[sel])
+        cryptoNet.send(craftingServerSocket, { "getNumNeeded", inputTable[sel] })
+
+        local event, data
         repeat
-            local id3, message3
-            repeat
-                rednet.send(craftingServer, "numNeeded")
-                id3, message3 = rednet.receive(nil, 1)
-                sleep(0.1)
-            until id3 == craftingServer and message3 == "numNeeded"
-            inputTable[sel].amount = amount
-            rednet.send(craftingServer, inputTable[sel])
-            id2, message2 = rednet.receive(nil, 1)
-        until id2 == craftingServer and type(message2) == "table"
-        local numNeeded = message2
+            event, data = os.pullEvent("gotNumNeeded")
+        until event == "gotNumNeeded"
+
+        local numNeeded = data
         local legend = {}
         local legendKeys = {}
         local canCraft = true
@@ -648,7 +646,10 @@ local function drawCraftingMenu(sel, inputTable)
             else
                 term.setBackgroundColor(colors.red)
             end
-            term.write(utf8.char(i + 64) .. ": " .. legend[i].item:match(":([%w,_,/]*)$") .. " - Need #" .. tostring(legend[i].count) .. " Have #" .. tostring(legend[i].have) .. " ")
+            term.write(utf8.char(i + 64) ..
+                ": " ..
+                legend[i].item:match(":([%w,_,/]*)$") ..
+                " - Need #" .. tostring(legend[i].count) .. " Have #" .. tostring(legend[i].have) .. " ")
             --term.write(utf8.char(i + 64) .. ": #" .. legend[i].count .. " " .. legend[i].item)
         end
 
@@ -717,6 +718,7 @@ local function drawCraftingMenu(sel, inputTable)
             elseif key == keys.one and type(legend[1]) ~= "nil" then
                 local craftable = isCraftable(legend[1].item)
                 if craftable ~= false then
+                    log("craftable: " .. dump(craftable))
                     drawCraftingMenu(1, craftable)
                 end
             elseif key == keys.two and type(legend[2]) ~= "nil" then
@@ -755,7 +757,7 @@ local function drawCraftingMenu(sel, inputTable)
                     drawCraftingMenu(1, craftable)
                 end
             elseif key == keys.nine and type(legend[9]) ~= "nil" then
-                local craftable = isCraftable(legend[9].item) 
+                local craftable = isCraftable(legend[9].item)
                 if craftable ~= false then
                     drawCraftingMenu(1, craftable)
                 end
@@ -805,8 +807,6 @@ local function drawCraftingMenu(sel, inputTable)
                     drawCraftingMenu(1, craftable)
                 end
             end
-
-
         elseif event == "mouse_scroll" then
             if button == -1 then
                 amount = amount + 1
@@ -815,8 +815,6 @@ local function drawCraftingMenu(sel, inputTable)
                     amount = amount - 1
                 end
             end
-
-
         elseif event == "mouse_click" then
             if x > 8 and y >= 4 and y <= 4 + 8 and type(legend[y - 3]) ~= "nil" then
                 --Item on legend is clicked, open subMenu
@@ -988,10 +986,8 @@ local function drawMenu(sel, list)
                 export(result)
                 print("Export Complete")
                 print("Reloading Database")
-                items = getItems()
+                getItems()
             end
-
-
         elseif event == "mouse_scroll" then
             if button == -1 then
                 if amount < filteredItems[sel].count then
@@ -1002,8 +998,6 @@ local function drawMenu(sel, list)
                     amount = amount - 1
                 end
             end
-
-
         elseif event == "mouse_click" then
             if (((x < (width * .25) + 2) and (x > (width * .25) - 2)) and
                 ((y > (height * .25) + 4) and (y < (height * .25) + 6)))
@@ -1051,7 +1045,7 @@ local function drawMenu(sel, list)
                 export(result)
                 print("Export Complete")
                 print("Reloading Database")
-                items = getItems()
+                getItems()
             elseif y < 2 and x > width - 1 then
                 loadingScreen("Communication with Storage Server")
                 done = true
@@ -1074,11 +1068,14 @@ local function drawList(list)
             if filteredItems == nil then
                 filteredItems = filterItems()
             end
+            --log(filteredItems)
             term.setBackgroundColor(colors.blue)
+
             for k, v in pairs(filteredItems) do
                 if k > scroll then
                     if k < (height + scroll) then
                         local text = ""
+                        --if v["details"] == nil and not pocket and not isWirelessModem then
                         if v["details"] == nil then
                             if type(peripheral.wrap(v.chestName)) == "nil" then
                                 v.details = getItemDetails(v)
@@ -1088,11 +1085,15 @@ local function drawList(list)
                             filteredItems[k].details = v.details
                         end
                         if v["details"] == nil then
-                            text = v["name"] .. " - #" .. v["count"]
+                            text = v["name"]:match(".+:(.+)") .. " - #" .. v["count"]
                         else
                             text = v["details"]["displayName"] .. " - #" .. v["count"]
                             if v["details"]["damage"] ~= nil then
-                                text = text .. " Durability:" .. tostring(math.floor(100 * ((v["details"]["maxDamage"] - v["details"]["damage"]) / v["details"]["maxDamage"])) .. "%")
+                                text = text ..
+                                    " Durability:" ..
+                                    tostring(math.floor(100 *
+                                            ((v["details"]["maxDamage"] - v["details"]["damage"]) / v["details"]["maxDamage"])) ..
+                                        "%")
                             end
                             if v["details"]["enchantments"] ~= nil then
                                 text = text .. " Enchanted"
@@ -1121,7 +1122,6 @@ local function drawList(list)
                 end
             end
         elseif menuSel == "crafting" then
-
             local filteredRecipes = {}
             for k, v in pairs(recipes) do
                 if string.find(string.lower(v["name"]), string.lower(search)) or string.find(string.lower(v["name"]), string.lower(search:gsub(" ", "_"))) then
@@ -1137,7 +1137,8 @@ local function drawList(list)
                             term.write(" ")
                         end
                         term.setCursorPos(1, k - scroll)
-                        term.write(recipe.name .. " #" .. tostring(recipe.count) .. " - " .. recipe.recipeName:match("(.*):"))
+                        term.write(recipe.name ..
+                            " #" .. tostring(recipe.count) .. " - " .. recipe.recipeName:match("(.*):"))
                         term.setCursorPos(1, height)
                     end
                 end
@@ -1152,7 +1153,6 @@ local function drawList(list)
             end
 
             displayedRecipes = filteredRecipes
-
         end
 
         --import
@@ -1205,10 +1205,14 @@ local function inputHandler()
         local event, key, x, y
         repeat
             event, key, x, y = os.pullEvent()
-        until event == "char" or event == "key" or event == "mouse_scroll" or event == "mouse_click"
+        until event == "char" or event == "key" or event == "mouse_scroll" or event == "mouse_click" or event == "databaseReloaded"
+        log(event)
         if (event == "char" or event == "key" or event == "mouse_scroll" or event == "mouse_click") and menu == false then
             --term.setCursorPos(1,height)
-            if event == "mouse_click" then
+            if event == "databaseReloaded" then
+                getItems()
+                drawList()
+            elseif event == "mouse_click" then
                 if y == height - 1 and x > width - 8 then
                     --Import button pressed
                     importAll()
@@ -1224,7 +1228,6 @@ local function inputHandler()
                 elseif (items[y + scroll] ~= nil or displayedRecipes[y + scroll] ~= nil) and y ~= height then
                     openMenu(y)
                 end
-
             elseif key == keys.one then
                 openMenu(1)
             elseif key == keys.two then
@@ -1236,7 +1239,7 @@ local function inputHandler()
             elseif key == keys.five then
                 openMenu(5)
             elseif key == keys.six then
-                openMenu(6) 
+                openMenu(6)
             elseif key == keys.seven then
                 openMenu(7)
             elseif key == keys.eight then
@@ -1280,7 +1283,7 @@ local function inputHandler()
                     drawList()
                 elseif key == keys.f5 then
                     loadingScreen("Reloading Database")
-                    items = getItems()
+                    getItems()
                     drawList()
                 elseif key == keys.backspace then
                     search = search:sub(1, -2)
@@ -1336,29 +1339,591 @@ local function inputHandler()
     end
 end
 
+function discoverServers(serverType)
+    local serverList = {}
+    --while next(serverList) == nil do
+    print("Looking for servers")
+    serverList = cryptoNet.discover()
+    --end
+
+    local done = false
+    local scrollDiscovery = 0
+    while done == false do
+        term.setBackgroundColor(colors.gray)
+        term.clear()
+        term.setCursorPos(1, 1)
+        --log(dump(serverList))
+        for k, v in pairs(serverList) do
+            if k > scrollDiscovery then
+                if k < (height + scrollDiscovery) then
+                    local text = v.name
+                    for i = 1, width, 1 do
+                        term.setCursorPos(i, k - scrollDiscovery)
+                        term.write(" ")
+                    end
+                    term.setCursorPos(1, k - scrollDiscovery)
+                    term.write(text)
+                    term.setCursorPos(1, height)
+                end
+            end
+        end
+        for k = 1, height - 1, 1 do
+            if type(serverList[k + scrollDiscovery]) == "nil" then
+                for i = 1, width, 1 do
+                    term.setCursorPos(i, k)
+                    term.write(" ")
+                end
+            end
+        end
+
+        --refresh button
+        term.setCursorPos(width - 12, height - 1)
+        term.setBackgroundColor(colors.red)
+        term.write(" Refresh (F5) ")
+
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, height)
+            term.write(" ")
+        end
+        term.setCursorPos(1, height)
+        term.write("Discovered " .. serverType .. " Servers")
+        term.setBackgroundColor(colors.gray)
+
+        local event, button, x, y
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event == "mouse_click" or event == "key" or event == "mouse_scroll"
+
+        if event == "key" then
+            local key = button
+            if key == keys.backspace then
+                done = true
+            elseif key == keys.f5 then
+                done = true
+                discoverServers(serverType)
+            elseif key == keys.one then
+                if serverList[1] ~= nil then
+                    settings.set(serverType, serverList[1].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.two then
+                if serverList[2] ~= nil then
+                    settings.set(serverType, serverList[2].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.three then
+                if serverList[3] ~= nil then
+                    settings.set(serverType, serverList[3].name)
+                    settings.save()
+                end
+            elseif key == keys.four then
+                if serverList[4] ~= nil then
+                    settings.set(serverType, serverList[4].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.five then
+                if serverList[5] ~= nil then
+                    settings.set(serverType, serverList[5].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.six then
+                if serverList[6] ~= nil then
+                    settings.set(serverType, serverList[6].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.seven then
+                if serverList[7] ~= nil then
+                    settings.set(serverType, serverList[7].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.eight then
+                if serverList[8] ~= nil then
+                    settings.set(serverType, serverList[8].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.nine then
+                if serverList[9] ~= nil then
+                    settings.set(serverType, serverList[9].name)
+                    settings.save()
+                    done = true
+                end
+            end
+        elseif event == "mouse_scroll" then
+            if button == -1 then
+                if scrollDiscovery > 0 then
+                    scrollDiscovery = scrollDiscovery - 1
+                end
+            elseif button == 1 then
+                scrollDiscovery = scrollDiscovery + 1
+            end
+        elseif event == "mouse_click" then
+            --log("mouse_click x" .. tostring(x) .. " y" .. tostring(y) .. " scroll: " .. tostring(scroll))
+            if y == height - 1 and x > width - 12 then
+                --refresh button pressed
+                done = true
+                discoverServers(serverType)
+            elseif (serverList[y + scrollDiscovery] ~= nil) and y ~= height then
+                settings.set(serverType, serverList[y + scrollDiscovery].name)
+                settings.save()
+                done = true
+            end
+        end
+    end
+end
+
+function loginScreen()
+    local done = false
+    local user = ""
+    local pass = ""
+    local text = ""
+    local selectedField = "user"
+    while done == false do
+        term.setBackgroundColor(colors.gray)
+        term.clear()
+        term.setCursorPos(1, 1)
+        term.setTextColor(colors.white)
+
+        --calc the width needed to fit the server name in login box
+        local border
+        border = math.ceil((width - string.len(settings.get("StorageServer")) - 2) / 2)
+        local widthBlanks = ""
+        for i = 1, width, 1 do
+            widthBlanks = widthBlanks .. " "
+        end
+
+        --print computer information
+        if (settings.get("debug")) then
+            term.setCursorPos(1, 1)
+            term.write("DEBUG MODE")
+        end
+        term.setCursorPos(1, height)
+        term.write("ID:" .. tostring(os.getComputerID()))
+
+
+        --print(tostring(border))
+        local forth = math.floor(height / 4)
+        for k = forth, height - forth, 1 do
+            if k == forth then
+                term.setBackgroundColor(colors.black)
+            else
+                term.setBackgroundColor(colors.lightGray)
+            end
+            term.setCursorPos(1, k)
+            term.write(widthBlanks)
+        end
+
+        term.setBackgroundColor(colors.black)
+        term.setCursorPos(1, forth)
+        centerText("Storage Login")
+
+        term.setTextColor(colors.black)
+        term.setBackgroundColor(colors.lightGray)
+        term.setCursorPos(1, forth + 2)
+        for i = border, width - border, 1 do
+            term.setCursorPos(i, forth + 2)
+            term.write("~")
+        end
+        term.setCursorPos(1, forth + 3)
+        centerText(settings.get("StorageServer"))
+        term.setCursorPos(1, forth + 4)
+        for i = border, width - border, 1 do
+            term.setCursorPos(i, forth + 4)
+            term.write("~")
+        end
+
+        term.setBackgroundColor(colors.white)
+        term.setTextColor(colors.black)
+        for i = border + 6, width - border - 1, 1 do
+            term.setCursorPos(i, forth + 6)
+            term.write(" ")
+        end
+        term.setCursorPos(border + 6, forth + 6)
+        term.write(user)
+        term.setCursorPos(border + 1, forth + 6)
+        term.setBackgroundColor(colors.lightGray)
+        print("User:")
+
+        term.setBackgroundColor(colors.white)
+        for i = border + 6, width - border - 1, 1 do
+            term.setCursorPos(i, forth + 8)
+            term.write(" ")
+        end
+        term.setCursorPos(border + 6, forth + 8)
+        --write password sub text
+        for i = 1, string.len(pass), 1 do
+            term.write("*")
+        end
+        term.setCursorPos(border + 1, forth + 8)
+        term.setBackgroundColor(colors.lightGray)
+        print("Pass:")
+
+        term.setCursorPos(border + 1, forth + 10)
+        term.setBackgroundColor(colors.red)
+        term.write(" Change Server ")
+        term.setCursorPos(width - border - 7, forth + 10)
+        term.setBackgroundColor(colors.green)
+        term.write(" Login ")
+
+        local event, button, x, y
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event == "mouse_click" or event == "key" or event == "char"
+
+        if event == "char" then
+            local key = button
+            --search = search .. key
+            if selectedField == "user" then
+                user = user .. key
+            else
+                pass = pass .. key
+            end
+        elseif event == "key" then
+            local key = button
+            if key == keys.backspace then
+                --remove from text entry
+                if selectedField == "user" then
+                    user = user:sub(1, -2)
+                else
+                    pass = pass:sub(1, -2)
+                end
+            elseif key == keys.enter or key == keys.numPadEnter then
+                --set creds
+                username = user
+                password = pass
+                user = ""
+                pass = ""
+                done = true
+            elseif key == keys.tab then
+                --toggle user/pass text entry
+                if selectedField == "user" then
+                    selectedField = "pass"
+                else
+                    selectedField = "user"
+                end
+            end
+        elseif event == "mouse_click" then
+            --log("mouse_click x" .. tostring(x) .. " y" .. tostring(y) .. " scroll: " .. tostring(scroll))
+            if y == math.floor(height / 4) + 10 then
+                if (x > width - border - 7 and x < width - border - 7 + 15) then
+                    --login
+                    username = user
+                    password = pass
+                    user = ""
+                    pass = ""
+                    done = true
+                elseif (x > border + 1 and x < border + 1 + 7) then
+                    --change server
+                    discoverServers("StorageServer")
+                    if settings.get("crafting") then
+                        discoverServers("CraftingServer")
+                    end
+                end
+            end
+        end
+    end
+    term.setTextColor(colors.white)
+    term.setBackgroundColor(colors.red)
+    term.clear()
+    term.setCursorPos(1, 1)
+end
+
+function onStart()
+    --clear out old log
+    if fs.exists("logs/clientDebug.log") then
+        fs.delete("logs/clientDebug.log")
+    end
+    --Close any old connections
+    cryptoNet.closeAll()
+
+    local wirelessModem = nil
+    local wiredModem = nil
+
+    print("Looking for connected modems...")
+
+    for _, side in ipairs(peripheral.getNames()) do
+        if peripheral.getType(side) == "modem" then
+            local modem = peripheral.wrap(side)
+            if modem.isWireless() then
+                wirelessModem = modem
+                wirelessModem.side = side
+                print("Wireless modem found on " .. side .. " side")
+                log("Wireless modem found on " .. side .. " side")
+            else
+                wiredModem = modem
+                wiredModem.side = side
+                print("Wired modem found on " .. side .. " side")
+                log("Wired modem found on " .. side .. " side")
+            end
+        end
+    end
+
+    if wirelessModem then
+        isWirelessModem = true
+        loginScreen()
+    end
+
+    -- Connect to the server
+    print("Connecting to server: " .. settings.get("StorageServer"))
+    log("Connecting to server: " .. settings.get("StorageServer"))
+
+    timeoutConnect = os.startTimer(15)
+    storageServerSocket = cryptoNet.connect(settings.get("StorageServer"))
+
+
+    if isWirelessModem then
+        --Wireless hosts must auth
+        -- Log in with a username and password
+        print("Logging into server:" .. settings.get("StorageServer"))
+        log("Logging into server:" .. settings.get("StorageServer"))
+        cryptoNet.login(storageServerSocket, username, password)
+    else
+        getStorageServerCert()
+        cryptoNet.send(storageServerSocket, { "storageServer" })
+        if settings.get("crafting") then
+            print("Connecting to server: " .. settings.get("CraftingServer"))
+            log("Connecting to server: " .. settings.get("CraftingServer"))
+            craftingServerSocket = cryptoNet.connect(settings.get("CraftingServer"))
+            getCraftingServerCert()
+            --timeout no longer needed
+            timeoutConnect = nil
+            cryptoNet.send(craftingServerSocket, { "craftingServer" })
+            print("Loading Database")
+            getItems()
+            print("Loading Recipes")
+            getRecipes()
+            drawList()
+
+            term.setBackgroundColor(colors.black)
+            for i = 1, width, 1 do
+                term.setCursorPos(i, height)
+                term.write(" ")
+            end
+
+            while true do
+                inputHandler()
+                sleep(0.1)
+            end
+        else
+            print("Loading Database")
+            getItems()
+            drawList()
+
+            term.setBackgroundColor(colors.black)
+            for i = 1, width, 1 do
+                term.setCursorPos(i, height)
+                term.write(" ")
+            end
+
+            while true do
+                inputHandler()
+                sleep(0.1)
+            end
+        end
+    end
+end
+
+function onCryptoNetEvent(event)
+    if event[1] == "login" then
+        -- Logged in successfully
+        -- The username logged in
+        local username = event[2]
+        -- The socket that was logged in
+        local socket = event[3]
+        print("Logged in as " .. username .. " to " .. socket.target)
+        log("Logged in as " .. username .. " to " .. socket.target)
+        log("socket.target: " .. socket.target)
+        cryptoNet.send(socket, { "getServerType" })
+        local event, data
+        repeat
+            event, data = os.pullEvent("gotServerType")
+        until event == "gotServerType"
+        log("serverType: " .. tostring(data))
+        --cryptoNet.send(socket, "Hello server!")
+        if data == "StorageServer" then
+            getStorageServerCert()
+            cryptoNet.send(socket, { "storageServer" })
+            if settings.get("crafting") then
+                print("Connecting to server: " .. settings.get("CraftingServer"))
+                log("Connecting to server: " .. settings.get("CraftingServer"))
+                craftingServerSocket = cryptoNet.connect(settings.get("CraftingServer"))
+                -- Log in with a username and password
+                print("Logging into server:" .. settings.get("CraftingServer"))
+                log("Logging into server:" .. settings.get("CraftingServer"))
+                print("password: " .. password)
+                cryptoNet.login(craftingServerSocket, username, password)
+                --clear password from memory
+                password = ""
+            else
+                --clear password from memory
+                password = ""
+                print("Loading Database")
+                getItems()
+                drawList()
+
+                term.setBackgroundColor(colors.black)
+                for i = 1, width, 1 do
+                    term.setCursorPos(i, height)
+                    term.write(" ")
+                end
+
+                while true do
+                    inputHandler()
+                    sleep(0.1)
+                end
+            end
+        elseif data == "CraftingServer" then
+            getCraftingServerCert()
+            cryptoNet.send(socket, { "craftingServer" })
+            print("Loading Database")
+            getItems()
+            print("Loading Recipes")
+            getRecipes()
+            drawList()
+
+            term.setBackgroundColor(colors.black)
+            for i = 1, width, 1 do
+                term.setCursorPos(i, height)
+                term.write(" ")
+            end
+
+            while true do
+                inputHandler()
+                sleep(0.1)
+            end
+        end
+    elseif event[1] == "login_failed" then
+        -- Login failed (wrong username or password)
+        print("Login Failed")
+    elseif event[1] == "plain_message" then
+        local messageType = event[2][1]
+        local message = event[2][2]
+        if messageType == "getRecipes" then
+            if type(message) == "table" then
+                table.sort(message, function(a, b)
+                    return a.name < b.name
+                end)
+                recipes = message
+                os.queueEvent("gotRecipes")
+            else
+                sleep(0.2)
+                getRecipes()
+            end
+        elseif messageType == "getItems" then
+            if type(message) == "table" then
+                local tab = removeDuplicates(message)
+                table.sort(
+                    tab,
+                    function(a, b)
+                        return a.count > b.count
+                    end
+                )
+                items = tab
+                os.queueEvent("itemsUpdated")
+            else
+                sleep(0.5 + (math.random() % 0.2))
+                getItems()
+            end
+        end
+    elseif event[1] == "connection_closed" then
+        --print(dump(event))
+        --log(dump(event))
+    elseif event[1] == "encrypted_message" then
+        --log("Server said: " .. dump(event[2]))
+        local messageType = event[2][1]
+        local message = event[2][2]
+        if messageType == "getItems" then
+            if type(message) == "table" then
+                local tab = removeDuplicates(message)
+                table.sort(
+                    tab,
+                    function(a, b)
+                        return a.count > b.count
+                    end
+                )
+                items = tab
+                os.queueEvent("itemsUpdated")
+            else
+                sleep(0.5 + (math.random() % 0.2))
+                getItems()
+            end
+        elseif messageType == "import" then
+            getItems()
+        elseif messageType == "ping" then
+            if type(message) == "string" and message == "ack" then
+                os.queueEvent("storageServerAck")
+            else
+                sleep(0.5 + (math.random() % 0.2))
+                pingStorageServer()
+            end
+        elseif messageType == "craftingUpdate" then
+            os.queueEvent("craftingUpdate", message)
+        elseif messageType == "getCertificate" then
+            --log("gotCertificate from: " .. socket.sender .. " target:"  )
+            os.queueEvent("gotCertificate", message)
+        elseif messageType == "getItemDetails" then
+            os.queueEvent("gotItemDetails", message)
+        elseif messageType == "getServerType" then
+            os.queueEvent("gotServerType", message)
+        elseif messageType == "getAmount" then
+            os.queueEvent("gotAmount", message)
+        elseif messageType == "craftable" then
+            os.queueEvent("gotCraftable", message)
+        elseif messageType == "getNumNeeded" then
+            os.queueEvent("gotNumNeeded", message)
+        elseif messageType == "importAll" then
+            os.queueEvent("importAllComplete")
+        elseif messageType == "databaseReload" then
+            os.queueEvent("databaseReloaded")
+            getItems()
+        end
+    elseif event[1] == "timer" then
+        if event[2] == timeoutConnect and (type(storageServerSocket) == "nil" or type(storageServerSocket.username) == "nil") then
+            --Reboot after failing to connect
+            cryptoNet.closeAll()
+            os.reboot()
+        end
+    end
+end
+
 loadingScreen("Storage Client")
-sleep(0.5+(math.random()%1))
-broadcastStorageServer()
-sleep(0.5+(math.random()%1))
-broadcastCraftingServer()
-sleep(0.5+(math.random()%1))
-print("Loading Database")
-items = getItems()
-table.sort(
-    items,
-    function(a, b)
-    return a.count > b.count
-end
-)
-drawList()
 
-term.setBackgroundColor(colors.black)
-for i = 1, width, 1 do
-    term.setCursorPos(i, height)
-    term.write(" ")
+if not fs.exists("cryptoNet") then
+    print("")
+    print("cryptoNet API not found on disk, downloading...")
+    local response = http.get(cryptoNetURL)
+    if response then
+        local file = fs.open("cryptoNet", "w")
+        file.write(response.readAll())
+        file.close()
+        response.close()
+        print("File downloaded as '" .. "cryptoNet" .. "'.")
+    else
+        print("Failed to download file from " .. cryptoNetURL)
+    end
 end
 
-while true do
-    inputHandler()
-    sleep(0.1)
+--sleep(0.5 + (math.random() % 1))
+--broadcastStorageServer()
+--sleep(0.5 + (math.random() % 1))
+--broadcastCraftingServer()
+--sleep(0.5 + (math.random() % 1))
+os.loadAPI("cryptoNet")
+
+if settings.get("StorageServer") == "StorageServer" or settings.get("StorageServer") == nil then
+    discoverServers("StorageServer")
 end
+
+if settings.get("CraftingServer") == "CraftingServer" or settings.get("CraftingServer") == nil then
+    discoverServers("CraftingServer")
+end
+
+cryptoNet.startEventLoop(onStart, onCryptoNetEvent)
+cryptoNet.closeAll()
