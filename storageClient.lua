@@ -346,7 +346,7 @@ local function craftRecipe(recipe, amount, canCraft)
 
         term.clear()
         term.setCursorPos(1, 1)
-        centerText("Now Crafting: " .. nowCrafting:match(".+:(.+)"))
+        centerText("Crafting:" .. nowCrafting:match(".+:(.+)"))
 
         --Draw crafting table
         term.setCursorPos(1, 2)
