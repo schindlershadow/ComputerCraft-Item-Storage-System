@@ -134,7 +134,7 @@ local function centerText(text)
     local x, y = term.getSize()
     local x1, y1 = term.getCursorPos()
     term.setCursorPos((math.floor(x / 2) - (math.floor(#text / 2))), y1)
-    write(text)
+    term.write(text)
 end
 
 local function loadingScreen(text)
@@ -349,66 +349,63 @@ local function craftRecipe(recipe, amount, canCraft)
         centerText("Now Crafting: " .. nowCrafting:match(".+:(.+)"))
 
         --Draw crafting table
-        term.setCursorPos(1, (height * .25))
+        term.setCursorPos(1, 2)
         term.setBackgroundColor(colors.gray)
-        print("       ")
-        term.setCursorPos(1, (height * .25) + 1)
+        print("        ")
+        --term.setCursorPos(1, 2 + 1)
         term.setCursorPos(1, 1)
         local pos = 1
         for row = 1, 3, 1 do
-            if row == 1 then
-                term.setCursorPos(1, (height * .25) + row)
-            else
-                term.setCursorPos(1, (height * .25) + row + pos)
-                pos = pos + 1
-            end
+            term.setCursorPos(1, 2 + row)
             term.setBackgroundColor(colors.gray)
             term.write(" ")
             if type(recipe.recipe[row]) == "nil" then
                 term.setBackgroundColor(colors.black)
-                term.write(" ")
-                term.setBackgroundColor(colors.gray)
-                term.write(" ")
-                term.setBackgroundColor(colors.black)
-                term.write(" ")
-                term.setBackgroundColor(colors.gray)
-                term.write(" ")
-                term.setBackgroundColor(colors.black)
-                term.write(" ")
+                term.write("     ")
             else
                 for slot = 1, 3, 1 do
                     --log(textutils.serialise(recipe.recipe[row][slot][1]))
                     if table[row][slot] == 0 then
                         term.setBackgroundColor(colors.black)
-                        term.write(" ")
+                        term.write("  ")
                     else
                         term.setBackgroundColor(colors.green)
-                        term.write(table[row][slot])
+                        term.write(string.format("%02d",table[row][slot]))
                     end
                     if slot ~= 3 then
-                        term.setBackgroundColor(colors.gray)
-                        term.write(" ")
+                        --term.setBackgroundColor(colors.gray)
+                        --term.write(" ")
                     end
                 end
             end
+            term.setCursorPos(8, 2 + row)
             term.setBackgroundColor(colors.gray)
             term.write(" ")
-
-            term.setCursorPos(1, (height * .25) + row + pos)
-            print("       ")
         end
+        term.setBackgroundColor(colors.gray)
+        term.setCursorPos(1, 6)
+        print("        ")
 
         --Draw logs
         term.setBackgroundColor(colors.black)
         local count = 0
-        for i = 3, (height - 2), 1 do
-            term.setCursorPos(9, i)
-            if #logs - count > 0 and type(logs[#logs - count]) ~= "nil" then
-                term.write(logs[#logs - count])
-                count = count + 1
+        if pocket then
+            for i = 8, (height - 2), 1 do
+                term.setCursorPos(1, i)
+                if #logs - count > 0 and type(logs[#logs - count]) ~= "nil" then
+                    term.write(logs[#logs - count])
+                    count = count + 1
+                end
+            end
+        else
+            for i = 5, (height - 2), 1 do
+                term.setCursorPos(7, i)
+                if #logs - count > 0 and type(logs[#logs - count]) ~= "nil" then
+                    term.write(logs[#logs - count])
+                    count = count + 1
+                end
             end
         end
-
 
         local event, data
         repeat
@@ -420,11 +417,12 @@ local function craftRecipe(recipe, amount, canCraft)
             message = data
         end
         --log("data: " .. dump(data))
-        
-        if type(message.message) == "boolean" then
+
+        if type(message) == "table" and type(message.message) == "boolean" then
             message = message.message
             break
         end
+
     until (type(message) == "boolean") or ttl < 1
     if ttl < 1 then
         message = false
@@ -435,15 +433,15 @@ local function craftRecipe(recipe, amount, canCraft)
     term.setCursorPos(1, height - 1)
     if message == true then
         term.setBackgroundColor(colors.green)
-        centerText(" Crafting Complete! :D ")
+        centerText(" Crafting Complete! ")
     elseif message == false then
         term.setBackgroundColor(colors.red)
-        centerText(" Crafting Failed! D: ")
+        centerText(" Crafting Failed! ")
     end
     term.setBackgroundColor(colors.black)
     print()
     term.setBackgroundColor(colors.blue)
-    centerText(" Press any button to continue... ")
+    centerText(" Press any button ")
 
     local event, button, x, y
     repeat
@@ -514,7 +512,7 @@ local function isCraftable(itemName)
     local event, data
     repeat
         event, data = os.pullEvent("gotCraftable")
-    until  event == "gotCraftable"
+    until event == "gotCraftable"
     --log("craftable" .. dump(data))
     return data
 end
@@ -580,10 +578,10 @@ local function drawCraftingMenu(sel, inputTable)
         centerText(inputTable[sel].name .. " #" .. tostring(inputTable[sel].count))
         term.setCursorPos(width, 2)
         term.write(">")
-        term.setCursorPos(1, (height * .25))
+        term.setCursorPos(1, 3)
         term.setBackgroundColor(colors.gray)
-        print("       ")
-        term.setCursorPos(1, (height * .25) + 1)
+        print("     ")
+        term.setCursorPos(1, 3 + 1)
         term.setCursorPos(1, 1)
         --print(textutils.serialise(inputTable[sel].recipe))
         --sleep(10)
@@ -591,24 +589,13 @@ local function drawCraftingMenu(sel, inputTable)
         --Draw crafting table
         local pos = 1
         for row = 1, 3, 1 do
-            if row == 1 then
-                term.setCursorPos(1, (height * .25) + row)
-            else
-                term.setCursorPos(1, (height * .25) + row + pos)
-                pos = pos + 1
-            end
+            term.setCursorPos(1, 3 + row)
             term.setBackgroundColor(colors.gray)
             term.write(" ")
             if type(inputTable[sel].recipe[row]) == "nil" then
                 term.setBackgroundColor(colors.black)
-                term.write(" ")
+                term.write("   ")
                 term.setBackgroundColor(colors.gray)
-                term.write(" ")
-                term.setBackgroundColor(colors.black)
-                term.write(" ")
-                term.setBackgroundColor(colors.gray)
-                term.write(" ")
-                term.setBackgroundColor(colors.black)
                 term.write(" ")
             else
                 for slot = 1, 3, 1 do
@@ -624,34 +611,53 @@ local function drawCraftingMenu(sel, inputTable)
                         end
                     end
                     if slot ~= 3 then
-                        term.setBackgroundColor(colors.gray)
-                        term.write(" ")
+                        --term.setBackgroundColor(colors.gray)
+                        --term.write(" ")
                     end
                 end
             end
+            term.setCursorPos(5, 3 + row)
             term.setBackgroundColor(colors.gray)
             term.write(" ")
-
-            term.setCursorPos(1, (height * .25) + row + pos)
-            print("       ")
         end
+        term.setBackgroundColor(colors.gray)
+        term.setCursorPos(1, 7)
+        print("     ")
 
 
         --Draw legend
-        for i = 1, #legend, 1 do
-            term.setCursorPos(9, (height * .25) + (i - 1))
-            --log(tostring(getAmount(legend[i].item)))
-            if legend[i].count <= legend[i].have then
-                term.setBackgroundColor(colors.green)
-            else
-                term.setBackgroundColor(colors.red)
+        if pocket then
+            for i = 1, #legend, 1 do
+                term.setCursorPos(1, 8 + (i - 1))
+                --log(tostring(getAmount(legend[i].item)))
+                if legend[i].count <= legend[i].have then
+                    term.setBackgroundColor(colors.green)
+                else
+                    term.setBackgroundColor(colors.red)
+                end
+                term.write(utf8.char(i + 64) ..
+                    ":" ..
+                    legend[i].item:match(":([%w,_,/]*)$") ..
+                    ":" .. tostring(legend[i].have) .. "/" .. tostring(legend[i].count))
+                --term.write(utf8.char(i + 64) .. ": #" .. legend[i].count .. " " .. legend[i].item)
             end
-            term.write(utf8.char(i + 64) ..
-                ": " ..
-                legend[i].item:match(":([%w,_,/]*)$") ..
-                " - Need #" .. tostring(legend[i].count) .. " Have #" .. tostring(legend[i].have) .. " ")
-            --term.write(utf8.char(i + 64) .. ": #" .. legend[i].count .. " " .. legend[i].item)
+        else
+            for i = 1, #legend, 1 do
+                term.setCursorPos(7, 4 + (i - 1))
+                --log(tostring(getAmount(legend[i].item)))
+                if legend[i].count <= legend[i].have then
+                    term.setBackgroundColor(colors.green)
+                else
+                    term.setBackgroundColor(colors.red)
+                end
+                term.write(utf8.char(i + 64) ..
+                    ": " ..
+                    legend[i].item:match(":([%w,_,/]*)$") ..
+                    ": " .. tostring(legend[i].have) .. "/" .. tostring(legend[i].count))
+                --term.write(utf8.char(i + 64) .. ": #" .. legend[i].count .. " " .. legend[i].item)
+            end
         end
+
 
         term.setBackgroundColor(colors.green)
 
@@ -1667,7 +1673,6 @@ function onStart()
 
     if wirelessModem then
         isWirelessModem = true
-        loginScreen()
     end
 
     -- Connect to the server
@@ -1677,10 +1682,19 @@ function onStart()
     timeoutConnect = os.startTimer(15)
     storageServerSocket = cryptoNet.connect(settings.get("StorageServer"))
 
+    --check if server requires a login
+    cryptoNet.send(storageServerSocket, { "requireLogin" })
+    local event, loginRequired
+    repeat
+        event, loginRequired = os.pullEvent("requireLogin")
+    until event == "requireLogin"
 
-    if isWirelessModem then
-        --Wireless hosts must auth
-        -- Log in with a username and password
+    if isWirelessModem or loginRequired == true then
+        timeoutConnect = nil
+        --hosts must auth
+        --Log in with a username and password
+        loginScreen()
+        timeoutConnect = os.startTimer(15)
         print("Logging into server:" .. settings.get("StorageServer"))
         log("Logging into server:" .. settings.get("StorageServer"))
         cryptoNet.login(storageServerSocket, username, password)
@@ -1863,6 +1877,14 @@ function onCryptoNetEvent(event)
                 sleep(0.5 + (math.random() % 0.2))
                 pingStorageServer()
             end
+        elseif messageType == "requireLogin" then
+            --timeout no longer needed
+            --timeoutConnect = nil
+            --loginScreen()
+            --print("Logging into server:" .. settings.get("StorageServer"))
+            --log("Logging into server:" .. settings.get("StorageServer"))
+            --cryptoNet.login(storageServerSocket, username, password)
+            os.queueEvent("requireLogin", message)
         elseif messageType == "craftingUpdate" then
             os.queueEvent("craftingUpdate", message)
         elseif messageType == "getCertificate" then
