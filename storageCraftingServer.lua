@@ -23,6 +23,7 @@ settings.define("craftingChest",
 settings.define("serverName",
     { description = "The hostname of this server", "CraftingServer" .. tostring(os.getComputerID()), type = "string" })
 settings.define("StorageServer", { description = "storage server hostname", default = "StorageServer", type = "string" })
+settings.define("requireLogin", { description = "require a login for LAN clients", default = "false", type = "boolean" })
 
 --Settings fails to load
 if settings.load() == false then
@@ -31,6 +32,7 @@ if settings.load() == false then
     settings.set("serverName", "CraftingServer" .. tostring(os.getComputerID()))
     settings.set("StorageServer", "StorageServer")
     settings.set("debug", false)
+    settings.set("requireLogin", false)
     settings.set("recipeURL",
         "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt")
     settings.set("recipeFile", "recipes")
@@ -873,8 +875,8 @@ local function dumpAll()
         --reloadStorageDatabase()
         local event
         repeat
-            event = os.pullEvent("itemsUpdated")
-        until event == "itemsUpdated"
+            event = os.pullEvent("forceImport")
+        until event == "forceImport"
         pingServer()
     end
 end
@@ -1026,7 +1028,7 @@ local function scoreBranch(recipe, itemName, ttl, amount, socket)
                         elseif #allRecipes < 1 then
                             print("no recipes found for: " .. item)
                             debugLog(("no recipes found for: " .. item))
-                            updateClient(socket, "logUpdate", "no recipes found for: " .. tostring(item))
+                            updateClient(socket, "logUpdate", "no recipes: " .. tostring(item):match(".+:(.+)"))
                             return 0
                         end
                         local craftableRecipes = haveCraftingMaterials(allRecipes, 1, socket)
@@ -1295,7 +1297,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             if type(slotDetail) == "nil" then
                                 print("failed to get item: " .. searchResult.name)
                                 updateClient(socket, "logUpdate",
-                                "Failed getting: " .. searchResult.name:match(".+:(.+)"))
+                                    "Failed getting: " .. searchResult.name:match(".+:(.+)"))
                                 dumpAll()
                                 failed = true
                                 debugLog(searchResult)
@@ -1604,10 +1606,10 @@ local function craft(item, amount, socket)
     if type(recipeToCraft) == "nil" then
         if type(item) == "table" then
             print("No recipe found for: " .. tostring(item.name))
-            updateClient(socket, "logUpdate", "No recipe found for: " .. tostring(item.name:match(".+:(.+)")))
+            updateClient(socket, "logUpdate", "No recipe: " .. tostring(item.name:match(".+:(.+)")))
         else
             print("No recipe found for: " .. tostring(item))
-            updateClient(socket, "logUpdate", "No recipe found for: " .. tostring(item:match(".+:(.+)")))
+            updateClient(socket, "logUpdate", "No recipe: " .. tostring(item:match(".+:(.+)")))
         end
         return false
     end
@@ -1687,6 +1689,7 @@ local function serverHandler(event)
         -- The logged-in username is also stored in the socket
         print("Login successful using " .. socket.username)
         -- Received a message from the client
+        os.queueEvent("storageServerLogin")
     elseif event[1] == "login" then
         local username = event[2]
         -- The socket of the client that just logged in
@@ -1697,37 +1700,44 @@ local function serverHandler(event)
     elseif event[1] == "plain_message" then
         local message = event[2][1]
         local data = event[2][2]
-        if message == "getItems" then
-            if type(data) == "table" then
-                items = data
-                for k, v in pairs(data) do
-                    if not (inTags(v.name)) then
-                        if type(data[k]["details"]) == "nil" then
-                            data[k]["details"] = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+        local socket = event[3]
+        -- Check the username to see if the client is logged in or should have an exception
+        if socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) or socket.target == settings.get("StorageServer") then
+            if message == "getItems" then
+                if type(data) == "table" then
+                    items = data
+                    for k, v in pairs(data) do
+                        if not (inTags(v.name)) then
+                            if type(data[k]["details"]) == "nil" then
+                                data[k]["details"] = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+                            end
+                            addTag(data[k])
+                        else
+                            data[k]["details"] = reconstructTags(v.name)
                         end
-                        addTag(data[k])
-                    else
-                        data[k]["details"] = reconstructTags(v.name)
                     end
+
+                    os.queueEvent("itemsUpdated")
+                else
+                    sleep(math.random() % 0.2)
+                    return getDatabaseFromServer()
                 end
-                
-                os.queueEvent("itemsUpdated")
-            else
-                sleep(math.random() % 0.2)
-                return getDatabaseFromServer()
+            elseif message == "ping" then
+                if type(data) == "string" and data == "ack" then
+                    os.queueEvent("storageServerAck")
+                else
+                    sleep(0.5 + (math.random() % 0.2))
+                    pingServer()
+                end
             end
-        elseif message == "ping" then
-            if type(data) == "string" and data == "ack" then
-                os.queueEvent("storageServerAck")
-            else
-                sleep(0.5 + (math.random() % 0.2))
-                pingServer()
-            end
+        else
+            --User is not logged in
+            cryptoNet.send(socket, "Sorry, I only talk to logged in users.")
         end
     elseif event[1] == "encrypted_message" then
         local socket = event[3]
-        -- Check the username to see if the client is logged in or allow without login if wired
-        if socket.username ~= nil or socket.sender == settings.get("serverName") or socket.target == settings.get("StorageServer") then
+        -- Check the username to see if the client is logged in or should have an exception
+        if socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) or socket.target == settings.get("StorageServer") then
             local message = event[2][1]
             local data = event[2][2]
             if socket.username == nil then
@@ -1762,8 +1772,16 @@ local function serverHandler(event)
                 print("")
             elseif message == "getServerType" then
                 cryptoNet.send(socket, { message, "CraftingServer" })
+            elseif message == "requireLogin" then
+                --timeout no longer needed
+                timeoutConnect = nil
+                print("Logging into server:" .. settings.get("StorageServer"))
+                log("Logging into server:" .. settings.get("StorageServer"))
+                cryptoNet.login(storageServerSocket, settings.get("username"), settings.get("password"))
             elseif message == "databaseReload" then
                 getDatabaseFromServer()
+            elseif message == "forceImport" then
+                os.queueEvent("forceImport")
             elseif message == "getRecipes" then
                 cryptoNet.sendUnencrypted(socket, { message, recipes })
             elseif message == "craft" then
@@ -1818,9 +1836,11 @@ local function serverHandler(event)
 
                 if type(allRecipes) == "nil" then
                     print(item .. " is unknown to the system")
+                    updateClient(socket, "logUpdate", "unknown item: " .. tostring(item):match(".+:(.+)"))
                     cryptoNet.send(socket, { message, false })
                 elseif #allRecipes < 1 then
                     print("no recipes found for: " .. item)
+                    updateClient(socket, "logUpdate", "no recipes: " .. tostring(item):match(".+:(.+)"))
                     cryptoNet.send(socket, { message, false })
                 else
                     local craftableRecipes = haveCraftingMaterials(allRecipes, 1, socket)
@@ -1846,7 +1866,7 @@ local function serverHandler(event)
                             data[k]["details"] = reconstructTags(v.name)
                         end
                     end
-                    
+
                     os.queueEvent("itemsUpdated")
                 else
                     sleep(math.random() % 0.2)
@@ -1879,9 +1899,9 @@ local function serverHandler(event)
                 cryptoNet.send(socket, { message, fileContents })
             end
         else
-            --User is not logged in and not wired
-            debugLog("User is not logged in and not wired. Sender: " .. socket.sender .. " Target: " .. socket.target)
-            cryptoNet.send(socket, { "Sorry, I only talk to logged in users" })
+            --User is not logged in
+            debugLog("User is not logged in. Sender: " .. socket.sender .. " Target: " .. socket.target)
+            cryptoNet.send(socket, { "requireLogin" })
             cryptoNet.send(socket, "Sorry, I only talk to logged in users")
         end
     elseif event[1] == "timer" then
@@ -1891,6 +1911,29 @@ local function serverHandler(event)
             os.reboot()
         end
     end
+end
+
+local function postStart()
+    --Download the cert from the storageserver if it doesnt exist already
+    local filePath = settings.get("StorageServer") .. ".crt"
+    if not fs.exists(filePath) then
+        debugLog("Download the cert from the storageserver")
+        cryptoNet.send(storageServerSocket, { "getCertificate" })
+        --wait for reply from server
+        debugLog("wait for reply from server")
+        local event, data
+        repeat
+            event, data = os.pullEvent("gotCertificate")
+        until event == "gotCertificate"
+
+        debugLog("write the cert file")
+        --write the file
+        local file = fs.open(filePath, "w")
+        file.write(data)
+        file.close()
+    end
+    cryptoNet.send(storageServerSocket, { "storageServer" })
+    getDatabaseFromServer()
 end
 
 function onStart()
@@ -1939,35 +1982,24 @@ function onStart()
     timeoutConnect = os.startTimer(10)
     -- Connect to the server
     print("Connecting to server: " .. settings.get("StorageServer"))
-    storageServerSocket = cryptoNet.connect(settings.get("StorageServer"),5,1,settings.get("StorageServer")..".crt",wiredModem.side)
+    storageServerSocket = cryptoNet.connect(settings.get("StorageServer"), 5, 1, settings.get("StorageServer") .. ".crt",
+        wiredModem.side)
     --timeout no longer needed
+    if settings.get("requireLogin") then
+        cryptoNet.send(storageServerSocket, { "ping" })
+        local event
+        repeat
+            event = os.pullEvent("storageServerLogin")
+        until event == "storageServerLogin"
+    end
     timeoutConnect = nil
     -- Log in with a username and password
     --print("Logging into server:" .. settings.get("StorageServer"))
     --cryptoNet.login(storageServerSocket, "test", "123")
 
-    --Download the cert from the storageserver if it doesnt exist already
-    local filePath = settings.get("StorageServer") .. ".crt"
-    if not fs.exists(filePath) then
-        debugLog("Download the cert from the storageserver")
-        cryptoNet.send(storageServerSocket, { "getCertificate" })
-        --wait for reply from server
-        debugLog("wait for reply from server")
-        local event, data
-        repeat
-            event, data = os.pullEvent("gotCertificate")
-        until event == "gotCertificate"
-
-        debugLog("write the cert file")
-        --write the file
-        local file = fs.open(filePath, "w")
-        file.write(data)
-        file.close()
-    end
-    cryptoNet.send(storageServerSocket, { "storageServer" })
+    postStart()
 
     getRecipes()
-    getDatabaseFromServer()
 end
 
 debugLog("~~Boot~~")

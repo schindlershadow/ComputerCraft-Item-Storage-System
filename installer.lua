@@ -1,5 +1,8 @@
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
-local type
+local typeOfServer
+local loginRequirement = false
+local username = ""
+local password = ""
 term.clear()
 term.setCursorPos(1, 1)
 
@@ -27,7 +30,7 @@ os.loadAPI("cryptoNet")
 cryptoNet.setLoggingEnabled(true)
 
 if turtle then
-    type = "craftingServer"
+    typeOfServer = "craftingServer"
     print("Turtle Detected")
     print("Installing Crafting Server file: storageCraftingServer.lua as startup program")
     download = http.get(
@@ -61,7 +64,7 @@ else
     end
     print("")
     if tonumber(input) == 1 then
-        type = "storageServer"
+        typeOfServer = "storageServer"
         --prevents issues when updating server version
         if fs.exists("storage.db") then
             fs.delete("storage.db")
@@ -70,7 +73,7 @@ else
         download = http.get(
             "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/storageServer.lua")
     else
-        type = "storageClient"
+        typeOfServer = "storageClient"
         print("Installing Client file: storageClient.lua as startup program")
         download = http.get(
             "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/storageClient.lua")
@@ -115,11 +118,11 @@ local exportChests = { "minecraft:chest_0" }
 local importChests = { "minecraft:chest_2" }
 
 
-if type == "craftingServer" or type == "storageServer" then
+if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
     term.clear()
     term.setCursorPos(1, 1)
     print("Set Server Hostname")
-    if type == "craftingServer" then
+    if typeOfServer == "craftingServer" then
         print("Default hostname is CraftingServer# where # is computerID")
     else
         print("Default hostname is StorageServer# where # is computerID")
@@ -130,7 +133,7 @@ if type == "craftingServer" or type == "storageServer" then
     print("")
     local hostname = io.read()
     if hostname == "0" then
-        if type == "craftingServer" then
+        if typeOfServer == "craftingServer" then
             hostname = "CraftingServer" .. tostring(os.getComputerID())
         else
             hostname = "StorageServer" .. tostring(os.getComputerID())
@@ -143,27 +146,67 @@ if type == "craftingServer" or type == "storageServer" then
     print("Set the master Admin credentials")
     print("Warning: username and password MUST be the same on paired storage servers and crafting servers")
     print("Current users will be wiped")
-    print("Logins are required for Wireless connections")
+    print("Warning: Do not use passwords used with other real life services with CryptoNet.")
     print("Enter 0 to cancel")
     print("")
     print("Username:")
-    local username = io.read()
+    username = io.read()
     if username ~= "0" then
         print("Password:")
-        local password = read("*")
+        password = read("*")
         term.clear()
         term.setCursorPos(1, 1)
         local wirelessHostname = hostname .. "_Wireless"
+        if fs.exists(hostname .. "_users.tbl") then
+            fs.delete(hostname .. "_users.tbl")
+        end
         if fs.exists(wirelessHostname .. "_users.tbl") then
             fs.delete(wirelessHostname .. "_users.tbl")
         end
+        cryptoNet.host(hostname)
+        cryptoNet.addUser(username, password, 3)
+        cryptoNet.closeAll()
         cryptoNet.host(wirelessHostname)
         cryptoNet.addUser(username, password, 3)
-        username = ""
-        password = ""
+        cryptoNet.closeAll()
+    end
+    username = ""
+    password = ""
+
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("LAN Login requirement")
+    print("Require a login for wired clients?")
+    print("Note: Wireless clients always require a login")
+    print("Warning: This setting MUST be the same on paired storage servers and crafting servers")
+    print("")
+    print("1 Yes")
+    print("2 No")
+    print("")
+    local require = io.read()
+    if require == "1" then
+        loginRequirement = true
+    else
+        loginRequirement = false
     end
 
-    if type == "craftingServer" then
+    if typeOfServer == "craftingServer" then
+        if loginRequirement then
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("Set the database login credentials")
+            print("Note: username and password MUST be the same on paired storage servers and crafting servers")
+            print("Warning: Credentials are to be stored on disk in plain-text")
+            print("Enter 0 to cancel")
+            print("")
+            print("Username:")
+            username = io.read()
+            if username ~= "0" then
+                print("Password:")
+                password = read("*")
+            end
+        end
+
         term.clear()
         term.setCursorPos(1, 1)
         print("Set the hostname of the Storage Server this crafting server should connect to")
@@ -174,6 +217,31 @@ if type == "craftingServer" or type == "storageServer" then
             storageServerHostname = "StorageServer"
         end
         settings.set("StorageServer", storageServerHostname)
+    else
+        if loginRequirement then
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("Set the database login credentials")
+            print("Note: username and password MUST be the same on paired storage servers and crafting servers")
+            print("Warning: Credentials are to be stored on disk in plain-text")
+            print("Enter 0 to cancel")
+            print("")
+            print("Username:")
+            username = io.read()
+            if username ~= "0" then
+                print("Password:")
+                password = read("*")
+                term.clear()
+                term.setCursorPos(1, 1)
+
+                cryptoNet.host(hostname)
+                cryptoNet.addUser(username, password, 3)
+                cryptoNet.closeAll()
+            end
+
+            username = ""
+            password = ""
+        end
     end
 
     term.clear()
@@ -188,7 +256,7 @@ if type == "craftingServer" or type == "storageServer" then
     end
 end
 
-if type == "craftingServer" then
+if typeOfServer == "craftingServer" then
     term.clear()
     term.setCursorPos(1, 1)
     print("Would you like to use a custom recipe URL?")
@@ -229,7 +297,12 @@ if type == "craftingServer" then
     settings.set("recipeURL", recipeURL)
     settings.set("recipeFile", "recipes")
     settings.set("craftingChest", craftingChest)
-elseif type == "storageServer" then
+    settings.set("requireLogin", loginRequirement)
+    settings.set("username", username)
+    settings.set("password", password)
+    username = ""
+    password = ""
+elseif typeOfServer == "storageServer" then
     term.clear()
     term.setCursorPos(1, 1)
     print("Set the number of export chests")
@@ -266,6 +339,7 @@ elseif type == "storageServer" then
     settings.set("exportChests", exportChests)
     settings.set("importChests", importChests)
     settings.set("craftingChest", craftingChest)
+    settings.set("requireLogin", loginRequirement)
 else
     term.clear()
     term.setCursorPos(1, 1)

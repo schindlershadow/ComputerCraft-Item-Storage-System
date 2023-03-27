@@ -21,6 +21,7 @@ settings.define("craftingChest",
     { description = "The peripheral name of the crafting chest", "minecraft:chest_3", type = "string" })
 settings.define("serverName",
     { description = "The hostname of this server", "StorageServer" .. tostring(os.getComputerID()), type = "string" })
+settings.define("requireLogin", { description = "require a login for LAN clients", default = "false", type = "boolean" })
 
 
 --Settings fails to load
@@ -28,6 +29,7 @@ if settings.load() == false then
     print("No settings have been found! Default values will be used!")
     settings.set("serverName", "StorageServer" .. tostring(os.getComputerID()))
     settings.set("debug", false)
+    settings.set("requireLogin", false)
     settings.set("exportChests", { "minecraft:chest_0" })
     settings.set("importChests", { "minecraft:chest_2" })
     settings.set("craftingChest", "minecraft:chest_3")
@@ -316,6 +318,18 @@ local function getStorageSize(storage)
         time = epoch("utc") / 1000
     end
     return slots, total
+end
+
+local function printClients()
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    local count = 0
+    for _ in pairs(clients) do count = count + 1 end
+    print("Clients: " .. tostring(count))
+    for i in pairs(clients) do
+        print(tostring(clients[i].username) ..
+        ":" .. string.sub(tostring(clients[i].target), 1, 5) .. ":" .. tostring(clients[i].sender))
+    end
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 end
 
 local function pingClients(message)
@@ -633,7 +647,7 @@ local function onCryptoNetEvent(event)
     elseif event[1] == "encrypted_message" then
         local socket = event[3]
         -- Check the username to see if the client is logged in or allow without login if wired
-        if socket.username ~= nil or socket.sender == settings.get("serverName") then
+        if socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) then
             local message = event[2][1]
             local data = event[2][2]
             if socket.username == nil then
@@ -652,14 +666,7 @@ local function onCryptoNetEvent(event)
                 if uniq then
                     clients[#clients + 1] = socket
                 end
-                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-                local count = 0
-                for _ in pairs(clients) do count = count + 1 end
-                print("Clients: " .. tostring(count))
-                for i in pairs(clients) do
-                    print(string.sub(tostring(clients[i].target), 1, 5) .. ":" .. tostring(clients[i].sender))
-                end
-                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+                printClients()
             elseif message == "getServerType" then
                 cryptoNet.send(socket, { message, "StorageServer" })
             elseif message == "ping" then
@@ -706,6 +713,7 @@ local function onCryptoNetEvent(event)
                         end
                     end
                     reloadStorageDatabase()
+                    cryptoNet.send(socket, { message, "forceImport" })
                 end
             elseif message == "import" then
                 local inputStorage = getExportChests()
@@ -758,6 +766,8 @@ local function onCryptoNetEvent(event)
                 cryptoNet.send(socket, { message, storageSize })
             elseif message == "storageMaxSize" then
                 cryptoNet.send(socket, { message, storageMaxSize })
+            elseif message == "requireLogin" then
+                cryptoNet.send(socket, { message, settings.get("requireLogin") })
             elseif message == "getCertificate" then
                 local fileContents = nil
                 local filePath = socket.sender .. ".crt"
@@ -770,8 +780,29 @@ local function onCryptoNetEvent(event)
             end
         else
             --User is not logged in
-            cryptoNet.send(socket, "Sorry, I only talk to logged in users.")
+            local message = event[2][1]
+            if message == "requireLogin" then
+                cryptoNet.send(socket, { message, settings.get("requireLogin") })
+            else
+                debugLog("User is not logged in. Sender: " .. socket.sender .. " Target: " .. socket.target)
+                cryptoNet.send(socket, { "requireLogin" })
+                cryptoNet.send(socket, "Sorry, I only talk to logged in users")
+            end
         end
+    elseif event[1] == "connection_closed" then
+        local socket = event[2]
+        log("connection closed: " ..
+        tostring(socket.username) .. ":" .. string.sub(tostring(socket.target), 1, 5) .. ":" .. tostring(socket.sender))
+
+        for i in pairs(clients) do
+            if clients[i].target == socket.target then
+                table.remove(clients, i)
+                print("Client Disconnected: " ..
+                tostring(socket.username) ..
+                ":" .. string.sub(tostring(socket.target), 1, 5) .. ":" .. tostring(socket.sender))
+            end
+        end
+        printClients()
     end
 end
 
