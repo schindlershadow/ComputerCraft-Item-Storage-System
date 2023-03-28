@@ -4,7 +4,7 @@
  Required mods: ComputerCraft
 
  Installation:
-  `pastebin run nziARhYn`
+  `pastebin run 9ghzwfjw`
  
   It is reccomended to label your import, export and crafting chest before running the install
  
