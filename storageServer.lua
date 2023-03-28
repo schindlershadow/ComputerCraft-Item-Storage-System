@@ -327,7 +327,7 @@ local function printClients()
     print("Clients: " .. tostring(count))
     for i in pairs(clients) do
         print(tostring(clients[i].username) ..
-        ":" .. string.sub(tostring(clients[i].target), 1, 5) .. ":" .. tostring(clients[i].sender))
+            ":" .. string.sub(tostring(clients[i].target), 1, 5) .. ":" .. tostring(clients[i].sender))
     end
     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 end
@@ -676,10 +676,9 @@ local function onCryptoNetEvent(event)
                 reloadStorageDatabase()
                 --threadedStorageDatabaseReload()
             elseif message == "getItems" then
-                if settings.get("debug") then
-                    --log(dump(items))
-                end
                 cryptoNet.sendUnencrypted(socket, { "getItems", items })
+            elseif message == "getDetailDB" then
+                cryptoNet.sendUnencrypted(socket, { "getDetailDB", detailDB })
             elseif message == "getItem" then
                 if settings.get("debug") then
                     print(dump(data))
@@ -792,14 +791,15 @@ local function onCryptoNetEvent(event)
     elseif event[1] == "connection_closed" then
         local socket = event[2]
         log("connection closed: " ..
-        tostring(socket.username) .. ":" .. string.sub(tostring(socket.target), 1, 5) .. ":" .. tostring(socket.sender))
+            tostring(socket.username) ..
+            ":" .. string.sub(tostring(socket.target), 1, 5) .. ":" .. tostring(socket.sender))
 
         for i in pairs(clients) do
             if clients[i].target == socket.target then
                 table.remove(clients, i)
                 print("Client Disconnected: " ..
-                tostring(socket.username) ..
-                ":" .. string.sub(tostring(socket.target), 1, 5) .. ":" .. tostring(socket.sender))
+                    tostring(socket.username) ..
+                    ":" .. string.sub(tostring(socket.target), 1, 5) .. ":" .. tostring(socket.sender))
             end
         end
         printClients()
