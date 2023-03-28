@@ -5,6 +5,7 @@ local recipes = {}
 local server = 0
 local storageServerSocket
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
+local items
 
 
 --Settings
@@ -185,6 +186,7 @@ function addShapeless(recipeName, name, arg3, arg4)
     recipes[#recipes + 1] = tab
 end
 
+--These MUST be global
 craftingTable = { addShaped = addShaped, addShapeless = addShapeless }
 
 function getInstance()
@@ -380,8 +382,8 @@ local function pingServer()
     until event == "storageServerAck"
 end
 
-function Split(s, delimiter)
-    result = {};
+local function Split(s, delimiter)
+    local result = {};
     for match in (s .. delimiter):gmatch("(.-)" .. delimiter) do
         table.insert(result, match);
     end
@@ -709,7 +711,7 @@ local function haveCraftingMaterials(tableOfRecipes, amount, socket)
                                 ": Need: " .. tostring(numNeeded[item]) .. " Found: " .. tostring(number))
                             updateClient(socket, "logUpdate",
                                 tostring(item:match(".+:(.+)")) ..
-                                ": Need: " .. tostring(numNeeded[item]) .. " Found: " .. tostring(number))
+                                ": " .. tostring(number) .. "/" .. tostring(numNeeded[item]))
                         end
                     end
                 end
@@ -877,7 +879,7 @@ local function dumpAll()
         repeat
             event = os.pullEvent("forceImport")
         until event == "forceImport"
-        pingServer()
+        --pingServer()
     end
 end
 
@@ -1218,8 +1220,24 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             debugLog("insystem[k]:" .. tostring(insystem[k]) .. " moveCount:" .. tostring(moveCount))
                         end
 
-
-
+                        --Try again
+                        if found == false then
+                            reloadStorageDatabase()
+                            for k = 1, #recipe[row][slot], 1 do
+                                searchResults[k], insystem[k], indexs[k] = search(recipe[row][slot][k], items, moveCount)
+                                if type(searchResults[k]) ~= "nil" then
+                                    found = true
+                                    foundIndexs[k] = true
+                                else
+                                    foundIndexs[k] = false
+                                end
+                                if insystem[k] > moveCount then
+                                    found = true
+                                    lastGoodIndex = k
+                                end
+                                debugLog("insystem[k]:" .. tostring(insystem[k]) .. " moveCount:" .. tostring(moveCount))
+                            end
+                        end
 
                         if found == false then
                             --no sutiable item found in system
@@ -1289,7 +1307,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                 itemsMoved = itemsMoved + newItemsMoved
                             end
                             --Ask the server to reload database now that something has been changed
-                            reloadServerDatabase()
+                            --reloadServerDatabase()
                             --Move items from crafting chest to turtle inventory
                             turtle.suckUp()
                             --Check the items just moved
@@ -1548,9 +1566,9 @@ local function craftBranch(recipeObj, ttl, amount, socket)
         status = craftRecipe(recipeObj, amount, socket)
         --status = craftRecipe(recipeObj, math.ceil(amount / recipeObj.count), id)
         if status == false then
-            print("crafting failed")
-            debugLog("crafting failed")
-            updateClient(socket, "logUpdate", "crafting failed")
+            print("crafting parent recipe failed")
+            debugLog("crafting parent recipe failed")
+            updateClient(socket, "logUpdate", "crafting parent recipe failed")
             return false
         end
         debugLog("Craft parent item: " .. tostring(status))
@@ -1811,8 +1829,19 @@ local function serverHandler(event)
                     updateClient(socket, true)
                 else
                     print("Crafting Failed!")
+                    --try again
+                    print("Trying to craft again")
+                    reloadStorageDatabase()
+                    ableToCraft = craft(data, data.amount, socket)
                     --cryptoNet.send(socket, { message, false })
-                    updateClient(socket, false)
+                    if ableToCraft then
+                        print("Crafting Successful")
+                        --cryptoNet.send(socket, { message, true })
+                        updateClient(socket, true)
+                    else
+                        print("Crafting Failed!")
+                        updateClient(socket, false)
+                    end
                 end
             elseif message == "getAmount" then
                 local _, number = search(data, items, 1)
@@ -1936,7 +1965,7 @@ local function postStart()
     getDatabaseFromServer()
 end
 
-function onStart()
+local function onStart()
     --clear out old log
     if fs.exists("logs/craftingServer.log") then
         fs.delete("logs/craftingServer.log")
@@ -1948,6 +1977,8 @@ function onStart()
     cryptoNet.closeAll()
     local wirelessModem = nil
     local wiredModem = nil
+
+    dumpAll()
 
     print("Looking for connected modems...")
 
