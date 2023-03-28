@@ -626,12 +626,12 @@ local function importHandler()
                     peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
                 end
             end
-            --reloadStorageDatabase()
-            threadedStorageDatabaseReload()
+            reloadStorageDatabase()
+            --threadedStorageDatabaseReload()
             sleep(5)
         end
 
-        sleep(0.2)
+        sleep(1)
     end
 end
 
@@ -673,8 +673,8 @@ local function onCryptoNetEvent(event)
                 cryptoNet.send(socket, { "ping", "ack" })
             elseif message == "reloadStorageDatabase" then
                 cryptoNet.send(socket, { message })
-                --reloadStorageDatabase()
-                threadedStorageDatabaseReload()
+                reloadStorageDatabase()
+                --threadedStorageDatabaseReload()
             elseif message == "getItems" then
                 if settings.get("debug") then
                     --log(dump(items))
