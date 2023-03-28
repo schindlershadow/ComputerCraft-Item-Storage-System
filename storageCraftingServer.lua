@@ -5,7 +5,7 @@ local recipes = {}
 local server = 0
 local storageServerSocket
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
-local items
+local items, detailDB
 
 
 --Settings
@@ -373,6 +373,20 @@ local function getDatabaseFromServer()
     until event == "itemsUpdated"
 end
 
+local function getDetailDBFromServer()
+    cryptoNet.send(storageServerSocket, { "getDetailDB" })
+    local event
+    repeat
+        event = os.pullEvent("detailDBUpdated")
+    until event == "detailDBUpdated"
+
+    local count = 0
+    for _ in pairs(detailDB) do count = count + 1 end
+
+    print("Got " .. tostring(count) .. " items metadeta from storageserver")
+    --sleep(5)
+end
+
 local function pingServer()
     cryptoNet.send(storageServerSocket, { "ping" })
 
@@ -526,6 +540,18 @@ local function getRecipes()
         require(tostring(fileNumber) .. fileName)
         fs.delete(tostring(fileNumber) .. fileName)
         fileNumber = fileNumber + 1
+    end
+
+    --Add the display name from detailDB we got from the storage server
+    if type(detailDB) ~= "nil" then
+        for i=1, #recipes, 1 do
+            if detailDB[recipes[i].name] ~= nil then
+                recipes[i].displayName = detailDB[recipes[i].name].displayName
+                recipes[i].tags = detailDB[recipes[i].name].tags
+            elseif recipes[i].displayName == nil then
+                recipes[i].displayName = ""
+            end
+        end
     end
 
     print(tostring(#recipes) .. " recipes loaded!")
@@ -1740,6 +1766,9 @@ local function serverHandler(event)
                     sleep(math.random() % 0.2)
                     return getDatabaseFromServer()
                 end
+            elseif message == "getDetailDB" then
+                detailDB = data
+                os.queueEvent("detailDBUpdated")
             elseif message == "ping" then
                 if type(data) == "string" and data == "ack" then
                     os.queueEvent("storageServerAck")
@@ -1963,6 +1992,7 @@ local function postStart()
     end
     cryptoNet.send(storageServerSocket, { "storageServer" })
     getDatabaseFromServer()
+    getDetailDBFromServer()
 end
 
 local function onStart()
@@ -2031,6 +2061,7 @@ local function onStart()
     postStart()
 
     getRecipes()
+    
 end
 
 debugLog("~~Boot~~")
