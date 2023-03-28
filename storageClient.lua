@@ -1130,7 +1130,7 @@ local function drawList(list)
         elseif menuSel == "crafting" then
             local filteredRecipes = {}
             for k, v in pairs(recipes) do
-                if string.find(string.lower(v["name"]), string.lower(search)) or string.find(string.lower(v["name"]), string.lower(search:gsub(" ", "_"))) then
+                if string.find(string.lower(v["name"]), string.lower(search)) or string.find(string.lower(v["name"]), string.lower(search:gsub(" ", "_"))) or (v["displayName"] ~= nil and string.find(string.lower(v["displayName"]), string.lower(search))) then
                     filteredRecipes[#filteredRecipes + 1] = v
                 end
             end
@@ -1143,8 +1143,14 @@ local function drawList(list)
                             term.write(" ")
                         end
                         term.setCursorPos(1, k - scroll)
-                        term.write(recipe.name ..
+                        if recipe.displayName ~= nil and string.len(recipe.displayName) > 1 then
+                            term.write(recipe.displayName ..
                             " #" .. tostring(recipe.count) .. " - " .. recipe.recipeName:match("(.*):"))
+                        else
+                            term.write(recipe.name ..
+                            " #" .. tostring(recipe.count) .. " - " .. recipe.recipeName:match("(.*):"))
+                        end
+                        
                         term.setCursorPos(1, height)
                     end
                 end
