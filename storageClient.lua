@@ -1345,7 +1345,7 @@ local function inputHandler()
     end
 end
 
-function discoverServers(serverType)
+local function discoverServers(serverType)
     local serverList = {}
     --while next(serverList) == nil do
     print("Looking for servers")
@@ -1485,7 +1485,7 @@ function discoverServers(serverType)
     end
 end
 
-function loginScreen()
+local function loginScreen()
     local done = false
     local user = ""
     local pass = ""
@@ -1641,7 +1641,7 @@ function loginScreen()
     term.setCursorPos(1, 1)
 end
 
-function onStart()
+local function onStart()
     --clear out old log
     if fs.exists("logs/clientDebug.log") then
         fs.delete("logs/clientDebug.log")
@@ -1849,6 +1849,8 @@ function onCryptoNetEvent(event)
     elseif event[1] == "connection_closed" then
         --print(dump(event))
         --log(dump(event))
+        cryptoNet.closeAll()
+        os.reboot()
     elseif event[1] == "encrypted_message" then
         --log("Server said: " .. dump(event[2]))
         local messageType = event[2][1]
