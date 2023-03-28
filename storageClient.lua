@@ -5,6 +5,7 @@ local scroll = 0
 local search = ""
 local items = {}
 local recipes = {}
+local detailDB = {}
 local displayedRecipes = {}
 local menu = false
 local menuSel = "storage"
@@ -204,6 +205,21 @@ local function filterItems()
     return outputTable
 end
 
+local function getDetailDBFromServer()
+    print("Loading item metadata")
+    cryptoNet.send(storageServerSocket, { "getDetailDB" })
+    local event
+    repeat
+        event = os.pullEvent("detailDBUpdated")
+    until event == "detailDBUpdated"
+
+    --local count = 0
+    --for _ in pairs(detailDB) do count = count + 1 end
+
+    --print("Got " .. tostring(count) .. " items metadeta from storageserver")
+    --sleep(5)
+end
+
 local function getItems()
     --pingStorageServer()
     cryptoNet.send(storageServerSocket, { "getItems" })
@@ -370,7 +386,7 @@ local function craftRecipe(recipe, amount, canCraft)
                         term.write("  ")
                     else
                         term.setBackgroundColor(colors.green)
-                        term.write(string.format("%02d",table[row][slot]))
+                        term.write(string.format("%02d", table[row][slot]))
                     end
                     if slot ~= 3 then
                         --term.setBackgroundColor(colors.gray)
@@ -422,7 +438,6 @@ local function craftRecipe(recipe, amount, canCraft)
             message = message.message
             break
         end
-
     until (type(message) == "boolean") or ttl < 1
     if ttl < 1 then
         message = false
@@ -575,7 +590,12 @@ local function drawCraftingMenu(sel, inputTable)
         term.write(tmpText)
         term.setCursorPos(1, 2)
         term.write("<")
-        centerText(inputTable[sel].name .. " #" .. tostring(inputTable[sel].count))
+        if inputTable[sel].displayName ~= nil and string.len(inputTable[sel].displayName) > 1 then
+            centerText(inputTable[sel].displayName .. " #" .. tostring(inputTable[sel].count))
+        else
+            centerText(inputTable[sel].name .. " #" .. tostring(inputTable[sel].count))
+        end
+
         term.setCursorPos(width, 2)
         term.write(">")
         term.setCursorPos(1, 3)
@@ -635,10 +655,18 @@ local function drawCraftingMenu(sel, inputTable)
                 else
                     term.setBackgroundColor(colors.red)
                 end
-                term.write(utf8.char(i + 64) ..
-                    ":" ..
-                    legend[i].item:match(":([%w,_,/]*)$") ..
-                    ":" .. tostring(legend[i].have) .. "/" .. tostring(legend[i].count))
+                if detailDB[legend[i].item:match(":([%w,_,/]*:[%w,_,/]*)$")] ~= nil then
+                    term.write(utf8.char(i + 64) ..
+                        ":" ..
+                        detailDB[legend[i].item:match(":([%w,_,/]*:[%w,_,/]*)$")].displayName ..
+                        ":" .. tostring(legend[i].have) .. "/" .. tostring(legend[i].count))
+                else
+                    term.write(utf8.char(i + 64) ..
+                        ":" ..
+                        legend[i].item:match(":([%w,_,/]*)$") ..
+                        ":" .. tostring(legend[i].have) .. "/" .. tostring(legend[i].count))
+                end
+
                 --term.write(utf8.char(i + 64) .. ": #" .. legend[i].count .. " " .. legend[i].item)
             end
         else
@@ -650,10 +678,17 @@ local function drawCraftingMenu(sel, inputTable)
                 else
                     term.setBackgroundColor(colors.red)
                 end
-                term.write(utf8.char(i + 64) ..
-                    ": " ..
-                    legend[i].item:match(":([%w,_,/]*)$") ..
-                    ": " .. tostring(legend[i].have) .. "/" .. tostring(legend[i].count))
+                if detailDB[legend[i].item:match(":([%w,_,/]*:[%w,_,/]*)$")] ~= nil then
+                    term.write(utf8.char(i + 64) ..
+                        ":" ..
+                        detailDB[legend[i].item:match(":([%w,_,/]*:[%w,_,/]*)$")].displayName ..
+                        ":" .. tostring(legend[i].have) .. "/" .. tostring(legend[i].count))
+                else
+                    term.write(utf8.char(i + 64) ..
+                        ":" ..
+                        legend[i].item:match(":([%w,_,/]*)$") ..
+                        ":" .. tostring(legend[i].have) .. "/" .. tostring(legend[i].count))
+                end
                 --term.write(utf8.char(i + 64) .. ": #" .. legend[i].count .. " " .. legend[i].item)
             end
         end
@@ -1145,12 +1180,12 @@ local function drawList(list)
                         term.setCursorPos(1, k - scroll)
                         if recipe.displayName ~= nil and string.len(recipe.displayName) > 1 then
                             term.write(recipe.displayName ..
-                            " #" .. tostring(recipe.count) .. " - " .. recipe.recipeName:match("(.*):"))
+                                " #" .. tostring(recipe.count) .. " - " .. recipe.recipeName:match("(.*):"))
                         else
                             term.write(recipe.name ..
-                            " #" .. tostring(recipe.count) .. " - " .. recipe.recipeName:match("(.*):"))
+                                " #" .. tostring(recipe.count) .. " - " .. recipe.recipeName:match("(.*):"))
                         end
-                        
+
                         term.setCursorPos(1, height)
                     end
                 end
@@ -1719,6 +1754,7 @@ local function onStart()
             getItems()
             print("Loading Recipes")
             getRecipes()
+            getDetailDBFromServer()
             drawList()
 
             term.setBackgroundColor(colors.black)
@@ -1806,6 +1842,7 @@ function onCryptoNetEvent(event)
             getItems()
             print("Loading Recipes")
             getRecipes()
+            getDetailDBFromServer()
             drawList()
 
             term.setBackgroundColor(colors.black)
@@ -1851,6 +1888,9 @@ function onCryptoNetEvent(event)
                 sleep(0.5 + (math.random() % 0.2))
                 getItems()
             end
+        elseif messageType == "getDetailDB" then
+            detailDB = message
+            os.queueEvent("detailDBUpdated")
         end
     elseif event[1] == "connection_closed" then
         --print(dump(event))
@@ -1878,6 +1918,9 @@ function onCryptoNetEvent(event)
             end
         elseif messageType == "import" then
             getItems()
+        elseif messageType == "getDetailDB" then
+            detailDB = message
+            os.queueEvent("detailDBUpdated")
         elseif messageType == "ping" then
             if type(message) == "string" and message == "ack" then
                 os.queueEvent("storageServerAck")
