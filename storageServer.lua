@@ -637,7 +637,7 @@ end
 
 local function onCryptoNetEvent(event)
     -- When a client logs in
-    if event[1] == "login" then
+    if event[1] == "login" or event[1] == "hash_login" then
         local username = event[2]
         -- The socket of the client that just logged in
         local socket = event[3]
@@ -647,7 +647,7 @@ local function onCryptoNetEvent(event)
     elseif event[1] == "encrypted_message" then
         local socket = event[3]
         -- Check the username to see if the client is logged in or allow without login if wired
-        if socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) then
+        if (socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName"))) and event[2][1] ~= "hashLogin" then
             local message = event[2][1]
             local data = event[2][2]
             if socket.username == nil then
@@ -788,10 +788,27 @@ local function onCryptoNetEvent(event)
                 else
                     cryptoNet.send(socket, { message, false })
                 end
+            elseif message == "checkPasswordHashed" then
+                local check1 = cryptoNet.checkPasswordHashed(data.username, data.passwordHash, serverLAN)
+                local check2 = cryptoNet.checkPasswordHashed(data.username, data.passwordHash, serverWireless)
+
+                if check1 or check2 then
+                    local permissionLevel = 0
+                    if check1 then
+                        permissionLevel = cryptoNet.getPermissionLevel(data.username, serverLAN)
+                    else
+                        permissionLevel = cryptoNet.getPermissionLevel(data.username, serverWireless)
+                    end
+                    cryptoNet.send(socket, { message, true, permissionLevel })
+                else
+                    cryptoNet.send(socket, { message, false, 0 })
+                end
             elseif message == "setPassword" then
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
-                debugLog("setPassword:"..socket.username..":" .. data.username .. ":" .. tostring(permissionLevel) .. ":" .. tostring(userExists))
+                debugLog("setPassword:" ..
+                    socket.username ..
+                    ":" .. data.username .. ":" .. tostring(permissionLevel) .. ":" .. tostring(userExists))
                 if tonumber(permissionLevel) >= 2 and userExists and type(data.password) == "string" then
                     cryptoNet.setPassword(data.username, data.password, serverLAN)
                     cryptoNet.setPassword(data.username, data.password, serverWireless)
@@ -803,12 +820,39 @@ local function onCryptoNetEvent(event)
                 else
                     cryptoNet.send(socket, { message, false })
                 end
+            elseif message == "setPasswordHashed" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                local userExists = cryptoNet.userExists(data.username, serverLAN)
+                debugLog("setPassword:" ..
+                    socket.username ..
+                    ":" .. data.username .. ":" .. tostring(permissionLevel) .. ":" .. tostring(userExists))
+                if tonumber(permissionLevel) >= 2 and userExists and type(data.passwordHash) == "string" then
+                    cryptoNet.setPasswordHashed(data.username, data.passwordHash, serverLAN)
+                    cryptoNet.setPasswordHashed(data.username, data.passwordHash, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                elseif userExists and data.username == socket.username then
+                    cryptoNet.setPasswordHashed(data.username, data.passwordHash, serverLAN)
+                    cryptoNet.setPasswordHashed(data.username, data.passwordHash, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
             elseif message == "addUser" then
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
                 if permissionLevel >= 2 and not userExists and type(data.password) == "string" then
                     cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverLAN)
                     cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
+            elseif message == "addUserHashed" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                local userExists = cryptoNet.userExists(data.username, serverLAN)
+                if permissionLevel >= 2 and not userExists and type(data.passwordHash) == "string" then
+                    cryptoNet.addUserHashed(data.username, data.passwordHash, data.permissionLevel, serverLAN)
+                    cryptoNet.addUserHashed(data.username, data.passwordHash, data.permissionLevel, serverWireless)
                     cryptoNet.send(socket, { message, true })
                 else
                     cryptoNet.send(socket, { message, false })
@@ -827,7 +871,40 @@ local function onCryptoNetEvent(event)
         else
             --User is not logged in
             local message = event[2][1]
-            if message == "requireLogin" then
+            local data = event[2][2]
+            if message == "hashLogin" then
+                --Need to auth with storage server
+                --debugLog("hashLogin")
+                print("User login request for: " .. data.username)
+                log("User login request for: " .. data.username)
+                local loginStatus = cryptoNet.checkPasswordHashed(data.username, data.passwordHash, serverLAN)
+                local permissionLevel = cryptoNet.getPermissionLevel(data.username, serverLAN)
+                --debugLog("loginStatus:"..tostring(loginStatus))
+                if loginStatus == true then
+                    cryptoNet.send(socket, { "hashLogin", true, permissionLevel })
+                    socket.username = data.username
+                    socket.permissionLevel = permissionLevel
+
+                    --Update internal sockets
+                    for k, v in pairs(serverLAN.sockets) do
+                        if v.target == socket.target then
+                            serverLAN.sockets[k] = socket
+                            break
+                        end
+                    end
+                    for k, v in pairs(serverWireless.sockets) do
+                        if v.target == socket.target then
+                            serverWireless.sockets[k] = socket
+                            break
+                        end
+                    end
+                    os.queueEvent("hash_login", socket.username, socket)
+                else
+                    print("User: " .. data.username .. " failed to login")
+                    log("User: " .. data.username .. " failed to login")
+                    cryptoNet.send(socket, { "hashLogin", false })
+                end
+            elseif message == "requireLogin" then
                 cryptoNet.send(socket, { message, settings.get("requireLogin") })
             else
                 debugLog("User is not logged in. Sender: " .. socket.sender .. " Target: " .. socket.target)

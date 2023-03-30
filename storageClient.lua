@@ -394,6 +394,46 @@ local function discoverServers(serverType)
     end
 end
 
+--Logs in using password hash
+--This allows multiple servers to use a central server as an auth server by passing the hash
+local function login(socket, user, pass, servername)
+    --Check if wireless server
+    local startIndex, endIndex = string.find(servername, "_Wireless")
+    if startIndex then
+        --get the server name by cutting out "_Wireless"
+        servername = string.sub(servername,1,startIndex-1)
+        log("wireless server rename: " .. servername)
+    else
+        log("servername " .. servername)
+    end
+
+    local tmp = {}
+    tmp.username = user
+    log("hashing password")
+    tmp.passwordHash = cryptoNet.hashPassword(user, pass, servername)
+    --mark for garbage collection
+    pass=nil
+    --log("hashLogin")
+    cryptoNet.send(socket, {"hashLogin", tmp})
+    local event
+    local loginStatus = false
+    local permissionLevel = 0
+    repeat
+        event, loginStatus, permissionLevel = os.pullEvent("hashLogin")
+    until event == "hashLogin"
+    log("loginStatus:" .. tostring(loginStatus))
+    if loginStatus == true then
+        socket.username = user
+        socket.permissionLevel = permissionLevel
+        os.queueEvent("login", user, socket)
+    else
+        term.setCursorPos(1,1)
+        error("Failed to login to Server")
+    end
+
+    return socket
+end
+
 local function loginScreen()
     local done = false
     local user = ""
@@ -928,11 +968,11 @@ local function drawCraftingQueue()
 end
 
 local function changePassword(user)
+    sleep(1)
     term.setBackgroundColor(colors.red)
     term.clear()
     term.setCursorPos(1, 1)
     print("Changing password for user: " .. user)
-    sleep(1)
     print("")
     print("Enter new password:")
     local pass = read("*")
@@ -978,11 +1018,13 @@ local function drawUserMenu()
     --If the user is not logged in, login
     if username == "" or storageServerSocket.permissionLevel == 0 then
         loginScreen()
-        cryptoNet.login(storageServerSocket, username, password)
+        --cryptoNet.login(storageServerSocket, username, password)
+        login(storageServerSocket, username, password, settings.get("StorageServer"))
         repeat
             event = os.pullEvent("login")
         until event == "login"
-        cryptoNet.login(craftingServerSocket, username, password)
+        --cryptoNet.login(craftingServerSocket, username, password)
+        login(craftingServerSocket, username, password, settings.get("StorageServer"))
         repeat
             event = os.pullEvent("login")
         until event == "login"
@@ -2084,7 +2126,8 @@ local function onStart()
         timeoutConnect = os.startTimer(15)
         print("Logging into server:" .. settings.get("StorageServer"))
         log("Logging into server:" .. settings.get("StorageServer"))
-        cryptoNet.login(storageServerSocket, username, password)
+        --cryptoNet.login(storageServerSocket, username, password)
+        login(storageServerSocket, username, password, settings.get("StorageServer"))
     else
         getStorageServerCert()
         cryptoNet.send(storageServerSocket, { "storageServer" })
@@ -2159,12 +2202,14 @@ function onCryptoNetEvent(event)
                 -- Log in with a username and password
                 print("Logging into server:" .. settings.get("CraftingServer"))
                 log("Logging into server:" .. settings.get("CraftingServer"))
-                print("password: " .. password)
-                cryptoNet.login(craftingServerSocket, username, password)
-                --clear password from memory
+
+                login(craftingServerSocket, username, password, settings.get("StorageServer"))
+
+                --clear password 
+                tmp = nil
                 password = ""
             else
-                --clear password from memory
+                --clear password 
                 password = ""
                 print("Loading Database")
                 getItems()
@@ -2311,6 +2356,8 @@ function onCryptoNetEvent(event)
             os.queueEvent("gotPermissionLevel", message)
         elseif messageType == "setPassword" then
             os.queueEvent("gotSetPassword", message)
+        elseif messageType == "hashLogin" then
+            os.queueEvent("hashLogin", message, event[2][3])
         end
     elseif event[1] == "timer" then
         if event[2] == timeoutConnect and (type(storageServerSocket) == "nil" or type(storageServerSocket.username) == "nil") then

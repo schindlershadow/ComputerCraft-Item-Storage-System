@@ -1840,15 +1840,13 @@ local function serverHandler(event)
         local socket = event[3]
         -- The logged-in username is also stored in the socket
         print("Login successful using " .. socket.username)
-        -- Received a message from the client
         os.queueEvent("storageServerLogin")
-    elseif event[1] == "login" then
+    elseif event[1] == "login" or event[1] == "hash_login" then
         local username = event[2]
         -- The socket of the client that just logged in
         local socket = event[3]
         -- The logged-in username is also stored in the socket
         print(socket.username .. " just logged in.")
-        -- Received a message from the client
     elseif event[1] == "plain_message" then
         local message = event[2][1]
         local data = event[2][2]
@@ -1891,8 +1889,9 @@ local function serverHandler(event)
         end
     elseif event[1] == "encrypted_message" then
         local socket = event[3]
+        debugLog("encrypted_message: " .. dump(event[2]))
         -- Check the username to see if the client is logged in or should have an exception
-        if socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) or socket.target == settings.get("StorageServer") then
+        if (socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) or socket.target == settings.get("StorageServer")) and event[2][1] ~= "hashLogin" then
             local message = event[2][1]
             local data = event[2][2]
             if socket.username == nil then
@@ -2100,12 +2099,56 @@ local function serverHandler(event)
                 else
                     cryptoNet.send(socket, { message, false })
                 end
+            elseif message == "checkPasswordHashed" then
+                os.queueEvent("gotCheckPasswordHashed", data, event[2][3])
             end
         else
             --User is not logged in
-            debugLog("User is not logged in. Sender: " .. socket.sender .. " Target: " .. socket.target)
-            cryptoNet.send(socket, { "requireLogin" })
-            cryptoNet.send(socket, "Sorry, I only talk to logged in users")
+            local message = event[2][1]
+            local data = event[2][2]
+            if message == "hashLogin" then
+                --Need to auth with storage server
+                --debugLog("hashLogin")
+                print("User login request for: " .. data.username)
+                log("User login request for: " .. data.username)
+                cryptoNet.send(storageServerSocket, { "checkPasswordHashed", data })
+                local event2
+                local loginStatus = false
+                local permissionLevel = 0
+                repeat
+                    event2, loginStatus, permissionLevel = os.pullEvent("gotCheckPasswordHashed")
+                until event2 == "gotCheckPasswordHashed"
+                --debugLog("loginStatus:"..tostring(loginStatus))
+                if loginStatus == true then
+                    cryptoNet.send(socket, { "hashLogin", true, permissionLevel })
+                    socket.username = data.username
+                    socket.permissionLevel = permissionLevel
+
+                    --Update internal sockets
+                    for k, v in pairs(serverLAN.sockets) do
+                        if v.target == socket.target then
+                            serverLAN.sockets[k] = socket
+                            break
+                        end
+                    end
+                    for k, v in pairs(serverWireless.sockets) do
+                        if v.target == socket.target then
+                            serverWireless.sockets[k] = socket
+                            break
+                        end
+                    end
+                    os.queueEvent("hash_login", socket.username, socket)
+                else
+                    print("User: " .. data.username .. " failed to login")
+                    log("User: " .. data.username .. " failed to login")
+                    cryptoNet.send(socket, { "hashLogin", false })
+                end
+            else
+                debugLog("User is not logged in. Sender: " .. socket.sender .. " Target: " .. socket.target)
+                --debugLog("socket.username: " .. tostring(socket.username))
+                cryptoNet.send(socket, { "requireLogin" })
+                cryptoNet.send(socket, "Sorry, I only talk to logged in users")
+            end
         end
     elseif event[1] == "connection_closed" then
         local socket = event[2]
