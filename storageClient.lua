@@ -1586,6 +1586,13 @@ local function loginScreen()
             term.write("~")
         end
 
+        --Adjust for pocket screen
+        if pocket then
+            border = 1
+        else
+            border = math.ceil((width) / 4)
+        end
+
         term.setBackgroundColor(colors.white)
         term.setTextColor(colors.black)
         for i = border + 6, width - border - 1, 1 do
