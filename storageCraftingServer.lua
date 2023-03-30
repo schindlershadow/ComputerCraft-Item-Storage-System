@@ -544,7 +544,7 @@ local function getRecipes()
 
     --Add the display name from detailDB we got from the storage server
     if type(detailDB) ~= "nil" then
-        for i=1, #recipes, 1 do
+        for i = 1, #recipes, 1 do
             if detailDB[recipes[i].name] ~= nil then
                 recipes[i].displayName = detailDB[recipes[i].name].displayName
                 recipes[i].tags = detailDB[recipes[i].name].tags
@@ -1962,6 +1962,14 @@ local function serverHandler(event)
             cryptoNet.send(socket, { "requireLogin" })
             cryptoNet.send(socket, "Sorry, I only talk to logged in users")
         end
+    elseif event[1] == "connection_closed" then
+        local socket = event[2]
+        --debugLog(dump(storageServerSocket))
+        --debugLog(dump(socket))
+        if socket.sender == storageServerSocket.sender then
+            cryptoNet.closeAll()
+            os.reboot()
+        end
     elseif event[1] == "timer" then
         if event[2] == timeoutConnect and (type(storageServerSocket) == "nil") then
             --Reboot after failing to connect
@@ -2061,7 +2069,6 @@ local function onStart()
     postStart()
 
     getRecipes()
-    
 end
 
 debugLog("~~Boot~~")
