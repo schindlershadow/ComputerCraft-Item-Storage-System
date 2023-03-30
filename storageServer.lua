@@ -776,6 +776,53 @@ local function onCryptoNetEvent(event)
                     file.close()
                 end
                 cryptoNet.send(socket, { message, fileContents })
+            elseif message == "getPermissionLevel" then
+                cryptoNet.send(socket, { message, cryptoNet.getPermissionLevel(data, serverLAN) })
+            elseif message == "setPermissionLevel" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                local userExists = cryptoNet.userExists(data.username, serverLAN)
+                if permissionLevel >= 2 and userExists and type(data.permissionLevel) == "number" then
+                    cryptoNet.setPermissionLevel(data.username, data.permissionLevel, serverLAN)
+                    cryptoNet.setPermissionLevel(data.username, data.permissionLevel, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
+            elseif message == "setPassword" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                local userExists = cryptoNet.userExists(data.username, serverLAN)
+                debugLog("setPassword:"..socket.username..":" .. data.username .. ":" .. tostring(permissionLevel) .. ":" .. tostring(userExists))
+                if tonumber(permissionLevel) >= 2 and userExists and type(data.password) == "string" then
+                    cryptoNet.setPassword(data.username, data.password, serverLAN)
+                    cryptoNet.setPassword(data.username, data.password, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                elseif userExists and data.username == socket.username then
+                    cryptoNet.setPassword(data.username, data.password, serverLAN)
+                    cryptoNet.setPassword(data.username, data.password, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
+            elseif message == "addUser" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                local userExists = cryptoNet.userExists(data.username, serverLAN)
+                if permissionLevel >= 2 and not userExists and type(data.password) == "string" then
+                    cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverLAN)
+                    cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
+            elseif message == "deleteUser" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                local userExists = cryptoNet.userExists(data.username, serverLAN)
+                if permissionLevel >= 2 and userExists and type(data.password) == "string" then
+                    cryptoNet.deleteUser(data.username, serverLAN)
+                    cryptoNet.deleteUser(data.username, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
             end
         else
             --User is not logged in

@@ -1,12 +1,12 @@
 math.randomseed(os.time() + (6 * os.getComputerID()))
+local serverLAN, serverWireless
 local tags = {}
 local clients = {}
 local recipes = {}
-local server = 0
 local storageServerSocket
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
 local items, detailDB
-
+local currentlyCrafting = {}
 
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
@@ -227,6 +227,30 @@ function craftingQueue.popright()
     craftingQueue[last] = nil -- to allow garbage collection
     craftingQueue.last = last - 1
     return value
+end
+
+function craftingQueue.dumpItems()
+    --This allows us to send the queue without socket information
+    local last = craftingQueue.last
+    local first = craftingQueue.first
+    local tab = {}
+    --debugLog("craftingQueue.dump()")
+    if craftingQueue.first > last then return tab end
+    for i = first, last, 1 do
+        local tmp = {}
+        tmp.name = craftingQueue[i].name
+        tmp.displayName = craftingQueue[i].displayName
+        tmp.amount = craftingQueue[i].amount
+        tmp.count = craftingQueue[i].count
+        tmp.recipeType = craftingQueue[i].recipeType
+        tmp.recipeInput = craftingQueue[i].recipeInput
+        tmp.recipe = craftingQueue[i].recipe
+        tmp.recipeName = craftingQueue[i].recipeName
+
+        table.insert(tab, tmp)
+    end
+    debugLog(dump(tab))
+    return tab
 end
 
 local function findInTable(arr, element)
@@ -1710,9 +1734,19 @@ local function craftingManager()
         if craftingQueue.first ~= nil then
             --check if the queue has anything in it
             if craftingQueue.first <= craftingQueue.last then
-                local craftingRequest = craftingQueue.popleft(craftingQueue)
+                local craftingRequest = craftingQueue.popleft()
                 debugLog("craftingRequest.recipe: " .. textutils.serialise(craftingRequest.recipe))
                 debugLog("craftingRequest.timesToCraft: " .. tostring(craftingRequest.timesToCraft))
+                currentlyCrafting.name = craftingRequest.recipe.name
+                currentlyCrafting.displayName = craftingRequest.recipe.displayName
+                currentlyCrafting.amount = craftingRequest.recipe.amount
+                currentlyCrafting.count = craftingRequest.recipe.count
+                currentlyCrafting.recipeType = craftingRequest.recipe.recipeType
+                currentlyCrafting.recipeInput = craftingRequest.recipe.recipeInput
+                currentlyCrafting.recipe = craftingRequest.recipe.recipe
+                currentlyCrafting.recipeName = craftingRequest.recipe.recipeName
+
+                reloadStorageDatabase()
                 local ableToCraft = false
                 if craftingRequest.autoCraft then
                     ableToCraft = craft(craftingRequest.recipe, craftingRequest.timesToCraft, craftingRequest.socket)
@@ -1725,7 +1759,7 @@ local function craftingManager()
                     end
                 else
                     ableToCraft = craftRecipe(craftingRequest.recipe, craftingRequest.timesToCraft,
-                    craftingRequest.socket)
+                        craftingRequest.socket)
                 end
 
                 --Report to client
@@ -1738,6 +1772,7 @@ local function craftingManager()
                     --cryptoNet.send(socket, { "craftingUpdate", false })
                     updateClient(craftingRequest.socket, false)
                 end
+                currentlyCrafting = {}
             end
         end
         sleep(0.5)
@@ -1899,32 +1934,40 @@ local function serverHandler(event)
                 log("Logging into server:" .. settings.get("StorageServer"))
                 cryptoNet.login(storageServerSocket, settings.get("username"), settings.get("password"))
             elseif message == "databaseReload" then
-                getDatabaseFromServer()
+                os.startThread(getDatabaseFromServer)
             elseif message == "forceImport" then
                 os.queueEvent("forceImport")
             elseif message == "getRecipes" then
                 cryptoNet.sendUnencrypted(socket, { message, recipes })
+            elseif message == "getCraftingQueue" then
+                --debugLog("getCraftingQueue")
+                cryptoNet.send(socket, { message, craftingQueue.dumpItems() })
+            elseif message == "getCurrentlyCrafting" then
+                --debugLog("getCurrentlyCrafting")
+                cryptoNet.send(socket, { message, currentlyCrafting })
             elseif message == "craft" then
                 turtle.craft()
             elseif message == "craftItem" then
                 print("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
                 debugLog("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
-                reloadStorageDatabase()
+                --reloadStorageDatabase()
 
                 local craftingRequest = {}
                 craftingRequest.autoCraft = false
                 craftingRequest.recipe = data
+                craftingRequest.name = data.name
                 craftingRequest.timesToCraft = math.ceil(data.amount / data.count)
                 craftingRequest.socket = socket
                 craftingQueue.pushright(craftingRequest)
             elseif message == "autoCraftItem" then
                 print("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
                 debugLog("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
-                reloadStorageDatabase()
+                --reloadStorageDatabase()
 
                 local craftingRequest = {}
                 craftingRequest.autoCraft = true
                 craftingRequest.recipe = data
+                craftingRequest.name = data.name
                 craftingRequest.timesToCraft = data.amount
                 craftingRequest.socket = socket
                 craftingQueue.pushright(craftingRequest)
@@ -1984,7 +2027,7 @@ local function serverHandler(event)
                     os.queueEvent("itemsUpdated")
                 else
                     sleep(math.random() % 0.2)
-                    return getDatabaseFromServer()
+                    getDatabaseFromServer()
                 end
             elseif message == "ping" then
                 if type(data) == "string" and data == "ack" then
@@ -2011,6 +2054,52 @@ local function serverHandler(event)
                 end
                 debugLog("sending cert: " .. filePath)
                 cryptoNet.send(socket, { message, fileContents })
+            elseif message == "getPermissionLevel" then
+                cryptoNet.send(socket, { message, cryptoNet.getPermissionLevel(data, serverLAN) })
+            elseif message == "setPermissionLevel" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                local userExists = cryptoNet.userExists(data.username, serverLAN)
+                if permissionLevel >= 2 and userExists and type(data.permissionLevel) == "number" then
+                    cryptoNet.setPermissionLevel(data.username, data.permissionLevel, serverLAN)
+                    cryptoNet.setPermissionLevel(data.username, data.permissionLevel, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
+            elseif message == "setPassword" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                local userExists = cryptoNet.userExists(data.username, serverLAN)
+                if permissionLevel >= 2 and userExists and type(data.password) == "string" then
+                    cryptoNet.setPassword(data.username, data.password, serverLAN)
+                    cryptoNet.setPassword(data.username, data.password, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                elseif userExists and data.username == socket.username then
+                    cryptoNet.setPassword(data.username, data.password, serverLAN)
+                    cryptoNet.setPassword(data.username, data.password, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
+            elseif message == "addUser" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                local userExists = cryptoNet.userExists(data.username, serverLAN)
+                if permissionLevel >= 2 and not userExists and type(data.password) == "string" then
+                    cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverLAN)
+                    cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
+            elseif message == "deleteUser" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                local userExists = cryptoNet.userExists(data.username, serverLAN)
+                if permissionLevel >= 2 and userExists and type(data.password) == "string" then
+                    cryptoNet.deleteUser(data.username, serverLAN)
+                    cryptoNet.deleteUser(data.username, serverWireless)
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
             end
         else
             --User is not logged in
@@ -2096,12 +2185,12 @@ local function onStart()
     -- Start the cryptoNet server
     if type(wiredModem) ~= "nil" then
         debugLog("Start the wired cryptoNet server")
-        cryptoNet.host(settings.get("serverName", true, false, wiredModem.side))
+        serverLAN = cryptoNet.host(settings.get("serverName", true, false, wiredModem.side))
     end
 
     if type(wirelessModem) ~= "nil" then
         debugLog("Start the wireless cryptoNet server")
-        cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
+        serverWireless = cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
     end
 
     timeoutConnect = os.startTimer(10)
@@ -2125,7 +2214,7 @@ local function onStart()
     postStart()
 
     getRecipes()
-    craftingManager()
+    os.startThread(craftingManager)
 end
 
 debugLog("~~Boot~~")
