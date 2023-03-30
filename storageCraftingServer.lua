@@ -195,6 +195,40 @@ end
 
 IIngredientEmpty = { getInstance = getInstance }
 
+local craftingQueue = {}
+craftingQueue.first = 0
+craftingQueue.last = -1
+
+function craftingQueue.pushleft(value)
+    local first = craftingQueue.first - 1
+    craftingQueue.first = first
+    craftingQueue[first] = value
+end
+
+function craftingQueue.pushright(value)
+    local last = craftingQueue.last + 1
+    craftingQueue.last = last
+    craftingQueue[last] = value
+end
+
+function craftingQueue.popleft()
+    local first = craftingQueue.first
+    if first > craftingQueue.last then error("craftingQueue is empty") end
+    local value = craftingQueue[first]
+    craftingQueue[first] = nil -- to allow garbage collection
+    craftingQueue.first = first + 1
+    return value
+end
+
+function craftingQueue.popright()
+    local last = craftingQueue.last
+    if craftingQueue.first > last then error("craftingQueue is empty") end
+    local value = craftingQueue[last]
+    craftingQueue[last] = nil -- to allow garbage collection
+    craftingQueue.last = last - 1
+    return value
+end
+
 local function findInTable(arr, element)
     for i, value in pairs(arr) do
         if value.name == element.name and value.nbt == element.nbt then
@@ -1671,6 +1705,45 @@ local function craft(item, amount, socket)
     --return craftBranch(recipeToCraft, ttl, amount, id)
 end
 
+local function craftingManager()
+    while true do
+        if craftingQueue.first ~= nil then
+            --check if the queue has anything in it
+            if craftingQueue.first <= craftingQueue.last then
+                local craftingRequest = craftingQueue.popleft(craftingQueue)
+                debugLog("craftingRequest.recipe: " .. textutils.serialise(craftingRequest.recipe))
+                debugLog("craftingRequest.timesToCraft: " .. tostring(craftingRequest.timesToCraft))
+                local ableToCraft = false
+                if craftingRequest.autoCraft then
+                    ableToCraft = craft(craftingRequest.recipe, craftingRequest.timesToCraft, craftingRequest.socket)
+                    if ableToCraft == false then
+                        print("Crafting Failed!")
+                        --try again
+                        print("Trying to craft again")
+                        reloadStorageDatabase()
+                        ableToCraft = craft(craftingRequest.recipe, craftingRequest.timesToCraft, craftingRequest.socket)
+                    end
+                else
+                    ableToCraft = craftRecipe(craftingRequest.recipe, craftingRequest.timesToCraft,
+                    craftingRequest.socket)
+                end
+
+                --Report to client
+                if ableToCraft then
+                    print("Crafting Successful")
+                    --cryptoNet.send(socket, { "craftingUpdate", true })
+                    updateClient(craftingRequest.socket, true)
+                else
+                    print("Crafting Failed!")
+                    --cryptoNet.send(socket, { "craftingUpdate", false })
+                    updateClient(craftingRequest.socket, false)
+                end
+            end
+        end
+        sleep(0.5)
+    end
+end
+
 local function debugMenu()
     while true do
         print("Main menu")
@@ -1837,41 +1910,24 @@ local function serverHandler(event)
                 print("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
                 debugLog("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
                 reloadStorageDatabase()
-                local ableToCraft = craftRecipe(data, math.ceil(data.amount / data.count), socket)
-                if ableToCraft then
-                    print("Crafting Successful")
-                    --cryptoNet.send(socket, { "craftingUpdate", true })
-                    updateClient(socket, true)
-                else
-                    print("Crafting Failed!")
-                    --cryptoNet.send(socket, { "craftingUpdate", false })
-                    updateClient(socket, false)
-                end
+
+                local craftingRequest = {}
+                craftingRequest.autoCraft = false
+                craftingRequest.recipe = data
+                craftingRequest.timesToCraft = math.ceil(data.amount / data.count)
+                craftingRequest.socket = socket
+                craftingQueue.pushright(craftingRequest)
             elseif message == "autoCraftItem" then
                 print("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
                 debugLog("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
                 reloadStorageDatabase()
-                local ableToCraft = craft(data, data.amount, socket)
-                if ableToCraft then
-                    print("Crafting Successful")
-                    --cryptoNet.send(socket, { message, true })
-                    updateClient(socket, true)
-                else
-                    print("Crafting Failed!")
-                    --try again
-                    print("Trying to craft again")
-                    reloadStorageDatabase()
-                    ableToCraft = craft(data, data.amount, socket)
-                    --cryptoNet.send(socket, { message, false })
-                    if ableToCraft then
-                        print("Crafting Successful")
-                        --cryptoNet.send(socket, { message, true })
-                        updateClient(socket, true)
-                    else
-                        print("Crafting Failed!")
-                        updateClient(socket, false)
-                    end
-                end
+
+                local craftingRequest = {}
+                craftingRequest.autoCraft = true
+                craftingRequest.recipe = data
+                craftingRequest.timesToCraft = data.amount
+                craftingRequest.socket = socket
+                craftingQueue.pushright(craftingRequest)
             elseif message == "getAmount" then
                 local _, number = search(data, items, 1)
                 cryptoNet.send(socket, { message, number })
@@ -2069,6 +2125,7 @@ local function onStart()
     postStart()
 
     getRecipes()
+    craftingManager()
 end
 
 debugLog("~~Boot~~")
