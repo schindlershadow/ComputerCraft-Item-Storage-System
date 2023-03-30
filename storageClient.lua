@@ -254,6 +254,309 @@ local function export(item)
     cryptoNet.send(storageServerSocket, { "export", { item = item:getTable(), chest = settings.get("exportChestName") } })
 end
 
+local function discoverServers(serverType)
+    local serverList = {}
+    --while next(serverList) == nil do
+    print("Looking for servers")
+    serverList = cryptoNet.discover()
+    --end
+
+    local done = false
+    local scrollDiscovery = 0
+    while done == false do
+        term.setBackgroundColor(colors.gray)
+        term.clear()
+        term.setCursorPos(1, 1)
+        --log(dump(serverList))
+        for k, v in pairs(serverList) do
+            if k > scrollDiscovery then
+                if k < (height + scrollDiscovery) then
+                    local text = v.name
+                    for i = 1, width, 1 do
+                        term.setCursorPos(i, k - scrollDiscovery)
+                        term.write(" ")
+                    end
+                    term.setCursorPos(1, k - scrollDiscovery)
+                    term.write(text)
+                    term.setCursorPos(1, height)
+                end
+            end
+        end
+        for k = 1, height - 1, 1 do
+            if type(serverList[k + scrollDiscovery]) == "nil" then
+                for i = 1, width, 1 do
+                    term.setCursorPos(i, k)
+                    term.write(" ")
+                end
+            end
+        end
+
+        --refresh button
+        term.setCursorPos(width - 12, height - 1)
+        term.setBackgroundColor(colors.red)
+        term.write(" Refresh (F5) ")
+
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, height)
+            term.write(" ")
+        end
+        term.setCursorPos(1, height)
+        term.write("Discovered " .. serverType .. " Servers")
+        term.setBackgroundColor(colors.gray)
+
+        local event, button, x, y
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event == "mouse_click" or event == "key" or event == "mouse_scroll"
+
+        if event == "key" then
+            local key = button
+            if key == keys.backspace then
+                done = true
+            elseif key == keys.f5 then
+                done = true
+                discoverServers(serverType)
+            elseif key == keys.one then
+                if serverList[1] ~= nil then
+                    settings.set(serverType, serverList[1].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.two then
+                if serverList[2] ~= nil then
+                    settings.set(serverType, serverList[2].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.three then
+                if serverList[3] ~= nil then
+                    settings.set(serverType, serverList[3].name)
+                    settings.save()
+                end
+            elseif key == keys.four then
+                if serverList[4] ~= nil then
+                    settings.set(serverType, serverList[4].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.five then
+                if serverList[5] ~= nil then
+                    settings.set(serverType, serverList[5].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.six then
+                if serverList[6] ~= nil then
+                    settings.set(serverType, serverList[6].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.seven then
+                if serverList[7] ~= nil then
+                    settings.set(serverType, serverList[7].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.eight then
+                if serverList[8] ~= nil then
+                    settings.set(serverType, serverList[8].name)
+                    settings.save()
+                    done = true
+                end
+            elseif key == keys.nine then
+                if serverList[9] ~= nil then
+                    settings.set(serverType, serverList[9].name)
+                    settings.save()
+                    done = true
+                end
+            end
+        elseif event == "mouse_scroll" then
+            if button == -1 then
+                if scrollDiscovery > 0 then
+                    scrollDiscovery = scrollDiscovery - 1
+                end
+            elseif button == 1 then
+                scrollDiscovery = scrollDiscovery + 1
+            end
+        elseif event == "mouse_click" then
+            --log("mouse_click x" .. tostring(x) .. " y" .. tostring(y) .. " scroll: " .. tostring(scroll))
+            if y == height - 1 and x > width - 12 then
+                --refresh button pressed
+                done = true
+                discoverServers(serverType)
+            elseif (serverList[y + scrollDiscovery] ~= nil) and y ~= height then
+                settings.set(serverType, serverList[y + scrollDiscovery].name)
+                settings.save()
+                done = true
+            end
+        end
+    end
+end
+
+local function loginScreen()
+    local done = false
+    local user = ""
+    local pass = ""
+    local text = ""
+    local selectedField = "user"
+    while done == false do
+        term.setBackgroundColor(colors.gray)
+        term.clear()
+        term.setCursorPos(1, 1)
+        term.setTextColor(colors.white)
+
+        --calc the width needed to fit the server name in login box
+        local border
+        border = math.ceil((width - string.len(settings.get("StorageServer")) - 2) / 2)
+        local widthBlanks = ""
+        for i = 1, width, 1 do
+            widthBlanks = widthBlanks .. " "
+        end
+
+        --print computer information
+        if (settings.get("debug")) then
+            term.setCursorPos(1, 1)
+            term.write("DEBUG MODE")
+        end
+        term.setCursorPos(1, height)
+        term.write("ID:" .. tostring(os.getComputerID()))
+
+
+        --print(tostring(border))
+        local forth = math.floor(height / 4)
+        for k = forth, height - forth, 1 do
+            if k == forth then
+                term.setBackgroundColor(colors.black)
+            else
+                term.setBackgroundColor(colors.lightGray)
+            end
+            term.setCursorPos(1, k)
+            term.write(widthBlanks)
+        end
+
+        term.setBackgroundColor(colors.black)
+        term.setCursorPos(1, forth)
+        centerText("Storage Login")
+
+        term.setTextColor(colors.black)
+        term.setBackgroundColor(colors.lightGray)
+        term.setCursorPos(1, forth + 2)
+        for i = border, width - border, 1 do
+            term.setCursorPos(i, forth + 2)
+            term.write("~")
+        end
+        term.setCursorPos(1, forth + 3)
+        centerText(settings.get("StorageServer"))
+        term.setCursorPos(1, forth + 4)
+        for i = border, width - border, 1 do
+            term.setCursorPos(i, forth + 4)
+            term.write("~")
+        end
+
+        --Adjust for pocket screen
+        if pocket then
+            border = 1
+        else
+            border = math.ceil((width) / 4)
+        end
+
+        term.setBackgroundColor(colors.white)
+        term.setTextColor(colors.black)
+        for i = border + 6, width - border - 1, 1 do
+            term.setCursorPos(i, forth + 6)
+            term.write(" ")
+        end
+        term.setCursorPos(border + 6, forth + 6)
+        term.write(user)
+        term.setCursorPos(border + 1, forth + 6)
+        term.setBackgroundColor(colors.lightGray)
+        print("User:")
+
+        term.setBackgroundColor(colors.white)
+        for i = border + 6, width - border - 1, 1 do
+            term.setCursorPos(i, forth + 8)
+            term.write(" ")
+        end
+        term.setCursorPos(border + 6, forth + 8)
+        --write password sub text
+        for i = 1, string.len(pass), 1 do
+            term.write("*")
+        end
+        term.setCursorPos(border + 1, forth + 8)
+        term.setBackgroundColor(colors.lightGray)
+        print("Pass:")
+
+        term.setCursorPos(border + 1, forth + 10)
+        term.setBackgroundColor(colors.red)
+        term.write(" Change Server ")
+        term.setCursorPos(width - border - 7, forth + 10)
+        term.setBackgroundColor(colors.green)
+        term.write(" Login ")
+
+        local event, button, x, y
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event == "mouse_click" or event == "key" or event == "char"
+
+        if event == "char" then
+            local key = button
+            --search = search .. key
+            if selectedField == "user" then
+                user = user .. key
+            else
+                pass = pass .. key
+            end
+        elseif event == "key" then
+            local key = button
+            if key == keys.backspace then
+                --remove from text entry
+                if selectedField == "user" then
+                    user = user:sub(1, -2)
+                else
+                    pass = pass:sub(1, -2)
+                end
+            elseif key == keys.enter or key == keys.numPadEnter then
+                --set creds
+                username = user
+                password = pass
+                user = ""
+                pass = ""
+                done = true
+            elseif key == keys.tab then
+                --toggle user/pass text entry
+                if selectedField == "user" then
+                    selectedField = "pass"
+                else
+                    selectedField = "user"
+                end
+            end
+        elseif event == "mouse_click" then
+            --log("mouse_click x" .. tostring(x) .. " y" .. tostring(y) .. " scroll: " .. tostring(scroll))
+            if y == math.floor(height / 4) + 10 then
+                if (x > width - border - 7 and x < width - border - 7 + 15) then
+                    --login
+                    username = user
+                    password = pass
+                    user = ""
+                    pass = ""
+                    done = true
+                elseif (x > border + 1 and x < border + 1 + 7) then
+                    --change server
+                    discoverServers("StorageServer")
+                    if settings.get("crafting") then
+                        discoverServers("CraftingServer")
+                    end
+                end
+            end
+        end
+    end
+    term.setTextColor(colors.white)
+    term.setBackgroundColor(colors.red)
+    term.clear()
+    term.setCursorPos(1, 1)
+end
+
 local function drawDetailsmenu(sel)
     local filteredItems = filterItems()
     local amount = 1
@@ -312,9 +615,11 @@ local function drawDetailsmenu(sel)
     end
 end
 
-local function craftRecipe(recipe, amount, canCraft)
+local function drawCraftingStatus(nowCrafting)
     local table = {}
     local logs = {}
+    local status
+
     for row = 1, 3, 1 do
         table[row] = {}
         for slot = 1, 3, 1 do
@@ -322,47 +627,18 @@ local function craftRecipe(recipe, amount, canCraft)
         end
     end
 
-
-    --sleep(0.1)
-    recipe.amount = amount
-    if canCraft == true then
-        cryptoNet.send(craftingServerSocket, { "craftItem", recipe })
-    else
-        cryptoNet.send(craftingServerSocket, { "autoCraftItem", recipe })
+    if nowCrafting == nil then
+        nowCrafting = ""
     end
-    term.clear()
-    local id, message
-    local nowCrafting = recipe.name
-    local ttl = 5
-    repeat
-        local timeoutTimer = os.startTimer(15)
-        if type(message) == "table" and message.type == "craftingUpdate" then
-            log(textutils.serialise(message))
-            if message.message == "slotUpdate" then
-                table[message[1]][message[2]] = message[3]
-            elseif message.message == "itemUpdate" then
-                nowCrafting = message[1]
-                for row = 1, 3, 1 do
-                    table[row] = {}
-                    for slot = 1, 3, 1 do
-                        table[row][slot] = 0
-                    end
-                end
-            elseif message.message == "logUpdate" then
-                if logs[#logs] ~= message[1] then
-                    logs[#logs + 1] = message[1]
-                end
-            end
-            ttl = 5
-        end
 
-        if type(message) == "nil" then
-            ttl = ttl - 1
-        end
-
+    while true do
         term.clear()
         term.setCursorPos(1, 1)
-        centerText("Crafting:" .. nowCrafting:match(".+:(.+)"))
+        if nowCrafting == "" then
+            centerText("Waiting for Crafting Server")
+        else
+            centerText("Crafting:" .. nowCrafting:match(".+:(.+)"))
+        end
 
         --Draw crafting table
         term.setCursorPos(1, 2)
@@ -375,25 +651,22 @@ local function craftRecipe(recipe, amount, canCraft)
             term.setCursorPos(1, 2 + row)
             term.setBackgroundColor(colors.gray)
             term.write(" ")
-            if type(recipe.recipe[row]) == "nil" then
-                term.setBackgroundColor(colors.black)
-                term.write("     ")
-            else
-                for slot = 1, 3, 1 do
-                    --log(textutils.serialise(recipe.recipe[row][slot][1]))
-                    if table[row][slot] == 0 then
-                        term.setBackgroundColor(colors.black)
-                        term.write("  ")
-                    else
-                        term.setBackgroundColor(colors.green)
-                        term.write(string.format("%02d", table[row][slot]))
-                    end
-                    if slot ~= 3 then
-                        --term.setBackgroundColor(colors.gray)
-                        --term.write(" ")
-                    end
+
+            for slot = 1, 3, 1 do
+                --log(textutils.serialise(recipe.recipe[row][slot][1]))
+                if table[row][slot] == 0 then
+                    term.setBackgroundColor(colors.black)
+                    term.write("  ")
+                else
+                    term.setBackgroundColor(colors.green)
+                    term.write(string.format("%02d", table[row][slot]))
+                end
+                if slot ~= 3 then
+                    --term.setBackgroundColor(colors.gray)
+                    --term.write(" ")
                 end
             end
+
             term.setCursorPos(8, 2 + row)
             term.setBackgroundColor(colors.gray)
             term.write(" ")
@@ -407,66 +680,404 @@ local function craftRecipe(recipe, amount, canCraft)
         local count = 0
         if pocket then
             for i = 8, (height - 2), 1 do
-                term.setCursorPos(1, i)
                 if #logs - count > 0 and type(logs[#logs - count]) ~= "nil" then
+                    term.setCursorPos(1, i)
                     term.write(logs[#logs - count])
                     count = count + 1
                 end
             end
         else
-            for i = 5, (height - 2), 1 do
-                term.setCursorPos(7, i)
+            for i = 2, (height - 2), 1 do
                 if #logs - count > 0 and type(logs[#logs - count]) ~= "nil" then
+                    term.setCursorPos(9, i)
                     term.write(logs[#logs - count])
                     count = count + 1
                 end
             end
         end
 
-        local event, data
+        --draw close button
+        term.setCursorPos(width, 1)
+        term.setBackgroundColor(colors.red)
+        term.write("x")
+
+        --draw crafting status
+        if status == true then
+            term.setCursorPos(1, height)
+            term.setBackgroundColor(colors.green)
+            centerText(" Crafting Complete! ")
+        elseif status == false then
+            term.setCursorPos(1, height)
+            term.setBackgroundColor(colors.red)
+            centerText(" Crafting Failed! ")
+        end
+
+        term.setBackgroundColor(colors.black)
+
+        local event, button, x, y
         repeat
-            event, data = os.pullEvent()
-        until event == "craftingUpdate" or data == timeoutTimer
-        if data == timeoutTimer then
-            ttl = 0
-        else
-            message = data
-        end
-        --log("data: " .. dump(data))
+            event, button, x, y = os.pullEvent()
+        until event == "craftingUpdate" or event == "mouse_click" or event == "key"
 
-        if type(message) == "table" and type(message.message) == "boolean" then
-            message = message.message
-            break
+        --handle key and mouse inputs
+        if (event == "key" or event == "mouse_click") then
+            if button == keys.backspace or (y == 1 and x == width) then
+                return
+            end
         end
-    until (type(message) == "boolean") or ttl < 1
-    if ttl < 1 then
-        message = false
-        term.setBackgroundColor(colors.red)
-        centerText(" Connection Timeout! ")
-        print()
-    end
-    term.setCursorPos(1, height - 1)
-    if message == true then
-        term.setBackgroundColor(colors.green)
-        centerText(" Crafting Complete! ")
-    elseif message == false then
-        term.setBackgroundColor(colors.red)
-        centerText(" Crafting Failed! ")
-    end
-    term.setBackgroundColor(colors.black)
-    print()
-    term.setBackgroundColor(colors.blue)
-    centerText(" Press any button ")
 
-    local event, button, x, y
+        local message = button
+
+        log(textutils.serialise(message))
+
+        --update slots and crafting log
+        if type(message) == "table" then
+            if message.type == "craftingUpdate" then
+                log(textutils.serialise(message.message))
+                if type(message.message) == "boolean" then
+                    if message.message then
+                        status = true
+                        log(" Crafting Complete! ")
+                    else
+                        status = false
+                        log(" Crafting Failed! ")
+                    end
+                    term.setBackgroundColor(colors.black)
+                elseif message.message == "slotUpdate" then
+                    table[message[1]][message[2]] = message[3]
+                elseif message.message == "itemUpdate" then
+                    nowCrafting = message[1]
+                    for row = 1, 3, 1 do
+                        table[row] = {}
+                        for slot = 1, 3, 1 do
+                            table[row][slot] = 0
+                        end
+                    end
+                elseif message.message == "logUpdate" then
+                    if logs[#logs] ~= message[1] then
+                        logs[#logs + 1] = message[1]
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function craftRecipe(recipe, amount, canCraft)
+    recipe.amount = amount
+    if canCraft == true then
+        cryptoNet.send(craftingServerSocket, { "craftItem", recipe })
+    else
+        cryptoNet.send(craftingServerSocket, { "autoCraftItem", recipe })
+    end
+
+    drawCraftingStatus()
+end
+
+local function drawCraftingQueue()
+    menu = true
+    local scrollCraftingQueue = 0
+    local event
+    local craftingQueue = {}
+    local currentlyCrafting
+    loadingScreen("Getting crafting queue")
+    --Get what's crafting right now
+    cryptoNet.send(craftingServerSocket, { "getCurrentlyCrafting" })
     repeat
-        event, button, x, y = os.pullEvent()
-    until event == "mouse_click" or event == "key" or event == "mouse_scroll"
-    --loadingScreen("Loading request from Storage Server...")
-    getItems()
-    --sleep(10)
+        event, currentlyCrafting = os.pullEvent("gotCurrentlyCrafting")
+    until event == "gotCurrentlyCrafting"
+    log("currentlyCrafting: " .. dump(currentlyCrafting))
 
-    return message
+    --Get what is in the crafting queue
+    cryptoNet.send(craftingServerSocket, { "getCraftingQueue" })
+    repeat
+        event, craftingQueue = os.pullEvent("gotCraftingQueue")
+    until event == "gotCraftingQueue"
+    log("craftingQueue: " .. dump(craftingQueue))
+
+    --merge whats crafting and crafting queue
+    local queue = {}
+    if next(currentlyCrafting) then
+        queue = { currentlyCrafting }
+    end
+    for i = 1, #craftingQueue, 1 do
+        table.insert(queue, craftingQueue[i])
+    end
+    log("queue: " .. textutils.serialise(queue))
+
+    local done = false
+    while done == false do
+        term.setBackgroundColor(colors.gray)
+        term.clear()
+        term.setCursorPos(1, 1)
+        --log(dump(serverList))
+        for k, v in pairs(queue) do
+            if k > scrollCraftingQueue then
+                if k < (height + scrollCraftingQueue) then
+                    local text = v.displayName .. ": #" .. tostring(v.amount) .. " - " .. v.name
+                    for i = 1, width, 1 do
+                        term.setCursorPos(i, k - scrollCraftingQueue)
+                        term.write(" ")
+                    end
+                    term.setCursorPos(1, k - scrollCraftingQueue)
+                    term.write(text)
+                    term.setCursorPos(1, height)
+                end
+            end
+        end
+        for k = 1, height - 1, 1 do
+            if type(queue[k + scrollCraftingQueue]) == "nil" then
+                for i = 1, width, 1 do
+                    term.setCursorPos(i, k)
+                    term.write(" ")
+                end
+            end
+        end
+
+        --draw close button
+        term.setCursorPos(width, 1)
+        term.setBackgroundColor(colors.red)
+        term.write("x")
+
+        --refresh button
+        term.setCursorPos(width - 12, height - 1)
+        term.setBackgroundColor(colors.red)
+        term.write(" Refresh (F5) ")
+
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, height)
+            term.write(" ")
+        end
+        term.setCursorPos(1, height)
+        term.write(tostring(#queue) .. " items in crafting queue")
+        term.setBackgroundColor(colors.gray)
+
+        local event, button, x, y
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event == "mouse_click" or event == "key" or event == "mouse_scroll"
+
+        if event == "key" then
+            local key = button
+            if key == keys.backspace then
+                done = true
+            elseif key == keys.f5 then
+                drawCraftingQueue()
+                done = true
+            elseif key == keys.one then
+                if queue[1] ~= nil then
+                    drawCraftingStatus(queue[1].name)
+                end
+            elseif key == keys.two then
+                if queue[2] ~= nil then
+                    drawCraftingStatus(queue[2].name)
+                end
+            elseif key == keys.three then
+                if queue[3] ~= nil then
+                    drawCraftingStatus(queue[3].name)
+                end
+            elseif key == keys.four then
+                if queue[4] ~= nil then
+                    drawCraftingStatus(queue[4].name)
+                end
+            elseif key == keys.five then
+                if queue[5] ~= nil then
+                    drawCraftingStatus(queue[5].name)
+                end
+            elseif key == keys.six then
+                if queue[6] ~= nil then
+                    drawCraftingStatus(queue[6].name)
+                end
+            elseif key == keys.seven then
+                if queue[7] ~= nil then
+                    drawCraftingStatus(queue[7].name)
+                end
+            elseif key == keys.eight then
+                if queue[8] ~= nil then
+                    drawCraftingStatus(queue[8].name)
+                end
+            elseif key == keys.nine then
+                if queue[9] ~= nil then
+                    drawCraftingStatus(queue[9].name)
+                end
+            end
+        elseif event == "mouse_scroll" then
+            if button == -1 then
+                if scrollCraftingQueue > 0 then
+                    scrollCraftingQueue = scrollCraftingQueue - 1
+                end
+            elseif button == 1 then
+                scrollCraftingQueue = scrollCraftingQueue + 1
+            end
+        elseif event == "mouse_click" then
+            --log("mouse_click x" .. tostring(x) .. " y" .. tostring(y) .. " scroll: " .. tostring(scroll))
+            if y == 1 and x == width then
+                --x clicked
+                done = true
+            elseif y == height - 1 and x > width - 12 then
+                --refresh button pressed
+                drawCraftingQueue()
+                done = true
+            elseif (queue[y + scrollCraftingQueue] ~= nil) and y ~= height then
+                drawCraftingStatus(queue[y + scrollCraftingQueue].name)
+            end
+        end
+    end
+    menu = false
+end
+
+local function changePassword(user)
+    term.setBackgroundColor(colors.red)
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("Changing password for user: " .. user)
+    sleep(1)
+    print("")
+    print("Enter new password:")
+    local pass = read("*")
+    term.setBackgroundColor(colors.red)
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("Requesting password change...")
+    local tmp = {}
+    tmp.username = user
+    tmp.password = pass
+
+    local event, statusStorageServer
+    cryptoNet.send(storageServerSocket, { "setPassword", tmp })
+    repeat
+        event, statusStorageServer = os.pullEvent("gotSetPassword")
+    until event == "gotSetPassword"
+
+    local event, statusCraftingServer
+    cryptoNet.send(craftingServerSocket, { "setPassword", tmp })
+    repeat
+        event, statusCraftingServer = os.pullEvent("gotSetPassword")
+    until event == "gotSetPassword"
+
+    if statusStorageServer == true and statusCraftingServer == true then
+        print("Password changed successfully")
+    else
+        print("Failed to change password")
+    end
+    print("")
+    print("Press any key to continue...")
+    repeat
+        event = os.pullEvent()
+    until event == "key" or event == "mouse_click"
+end
+
+local function drawUserMenu()
+    menu = true
+    local scrollCraftingQueue = 0
+    local event
+    local craftingQueue = {}
+    local permissionLevel = 0
+
+    --If the user is not logged in, login
+    if username == "" or storageServerSocket.permissionLevel == 0 then
+        loginScreen()
+        cryptoNet.login(storageServerSocket, username, password)
+        repeat
+            event = os.pullEvent("login")
+        until event == "login"
+        cryptoNet.login(craftingServerSocket, username, password)
+        repeat
+            event = os.pullEvent("login")
+        until event == "login"
+        password = ""
+        repeat
+            event = os.pullEvent("detailDBUpdated")
+        until event == "detailDBUpdated"
+        
+    end
+
+    loadingScreen("Getting User Information")
+    --Get user permission level
+    cryptoNet.send(storageServerSocket, { "getPermissionLevel", username })
+    repeat
+        event, permissionLevel = os.pullEvent("gotPermissionLevel")
+    until event == "gotPermissionLevel"
+
+    local done = false
+    while done == false do
+        term.setBackgroundColor(colors.gray)
+        term.clear()
+        term.setCursorPos(1, 1)
+        --Title
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, 1)
+            term.write(" ")
+        end
+        term.setCursorPos(1, 1)
+        centerText("User Menu")
+        term.setBackgroundColor(colors.gray)
+
+        term.setCursorPos(1, 3)
+        centerText("Username: " .. username)
+        term.setCursorPos(1, 4)
+        if permissionLevel == 1 then
+            centerText("Permission Level: User")
+        elseif permissionLevel > 1 then
+            centerText("Permission Level: Admin")
+        end
+        term.setCursorPos(1, 6)
+        term.setBackgroundColor(colors.red)
+        centerText("1) Change my password")
+
+        if permissionLevel > 1 then
+            term.setCursorPos(1, 8)
+            term.setBackgroundColor(colors.red)
+            centerText("2) Access Admin Menu")
+        end
+
+        --draw close button
+        term.setCursorPos(width, 1)
+        term.setBackgroundColor(colors.red)
+        term.write("x")
+
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, height)
+            term.write(" ")
+        end
+        term.setCursorPos(1, height)
+        --term.write("User Menu")
+        term.setBackgroundColor(colors.gray)
+
+        local event, button, x, y
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event == "mouse_click" or event == "key"
+
+        if event == "key" then
+            local key = button
+            if key == keys.backspace then
+                done = true
+            elseif key == keys.one then
+                -- Change own password
+                changePassword(username)
+            elseif key == keys.two then
+                if permissionLevel > 1 then
+                    --Admin menu
+                end
+            end
+        elseif event == "mouse_click" then
+            --log("mouse_click x" .. tostring(x) .. " y" .. tostring(y) .. " scroll: " .. tostring(scroll))
+            if y == 1 and x == width then
+                --x clicked
+                done = true
+            elseif y == 6 then
+                -- Change own password
+                changePassword(username)
+            elseif y == 8 then
+                -- Admin Menu
+            end
+        end
+    end
+    menu = false
 end
 
 local function getAmount(itemName)
@@ -1202,14 +1813,31 @@ local function drawList(list)
             displayedRecipes = filteredRecipes
         end
 
-        --import
+        --Draw buttons
         term.setCursorPos(width - 8, height - 1)
+        if storageServerSocket.permissionLevel > 1 then
+            term.setBackgroundColor(colors.orange)
+            term.write("  Admin   ")
+            term.setBackgroundColor(colors.blue)
+        else
+            term.setBackgroundColor(colors.cyan)
+            term.write("  User    ")
+            term.setBackgroundColor(colors.blue)
+        end
+
+
+        term.setCursorPos(width - 8, height - 2)
         term.setBackgroundColor(colors.red)
-        term.write(" Import  ")
+        term.write("  Import ")
         term.setBackgroundColor(colors.blue)
 
         if settings.get("crafting") == true then
+            term.setBackgroundColor(colors.gray)
             term.setCursorPos(width - 8, height - 3)
+            term.write("  Queue  ")
+            term.setBackgroundColor(colors.blue)
+
+            term.setCursorPos(1, height - 2)
             if menuSel == "crafting" then
                 term.setBackgroundColor(colors.green)
             else
@@ -1218,13 +1846,13 @@ local function drawList(list)
             term.write(" Crafting ")
             term.setBackgroundColor(colors.blue)
 
-            term.setCursorPos(width - 8, height - 2)
+            term.setCursorPos(1, height - 1)
             if menuSel == "storage" then
                 term.setBackgroundColor(colors.green)
             else
                 term.setBackgroundColor(colors.red)
             end
-            term.write(" Storage ")
+            term.write(" Storage  ")
             term.setBackgroundColor(colors.blue)
         end
     end
@@ -1260,17 +1888,25 @@ local function inputHandler()
                 getItems()
                 drawList()
             elseif event == "mouse_click" then
-                if y == height - 1 and x > width - 8 then
+                if y == height - 2 and x > width - 8 then
                     --Import button pressed
                     importAll()
                     drawList()
-                elseif settings.get("crafting") == true and y == height - 2 and x > width - 8 then
+                elseif settings.get("crafting") == true and y == height - 1 and x > width - 8 then
+                    --User menu button pressed
+                    drawUserMenu()
+                    drawList()
+                elseif settings.get("crafting") == true and y == height - 1 and x < 8 then
                     --Storage menu button pressed
                     menuSel = "storage"
                     drawList()
-                elseif settings.get("crafting") == true and y == height - 3 and x > width - 8 then
+                elseif settings.get("crafting") == true and y == height - 2 and x < 8 then
                     --Crafting menu button pressed
                     menuSel = "crafting"
+                    drawList()
+                elseif settings.get("crafting") == true and y == height - 3 and x > width - 8 then
+                    --Crafting queue menu button pressed
+                    drawCraftingQueue()
                     drawList()
                 elseif (items[y + scroll] ~= nil or displayedRecipes[y + scroll] ~= nil) and y ~= height then
                     openMenu(y)
@@ -1328,6 +1964,12 @@ local function inputHandler()
                 elseif key == keys.down then
                     scroll = scroll + 1
                     drawList()
+                elseif key == keys.f1 then
+                    drawUserMenu()
+                    drawList()
+                elseif key == keys.f2 then
+                    drawCraftingQueue()
+                    drawList()
                 elseif key == keys.f5 then
                     loadingScreen("Reloading Database")
                     getItems()
@@ -1384,309 +2026,6 @@ local function inputHandler()
         term.setCursorPos(1, height)
         term.write(search)
     end
-end
-
-local function discoverServers(serverType)
-    local serverList = {}
-    --while next(serverList) == nil do
-    print("Looking for servers")
-    serverList = cryptoNet.discover()
-    --end
-
-    local done = false
-    local scrollDiscovery = 0
-    while done == false do
-        term.setBackgroundColor(colors.gray)
-        term.clear()
-        term.setCursorPos(1, 1)
-        --log(dump(serverList))
-        for k, v in pairs(serverList) do
-            if k > scrollDiscovery then
-                if k < (height + scrollDiscovery) then
-                    local text = v.name
-                    for i = 1, width, 1 do
-                        term.setCursorPos(i, k - scrollDiscovery)
-                        term.write(" ")
-                    end
-                    term.setCursorPos(1, k - scrollDiscovery)
-                    term.write(text)
-                    term.setCursorPos(1, height)
-                end
-            end
-        end
-        for k = 1, height - 1, 1 do
-            if type(serverList[k + scrollDiscovery]) == "nil" then
-                for i = 1, width, 1 do
-                    term.setCursorPos(i, k)
-                    term.write(" ")
-                end
-            end
-        end
-
-        --refresh button
-        term.setCursorPos(width - 12, height - 1)
-        term.setBackgroundColor(colors.red)
-        term.write(" Refresh (F5) ")
-
-        term.setBackgroundColor(colors.black)
-        for i = 1, width, 1 do
-            term.setCursorPos(i, height)
-            term.write(" ")
-        end
-        term.setCursorPos(1, height)
-        term.write("Discovered " .. serverType .. " Servers")
-        term.setBackgroundColor(colors.gray)
-
-        local event, button, x, y
-        repeat
-            event, button, x, y = os.pullEvent()
-        until event == "mouse_click" or event == "key" or event == "mouse_scroll"
-
-        if event == "key" then
-            local key = button
-            if key == keys.backspace then
-                done = true
-            elseif key == keys.f5 then
-                done = true
-                discoverServers(serverType)
-            elseif key == keys.one then
-                if serverList[1] ~= nil then
-                    settings.set(serverType, serverList[1].name)
-                    settings.save()
-                    done = true
-                end
-            elseif key == keys.two then
-                if serverList[2] ~= nil then
-                    settings.set(serverType, serverList[2].name)
-                    settings.save()
-                    done = true
-                end
-            elseif key == keys.three then
-                if serverList[3] ~= nil then
-                    settings.set(serverType, serverList[3].name)
-                    settings.save()
-                end
-            elseif key == keys.four then
-                if serverList[4] ~= nil then
-                    settings.set(serverType, serverList[4].name)
-                    settings.save()
-                    done = true
-                end
-            elseif key == keys.five then
-                if serverList[5] ~= nil then
-                    settings.set(serverType, serverList[5].name)
-                    settings.save()
-                    done = true
-                end
-            elseif key == keys.six then
-                if serverList[6] ~= nil then
-                    settings.set(serverType, serverList[6].name)
-                    settings.save()
-                    done = true
-                end
-            elseif key == keys.seven then
-                if serverList[7] ~= nil then
-                    settings.set(serverType, serverList[7].name)
-                    settings.save()
-                    done = true
-                end
-            elseif key == keys.eight then
-                if serverList[8] ~= nil then
-                    settings.set(serverType, serverList[8].name)
-                    settings.save()
-                    done = true
-                end
-            elseif key == keys.nine then
-                if serverList[9] ~= nil then
-                    settings.set(serverType, serverList[9].name)
-                    settings.save()
-                    done = true
-                end
-            end
-        elseif event == "mouse_scroll" then
-            if button == -1 then
-                if scrollDiscovery > 0 then
-                    scrollDiscovery = scrollDiscovery - 1
-                end
-            elseif button == 1 then
-                scrollDiscovery = scrollDiscovery + 1
-            end
-        elseif event == "mouse_click" then
-            --log("mouse_click x" .. tostring(x) .. " y" .. tostring(y) .. " scroll: " .. tostring(scroll))
-            if y == height - 1 and x > width - 12 then
-                --refresh button pressed
-                done = true
-                discoverServers(serverType)
-            elseif (serverList[y + scrollDiscovery] ~= nil) and y ~= height then
-                settings.set(serverType, serverList[y + scrollDiscovery].name)
-                settings.save()
-                done = true
-            end
-        end
-    end
-end
-
-local function loginScreen()
-    local done = false
-    local user = ""
-    local pass = ""
-    local text = ""
-    local selectedField = "user"
-    while done == false do
-        term.setBackgroundColor(colors.gray)
-        term.clear()
-        term.setCursorPos(1, 1)
-        term.setTextColor(colors.white)
-
-        --calc the width needed to fit the server name in login box
-        local border
-        border = math.ceil((width - string.len(settings.get("StorageServer")) - 2) / 2)
-        local widthBlanks = ""
-        for i = 1, width, 1 do
-            widthBlanks = widthBlanks .. " "
-        end
-
-        --print computer information
-        if (settings.get("debug")) then
-            term.setCursorPos(1, 1)
-            term.write("DEBUG MODE")
-        end
-        term.setCursorPos(1, height)
-        term.write("ID:" .. tostring(os.getComputerID()))
-
-
-        --print(tostring(border))
-        local forth = math.floor(height / 4)
-        for k = forth, height - forth, 1 do
-            if k == forth then
-                term.setBackgroundColor(colors.black)
-            else
-                term.setBackgroundColor(colors.lightGray)
-            end
-            term.setCursorPos(1, k)
-            term.write(widthBlanks)
-        end
-
-        term.setBackgroundColor(colors.black)
-        term.setCursorPos(1, forth)
-        centerText("Storage Login")
-
-        term.setTextColor(colors.black)
-        term.setBackgroundColor(colors.lightGray)
-        term.setCursorPos(1, forth + 2)
-        for i = border, width - border, 1 do
-            term.setCursorPos(i, forth + 2)
-            term.write("~")
-        end
-        term.setCursorPos(1, forth + 3)
-        centerText(settings.get("StorageServer"))
-        term.setCursorPos(1, forth + 4)
-        for i = border, width - border, 1 do
-            term.setCursorPos(i, forth + 4)
-            term.write("~")
-        end
-
-        --Adjust for pocket screen
-        if pocket then
-            border = 1
-        else
-            border = math.ceil((width) / 4)
-        end
-
-        term.setBackgroundColor(colors.white)
-        term.setTextColor(colors.black)
-        for i = border + 6, width - border - 1, 1 do
-            term.setCursorPos(i, forth + 6)
-            term.write(" ")
-        end
-        term.setCursorPos(border + 6, forth + 6)
-        term.write(user)
-        term.setCursorPos(border + 1, forth + 6)
-        term.setBackgroundColor(colors.lightGray)
-        print("User:")
-
-        term.setBackgroundColor(colors.white)
-        for i = border + 6, width - border - 1, 1 do
-            term.setCursorPos(i, forth + 8)
-            term.write(" ")
-        end
-        term.setCursorPos(border + 6, forth + 8)
-        --write password sub text
-        for i = 1, string.len(pass), 1 do
-            term.write("*")
-        end
-        term.setCursorPos(border + 1, forth + 8)
-        term.setBackgroundColor(colors.lightGray)
-        print("Pass:")
-
-        term.setCursorPos(border + 1, forth + 10)
-        term.setBackgroundColor(colors.red)
-        term.write(" Change Server ")
-        term.setCursorPos(width - border - 7, forth + 10)
-        term.setBackgroundColor(colors.green)
-        term.write(" Login ")
-
-        local event, button, x, y
-        repeat
-            event, button, x, y = os.pullEvent()
-        until event == "mouse_click" or event == "key" or event == "char"
-
-        if event == "char" then
-            local key = button
-            --search = search .. key
-            if selectedField == "user" then
-                user = user .. key
-            else
-                pass = pass .. key
-            end
-        elseif event == "key" then
-            local key = button
-            if key == keys.backspace then
-                --remove from text entry
-                if selectedField == "user" then
-                    user = user:sub(1, -2)
-                else
-                    pass = pass:sub(1, -2)
-                end
-            elseif key == keys.enter or key == keys.numPadEnter then
-                --set creds
-                username = user
-                password = pass
-                user = ""
-                pass = ""
-                done = true
-            elseif key == keys.tab then
-                --toggle user/pass text entry
-                if selectedField == "user" then
-                    selectedField = "pass"
-                else
-                    selectedField = "user"
-                end
-            end
-        elseif event == "mouse_click" then
-            --log("mouse_click x" .. tostring(x) .. " y" .. tostring(y) .. " scroll: " .. tostring(scroll))
-            if y == math.floor(height / 4) + 10 then
-                if (x > width - border - 7 and x < width - border - 7 + 15) then
-                    --login
-                    username = user
-                    password = pass
-                    user = ""
-                    pass = ""
-                    done = true
-                elseif (x > border + 1 and x < border + 1 + 7) then
-                    --change server
-                    discoverServers("StorageServer")
-                    if settings.get("crafting") then
-                        discoverServers("CraftingServer")
-                    end
-                end
-            end
-        end
-    end
-    term.setTextColor(colors.white)
-    term.setBackgroundColor(colors.red)
-    term.clear()
-    term.setCursorPos(1, 1)
 end
 
 local function onStart()
@@ -1925,6 +2264,11 @@ function onCryptoNetEvent(event)
             end
         elseif messageType == "import" then
             getItems()
+        elseif messageType == "getCurrentlyCrafting" then
+            log("gotCurrentlyCrafting: " .. dump(message))
+            os.queueEvent("gotCurrentlyCrafting", message)
+        elseif messageType == "getCraftingQueue" then
+            os.queueEvent("gotCraftingQueue", message)
         elseif messageType == "getDetailDB" then
             detailDB = message
             os.queueEvent("detailDBUpdated")
@@ -1963,6 +2307,10 @@ function onCryptoNetEvent(event)
         elseif messageType == "databaseReload" then
             os.queueEvent("databaseReloaded")
             getItems()
+        elseif messageType == "getPermissionLevel" then
+            os.queueEvent("gotPermissionLevel", message)
+        elseif messageType == "setPassword" then
+            os.queueEvent("gotSetPassword", message)
         end
     elseif event[1] == "timer" then
         if event[2] == timeoutConnect and (type(storageServerSocket) == "nil" or type(storageServerSocket.username) == "nil") then
