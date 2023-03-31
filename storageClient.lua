@@ -2398,7 +2398,7 @@ if settings.get("StorageServer") == "StorageServer" or settings.get("StorageServ
     discoverServers("StorageServer")
 end
 
-if settings.get("CraftingServer") == "CraftingServer" and settings.get("CraftingServer") == nil then
+if settings.get("CraftingServer") == "CraftingServer" or settings.get("CraftingServer") == nil then
     discoverServers("CraftingServer")
 end
 
