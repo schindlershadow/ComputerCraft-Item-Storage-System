@@ -2111,7 +2111,13 @@ local function serverHandler(event)
                 --debugLog("hashLogin")
                 print("User login request for: " .. data.username)
                 log("User login request for: " .. data.username)
-                cryptoNet.send(storageServerSocket, { "checkPasswordHashed", data })
+                local tmp = {}
+                tmp.username = data.username
+                tmp.passwordHash = cryptoNet.hashPassword(data.username, data.password, data.servername)
+                tmp.servername = data.servername
+                data.password = nil
+                cryptoNet.send(storageServerSocket, { "checkPasswordHashed", tmp })
+                
                 local event2
                 local loginStatus = false
                 local permissionLevel = 0

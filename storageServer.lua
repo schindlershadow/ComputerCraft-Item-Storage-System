@@ -789,16 +789,10 @@ local function onCryptoNetEvent(event)
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "checkPasswordHashed" then
-                local check1 = cryptoNet.checkPasswordHashed(data.username, data.passwordHash, serverLAN)
-                local check2 = cryptoNet.checkPasswordHashed(data.username, data.passwordHash, serverWireless)
+                local check = cryptoNet.checkPasswordHashed(data.username, data.passwordHash, serverLAN)
 
-                if check1 or check2 then
-                    local permissionLevel = 0
-                    if check1 then
-                        permissionLevel = cryptoNet.getPermissionLevel(data.username, serverLAN)
-                    else
-                        permissionLevel = cryptoNet.getPermissionLevel(data.username, serverWireless)
-                    end
+                if check then
+                    local permissionLevel = cryptoNet.getPermissionLevel(data.username, serverLAN)
                     cryptoNet.send(socket, { message, true, permissionLevel })
                 else
                     cryptoNet.send(socket, { message, false, 0 })
@@ -877,7 +871,8 @@ local function onCryptoNetEvent(event)
                 --debugLog("hashLogin")
                 print("User login request for: " .. data.username)
                 log("User login request for: " .. data.username)
-                local loginStatus = cryptoNet.checkPasswordHashed(data.username, data.passwordHash, serverLAN)
+                local loginStatus = cryptoNet.checkPassword(data.username, data.password, serverLAN)
+                data.password = nil
                 local permissionLevel = cryptoNet.getPermissionLevel(data.username, serverLAN)
                 --debugLog("loginStatus:"..tostring(loginStatus))
                 if loginStatus == true then

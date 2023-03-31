@@ -409,12 +409,14 @@ local function login(socket, user, pass, servername)
 
     local tmp = {}
     tmp.username = user
-    log("hashing password")
-    tmp.passwordHash = cryptoNet.hashPassword(user, pass, servername)
+    tmp.password = pass
+    tmp.servername = servername
     --mark for garbage collection
     pass=nil
     --log("hashLogin")
     cryptoNet.send(socket, {"hashLogin", tmp})
+    --mark for garbage collection
+    tmp = nil
     local event
     local loginStatus = false
     local permissionLevel = 0
