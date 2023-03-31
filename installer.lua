@@ -21,13 +21,40 @@ if not fs.exists("cryptoNet") then
     end
     sleep(2)
 end
+
+os.loadAPI("cryptoNet")
+cryptoNet.setLoggingEnabled(true)
+
 term.clear()
 term.setCursorPos(1, 1)
 print("ComputerCraft Item Storage System by SchindlerShadow")
 print("")
 
-os.loadAPI("cryptoNet")
-cryptoNet.setLoggingEnabled(true)
+--Print instructions
+print("It is reccomended to label your import, export, and crafting chest before continuing the install.")
+print("The network name of the chest will be displayed in chat when you rightclick the modem, click to copy.")
+print("You can now paste during install using (Ctrl + V).")
+
+print("Press any key to continue...")
+local event = ""
+repeat
+    event = os.pullEvent("key")
+until event == "key"
+term.clear()
+term.setCursorPos(1, 1)
+
+print("Import chests contents are automatically be pulled into the system.")
+print("Export chests are where a client can request items be sent.")
+print("Crafting chest is the chest the system puts items into for the crafty turtle to grab.")
+print("Any chest on the network not set to be a crafting, import or export chest will be used for item storage.")
+
+print("Press any key to continue...")
+local event = ""
+repeat
+    event = os.pullEvent("key")
+until event == "key"
+term.clear()
+term.setCursorPos(1, 1)
 
 if turtle then
     typeOfServer = "craftingServer"
@@ -38,37 +65,42 @@ if turtle then
     sleep(1)
 else
     local input = -1
-    while tonumber(input) ~= 1 and tonumber(input) ~= 2 do
-        print("Please select a role for this computer")
-        print("1 Server")
-        print("2 Client")
-        print("3 Exit")
-        print("")
-        input = io.read()
-
-        if tonumber(input) == nil or (tonumber(input) ~= 1 and tonumber(input) ~= 2 and tonumber(input) ~= 3) then
-            print("Invaid input")
-            input = -1
-            sleep(1)
-            term.clear()
-            term.setCursorPos(1, 1)
-        end
-        if tonumber(input) == 3 then
+    if pocket then
+        --pocket computers can only be Client
+        input = 2
+    else
+        while tonumber(input) ~= 1 and tonumber(input) ~= 2 do
+            print("Please select a role for this computer")
+            print("1 Server")
+            print("2 Client")
+            print("3 Exit")
             print("")
-            print("Goodbye")
-            sleep(1)
-            term.clear()
-            term.setCursorPos(1, 1)
-            return
+            input = io.read()
+
+            if tonumber(input) == nil or (tonumber(input) ~= 1 and tonumber(input) ~= 2 and tonumber(input) ~= 3) then
+                print("Invaid input")
+                input = -1
+                sleep(1)
+                term.clear()
+                term.setCursorPos(1, 1)
+            end
+            if tonumber(input) == 3 then
+                print("")
+                print("Goodbye")
+                sleep(1)
+                term.clear()
+                term.setCursorPos(1, 1)
+                return
+            end
         end
     end
     print("")
     if tonumber(input) == 1 then
         typeOfServer = "storageServer"
-        --prevents issues when updating server version
-        if fs.exists("storage.db") then
-            fs.delete("storage.db")
-        end
+        --could prevent issues when updating server version
+        --if fs.exists("storage.db") then
+        --    fs.delete("storage.db")
+        --end
         print("Installing Server file: storageServer.lua as startup program")
         download = http.get(
             "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/storageServer.lua")
@@ -80,7 +112,6 @@ else
     end
 end
 
-
 local handle = download.readAll()
 download.close()
 local file = fs.open("startup", "w")
@@ -91,7 +122,6 @@ print("")
 print("Startup file Install Complete")
 sleep(2)
 
-
 term.clear()
 term.setCursorPos(1, 1)
 print("Would you like to wipe currently set settings?")
@@ -99,13 +129,19 @@ print("Users will not be wiped")
 print("")
 print("1 Wipe")
 print("2 Do not wipe")
+print("3 Exit installer")
 print("")
 local input = io.read()
 term.clear()
 term.setCursorPos(1, 1)
 
-if tonumber(input) ~= nil and tonumber(input) == 1 then
-    settings.clear()
+if tonumber(input) ~= nil then
+    if tonumber(input) == 1 then
+        settings.clear()
+    elseif tonumber(input) == 3 then
+        cryptoNet.closeAll()
+        os.reboot()
+    end
 end
 
 --settings configurator
@@ -141,37 +177,7 @@ if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
     end
     settings.set("serverName", hostname)
 
-    term.clear()
-    term.setCursorPos(1, 1)
-    print("Set the master Admin credentials")
-    print("Warning: username and password MUST be the same on paired storage servers and crafting servers")
-    print("Current users will be wiped")
-    print("Warning: Do not use passwords used with other real life services with CryptoNet.")
-    print("Enter 0 to cancel")
-    print("")
-    print("Username:")
-    username = io.read()
-    if username ~= "0" then
-        print("Password:")
-        password = read("*")
-        term.clear()
-        term.setCursorPos(1, 1)
-        local wirelessHostname = hostname .. "_Wireless"
-        if fs.exists(hostname .. "_users.tbl") then
-            fs.delete(hostname .. "_users.tbl")
-        end
-        if fs.exists(wirelessHostname .. "_users.tbl") then
-            fs.delete(wirelessHostname .. "_users.tbl")
-        end
-        cryptoNet.host(hostname)
-        cryptoNet.addUser(username, password, 3)
-        cryptoNet.closeAll()
-        cryptoNet.host(wirelessHostname)
-        cryptoNet.addUser(username, password, 3)
-        cryptoNet.closeAll()
-    end
-    username = ""
-    password = ""
+
 
     term.clear()
     term.setCursorPos(1, 1)
@@ -210,20 +216,49 @@ if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
         term.clear()
         term.setCursorPos(1, 1)
         print("Set the hostname of the Storage Server this crafting server should connect to")
-        print("Enter 0 for a default hostname of StorageServer")
+        print("Example: StorageServer5")
         print("")
         local storageServerHostname = io.read()
-        if storageServerHostname == "0" then
-            storageServerHostname = "StorageServer"
-        end
         settings.set("StorageServer", storageServerHostname)
     else
+        term.clear()
+        term.setCursorPos(1, 1)
+        print("Set the master Admin credentials")
+        print("Current users will be wiped")
+        print("Warning: Do not use passwords used with other real life services with CryptoNet.")
+        print("Enter 0 to cancel")
+        print("")
+        print("Username:")
+        username = io.read()
+        if username ~= "0" then
+            print("Password:")
+            password = read("*")
+            term.clear()
+            term.setCursorPos(1, 1)
+            local wirelessHostname = hostname .. "_Wireless"
+            if fs.exists(hostname .. "_users.tbl") then
+                fs.delete(hostname .. "_users.tbl")
+            end
+            if fs.exists(wirelessHostname .. "_users.tbl") then
+                fs.delete(wirelessHostname .. "_users.tbl")
+            end
+            --Host and generate certs for lan/auth server
+            cryptoNet.host(hostname)
+            cryptoNet.addUser(username, password, 3)
+            cryptoNet.closeAll()
+            --Host and generate certs for wireless server
+            cryptoNet.host(wirelessHostname)
+            cryptoNet.closeAll()
+        end
+        username = ""
+        password = ""
+
         if loginRequirement then
             term.clear()
             term.setCursorPos(1, 1)
             print("Set the database login credentials")
             print("Note: username and password MUST be the same on paired storage servers and crafting servers")
-            print("Warning: Credentials are to be stored on disk in plain-text")
+            print("Warning: Credentials are to be stored on disk in plain-text on Storage Server")
             print("Enter 0 to cancel")
             print("")
             print("Username:")
@@ -235,7 +270,7 @@ if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
                 term.setCursorPos(1, 1)
 
                 cryptoNet.host(hostname)
-                cryptoNet.addUser(username, password, 3)
+                cryptoNet.addUser(username, password, 1)
                 cryptoNet.closeAll()
             end
 
