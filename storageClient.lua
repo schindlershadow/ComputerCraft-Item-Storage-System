@@ -1560,11 +1560,7 @@ local function drawAdminMenu(permissionLevel)
     menu = false
 end
 
-local function drawUserMenu()
-    menu = true
-    local event
-    local permissionLevel = 0
-
+local function reLogin()
     --If the user is not logged in, login
     if username == "" or storageServerSocket.permissionLevel == 0 then
         loginScreen()
@@ -1580,6 +1576,15 @@ local function drawUserMenu()
         until event == "login"
         password = ""
     end
+end
+
+local function drawUserMenu()
+    menu = true
+    local event
+    local permissionLevel = 0
+
+    --If the user is not logged in, login
+    reLogin()
 
     loadingScreen("Getting User Information")
     --Get user permission level
@@ -1608,9 +1613,12 @@ local function drawUserMenu()
         term.setCursorPos(1, 4)
         if permissionLevel == 1 then
             centerText("Permission Level: User")
-        elseif permissionLevel > 1 then
+        elseif permissionLevel == 2 then
             centerText("Permission Level: Admin")
+        elseif permissionLevel > 2 then
+            centerText("Permission Level: Super Admin")
         end
+
         term.setCursorPos(1, 6)
         term.setBackgroundColor(colors.red)
         centerText("1) Change my password")
@@ -1657,6 +1665,19 @@ local function drawUserMenu()
                     cryptoNet.logout(storageServerSocket)
                     cryptoNet.logout(craftingServerSocket)
                     sleep(1)
+                    --check if server requires a login
+                    if not isWirelessModem then
+                        cryptoNet.send(storageServerSocket, { "requireLogin" })
+                        local event, loginRequired
+                        repeat
+                            event, loginRequired = os.pullEvent("requireLogin")
+                        until event == "requireLogin"
+                        if loginRequired then
+                            reLogin()
+                        end
+                    else
+                        reLogin()
+                    end
                     done = true
                 end
             elseif key == keys.three or key == keys.numPad3 then
@@ -1679,6 +1700,19 @@ local function drawUserMenu()
                     cryptoNet.logout(storageServerSocket)
                     cryptoNet.logout(craftingServerSocket)
                     sleep(1)
+                    --check if server requires a login
+                    if not isWirelessModem then
+                        cryptoNet.send(storageServerSocket, { "requireLogin" })
+                        local event, loginRequired
+                        repeat
+                            event, loginRequired = os.pullEvent("requireLogin")
+                        until event == "requireLogin"
+                        if loginRequired then
+                            reLogin()
+                        end
+                    else
+                        reLogin()
+                    end
                     done = true
                 end
             elseif y == 10 then
