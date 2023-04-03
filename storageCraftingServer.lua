@@ -7,6 +7,7 @@ local storageServerSocket
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
 local items, detailDB
 local currentlyCrafting = {}
+local craftingUpdateClients = {}
 
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
@@ -695,10 +696,26 @@ local function updateClient(socket, message, messageToSend)
         table[1] = messageToSend[1]
         table[2] = messageToSend[2]
         table[3] = messageToSend[3]
+        currentlyCrafting.table[messageToSend[1]][messageToSend[2]] = messageToSend[3]
     elseif message == "itemUpdate" or message == "logUpdate" then
         table[1] = messageToSend
+        if message == "logUpdate" then
+            currentlyCrafting.log[#currentlyCrafting.log + 1] = messageToSend
+        elseif message == "itemUpdate" then
+            currentlyCrafting.nowCrafting = messageToSend
+            for row = 1, 3, 1 do
+                currentlyCrafting.table[row] = {}
+                for slot = 1, 3, 1 do
+                    currentlyCrafting.table[row][slot] = 0
+                end
+            end
+        end
     end
     cryptoNet.send(socket, { "craftingUpdate", table })
+    --Update any clients subscribed to crafting updates
+    for k, v in pairs(craftingUpdateClients) do
+        cryptoNet.send(v, { "craftingUpdate", table })
+    end
 end
 
 --Calculate number of each item needed.
@@ -1202,6 +1219,7 @@ end
 --Get items and craft
 local function craftRecipe(recipeObj, timesToCraft, socket)
     local recipe = recipeObj.recipe
+    updateClient(socket, "itemUpdate", recipeObj.name)
     debugLog("craftRecipe")
     debugLog(recipeObj)
     debugLog("timesToCraft:" .. tostring(timesToCraft) .. " id:" .. tostring(socket))
@@ -1745,6 +1763,16 @@ local function craftingManager()
                 currentlyCrafting.recipeInput = craftingRequest.recipe.recipeInput
                 currentlyCrafting.recipe = craftingRequest.recipe.recipe
                 currentlyCrafting.recipeName = craftingRequest.recipe.recipeName
+                currentlyCrafting.nowCrafting = craftingRequest.recipe.recipeName
+                currentlyCrafting.log = {}
+                currentlyCrafting.table = {}
+
+                for row = 1, 3, 1 do
+                    currentlyCrafting.table[row] = {}
+                    for slot = 1, 3, 1 do
+                        currentlyCrafting.table[row][slot] = 0
+                    end
+                end
 
                 reloadStorageDatabase()
                 local ableToCraft = false
@@ -2101,6 +2129,22 @@ local function serverHandler(event)
                 end
             elseif message == "checkPasswordHashed" then
                 os.queueEvent("gotCheckPasswordHashed", data, event[2][3])
+            elseif message == "watchCrafting" then
+                local uniq = true
+                for i in pairs(craftingUpdateClients) do
+                    if craftingUpdateClients[i] == socket then
+                        uniq = false
+                    end
+                end
+                if uniq then
+                    craftingUpdateClients[#craftingUpdateClients + 1] = socket
+                end
+            elseif message == "stopWatchCrafting" then
+                for i in pairs(craftingUpdateClients) do
+                    if craftingUpdateClients[i].target == socket.target then
+                        table.remove(craftingUpdateClients, i)
+                    end
+                end
             end
         else
             --User is not logged in
@@ -2117,7 +2161,7 @@ local function serverHandler(event)
                 tmp.servername = data.servername
                 data.password = nil
                 cryptoNet.send(storageServerSocket, { "checkPasswordHashed", tmp })
-                
+
                 local event2
                 local loginStatus = false
                 local permissionLevel = 0

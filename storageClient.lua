@@ -658,14 +658,34 @@ local function drawDetailsmenu(sel)
 end
 
 local function drawCraftingStatus(nowCrafting)
+    term.setBackgroundColor(colors.black)
+    cryptoNet.send(craftingServerSocket, { "watchCrafting" })
     local table = {}
     local logs = {}
     local status
 
-    for row = 1, 3, 1 do
-        table[row] = {}
-        for slot = 1, 3, 1 do
-            table[row][slot] = 0
+    --Request the current crafting status from the crafting server
+    local event
+    local currentlyCrafting = {}
+    cryptoNet.send(craftingServerSocket, { "getCurrentlyCrafting" })
+    repeat
+        event, currentlyCrafting = os.pullEvent("gotCurrentlyCrafting")
+    until event == "gotCurrentlyCrafting"
+    log("currentlyCrafting: " .. dump(currentlyCrafting))
+
+    if currentlyCrafting ~= nil and currentlyCrafting.table ~= nil then
+        log("if currentlyCrafting ~= nil and currentlyCrafting.table ~= nil then")
+        table = currentlyCrafting.table
+        logs = currentlyCrafting.log
+        nowCrafting = currentlyCrafting.nowCrafting
+    end
+
+    if not next(table) then
+        for row = 1, 3, 1 do
+            table[row] = {}
+            for slot = 1, 3, 1 do
+                table[row][slot] = 0
+            end
         end
     end
 
@@ -764,6 +784,7 @@ local function drawCraftingStatus(nowCrafting)
         --handle key and mouse inputs
         if (event == "key" or event == "mouse_click") then
             if button == keys.backspace or (y == 1 and x == width) then
+                cryptoNet.send(craftingServerSocket, { "stopWatchCrafting" })
                 return
             end
         end
@@ -816,9 +837,7 @@ local function craftRecipe(recipe, amount, canCraft)
     drawCraftingStatus()
 end
 
-local function drawCraftingQueue()
-    menu = true
-    local scrollCraftingQueue = 0
+local function mergeCraftingQueue()
     local event
     local craftingQueue = {}
     local currentlyCrafting
@@ -835,7 +854,7 @@ local function drawCraftingQueue()
     repeat
         event, craftingQueue = os.pullEvent("gotCraftingQueue")
     until event == "gotCraftingQueue"
-    log("craftingQueue: " .. dump(craftingQueue))
+    --log("craftingQueue: " .. dump(craftingQueue))
 
     --merge whats crafting and crafting queue
     local queue = {}
@@ -845,7 +864,14 @@ local function drawCraftingQueue()
     for i = 1, #craftingQueue, 1 do
         table.insert(queue, craftingQueue[i])
     end
-    log("queue: " .. textutils.serialise(queue))
+    --log("queue: " .. textutils.serialise(queue))
+    return queue
+end
+
+local function drawCraftingQueue()
+    menu = true
+    local scrollCraftingQueue = 0
+    local queue = mergeCraftingQueue()
 
     local done = false
     while done == false do
@@ -886,6 +912,11 @@ local function drawCraftingQueue()
         term.setBackgroundColor(colors.red)
         term.write(" Refresh (F5) ")
 
+        --details button
+        term.setCursorPos(width - 12, height - 2)
+        term.setBackgroundColor(colors.blue)
+        term.write(" Details (F1) ")
+
         term.setBackgroundColor(colors.black)
         for i = 1, width, 1 do
             term.setCursorPos(i, height)
@@ -904,6 +935,9 @@ local function drawCraftingQueue()
             local key = button
             if key == keys.backspace then
                 done = true
+            elseif key == keys.f1 then
+                drawCraftingStatus()
+                queue = mergeCraftingQueue()
             elseif key == keys.f5 then
                 drawCraftingQueue()
                 done = true
@@ -957,6 +991,10 @@ local function drawCraftingQueue()
             if y == 1 and x == width then
                 --x clicked
                 done = true
+            elseif y == height - 2 and x > width - 12 then
+                --details pressed
+                drawCraftingStatus()
+                queue = mergeCraftingQueue()
             elseif y == height - 1 and x > width - 12 then
                 --refresh button pressed
                 drawCraftingQueue()
