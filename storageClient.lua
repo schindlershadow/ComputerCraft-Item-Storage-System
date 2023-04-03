@@ -401,7 +401,7 @@ local function login(socket, user, pass, servername)
     local startIndex, endIndex = string.find(servername, "_Wireless")
     if startIndex then
         --get the server name by cutting out "_Wireless"
-        servername = string.sub(servername,1,startIndex-1)
+        servername = string.sub(servername, 1, startIndex - 1)
         log("wireless server rename: " .. servername)
     else
         log("servername " .. servername)
@@ -412,9 +412,9 @@ local function login(socket, user, pass, servername)
     tmp.password = pass
     tmp.servername = servername
     --mark for garbage collection
-    pass=nil
+    pass = nil
     --log("hashLogin")
-    cryptoNet.send(socket, {"hashLogin", tmp})
+    cryptoNet.send(socket, { "hashLogin", tmp })
     --mark for garbage collection
     tmp = nil
     local event
@@ -429,7 +429,7 @@ local function login(socket, user, pass, servername)
         socket.permissionLevel = permissionLevel
         os.queueEvent("login", user, socket)
     else
-        term.setCursorPos(1,1)
+        term.setCursorPos(1, 1)
         error("Failed to login to Server")
     end
 
@@ -969,15 +969,214 @@ local function drawCraftingQueue()
     menu = false
 end
 
-local function changePassword(user)
-    sleep(1)
+local function addUser()
+    sleep(0.5)
     term.setBackgroundColor(colors.red)
     term.clear()
     term.setCursorPos(1, 1)
+    print("Adding User:")
+    print("Enter 0 to cancel")
+    print("")
+    print("Enter new username:")
+    local user = read()
+    if user == "0" then
+        return
+    end
+    print("")
+
+    print("Enter password:")
+    local pass = read("*")
+    if pass == "0" then
+        return
+    end
+    if string.len(pass) < 4 then
+        print("Password too short!")
+        sleep(3)
+        addUser()
+        return
+    end
+    print("")
+    print("Confirm password:")
+    local pass2 = read("*")
+    if pass ~= pass2 then
+        print("Passwords not the same...")
+        sleep(3)
+        addUser()
+        return
+    end
+    print("")
+    print("Enter Access Level:")
+    print("1) User")
+    print("2) Admin")
+    print("")
+    local permission = read()
+    if type(tonumber(permission)) ~= "number" or not (permission ~= 1 and permission ~= 2) then
+        print("Invalid")
+        sleep(3)
+        addUser()
+        return
+    end
+
+
+    term.setBackgroundColor(colors.red)
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("Creating User...")
+    local tmp = {}
+    tmp.username = user
+    tmp.password = pass
+    tmp.permissionLevel = tonumber(permission)
+    pass = nil
+    pass2 = nil
+
+    local event, statusUserCreate
+    cryptoNet.send(storageServerSocket, { "addUser", tmp })
+    repeat
+        event, statusUserCreate = os.pullEvent("gotAddUser")
+    until event == "gotAddUser"
+
+    if statusUserCreate == true then
+        print("User added successfully")
+    else
+        print("Failed to add user")
+    end
+    print("")
+    print("Press any key to continue...")
+    local event2
+    repeat
+        event2 = os.pullEvent()
+    until event2 == "key" or event2 == "mouse_click"
+end
+
+local function deleteUser(user)
+    sleep(0.5)
+    term.setBackgroundColor(colors.red)
+    if user == nil then
+        term.clear()
+        term.setCursorPos(1, 1)
+        print("Enter User to delete:")
+        print("")
+        user = read()
+    end
+
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("Delete User " .. tostring(user) .. "?")
+    print("1) Yes")
+    print("2) No")
+    print("")
+    local confirm = read()
+    if confirm ~= "1" then
+        return
+    else
+        print("Deleting user...")
+        local event, statusUserCreate
+        local tbl = {}
+        tbl.username = user
+        cryptoNet.send(storageServerSocket, { "deleteUser", tbl })
+        repeat
+            event, statusUserCreate = os.pullEvent("gotDeleteUser")
+        until event == "gotDeleteUser"
+
+        if statusUserCreate == true then
+            print("User deleted successfully")
+        else
+            print("Failed to delete user")
+        end
+    end
+
+    print("")
+    print("Press any key to continue...")
+    local event
+    repeat
+        event = os.pullEvent()
+    until event == "key" or event == "mouse_click"
+end
+
+local function changePermission(user)
+    sleep(0.5)
+    term.setBackgroundColor(colors.red)
+    if user == nil then
+        term.clear()
+        term.setCursorPos(1, 1)
+        print("Enter target User:")
+        print("")
+        user = read()
+    end
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("Enter Access Level:")
+    print("1) User")
+    print("2) Admin")
+    print("")
+    local permission = read()
+    if type(tonumber(permission)) ~= "number" or not (permission ~= 1 and permission ~= 2) then
+        print("Invalid")
+        sleep(3)
+        addUser()
+        return
+    end
+    term.setBackgroundColor(colors.red)
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("Requesting permission change...")
+    local tmp = {}
+    tmp.username = user
+    tmp.permissionLevel = tonumber(permission)
+
+    local event, statusPasswordChange
+    cryptoNet.send(storageServerSocket, { "setPermissionLevel", tmp })
+    repeat
+        event, statusPasswordChange = os.pullEvent("gotSetPermissionLevel")
+    until event == "gotSetPermissionLevel"
+
+    if statusPasswordChange == true then
+        print("Permission changed successfully")
+    else
+        print("Failed to change permission")
+    end
+    print("")
+    print("Press any key to continue...")
+    repeat
+        event = os.pullEvent()
+    until event == "key" or event == "mouse_click"
+end
+
+local function changePassword(user)
+    sleep(0.5)
+    term.setBackgroundColor(colors.red)
+    if user == nil then
+        term.clear()
+        term.setCursorPos(1, 1)
+        print("Enter target User:")
+        print("")
+        user = read()
+    end
+    term.clear()
+    term.setCursorPos(1, 1)
     print("Changing password for user: " .. user)
+    print("Enter 0 to cancel")
     print("")
     print("Enter new password:")
     local pass = read("*")
+    if pass == "0" then
+        return
+    end
+    if string.len(pass) < 4 then
+        print("Password too short!")
+        sleep(3)
+        changePassword(user)
+        return
+    end
+    print("")
+    print("Confirm password:")
+    local pass2 = read("*")
+    if pass ~= pass2 then
+        print("Passwords not the same...")
+        sleep(3)
+        changePassword(user)
+        return
+    end
     term.setBackgroundColor(colors.red)
     term.clear()
     term.setCursorPos(1, 1)
@@ -985,20 +1184,16 @@ local function changePassword(user)
     local tmp = {}
     tmp.username = user
     tmp.password = pass
+    pass = nil
+    pass2 = nil
 
-    local event, statusStorageServer
+    local event, statusPasswordChange
     cryptoNet.send(storageServerSocket, { "setPassword", tmp })
     repeat
-        event, statusStorageServer = os.pullEvent("gotSetPassword")
+        event, statusPasswordChange = os.pullEvent("gotSetPassword")
     until event == "gotSetPassword"
 
-    local event, statusCraftingServer
-    cryptoNet.send(craftingServerSocket, { "setPassword", tmp })
-    repeat
-        event, statusCraftingServer = os.pullEvent("gotSetPassword")
-    until event == "gotSetPassword"
-
-    if statusStorageServer == true and statusCraftingServer == true then
+    if statusPasswordChange == true then
         print("Password changed successfully")
     else
         print("Failed to change password")
@@ -1010,11 +1205,364 @@ local function changePassword(user)
     until event == "key" or event == "mouse_click"
 end
 
+local function drawUserInfo(user)
+    --loadingScreen("Getting User Information")
+    local done = false
+    while done == false do
+        --Get user permission level
+        local event, permissionLevel
+        cryptoNet.send(storageServerSocket, { "getPermissionLevel", user })
+        repeat
+            event, permissionLevel = os.pullEvent("gotPermissionLevel")
+        until event == "gotPermissionLevel"
+        term.setBackgroundColor(colors.green)
+        for k = 2, height, 1 do
+            for i = 1, width, 1 do
+                term.setCursorPos(i, k)
+                term.write(" ")
+            end
+        end
+        term.setCursorPos(1, 1)
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, 1)
+            term.write(" ")
+        end
+        centerText("User Info Menu")
+
+        term.setBackgroundColor(colors.blue)
+        term.setCursorPos(1, 3)
+        centerText(" Username: " .. user .. " ")
+        term.setCursorPos(1, 4)
+        if permissionLevel == 1 then
+            centerText(" Permission Level: User ")
+        elseif permissionLevel == 2 then
+            centerText(" Permission Level: Admin ")
+        elseif permissionLevel > 2 then
+            centerText(" Permission Level: Super Admin ")
+        end
+
+        term.setCursorPos(1, 6)
+        term.setBackgroundColor(colors.red)
+        centerText("1) Remove User")
+
+        term.setCursorPos(1, 8)
+        term.setBackgroundColor(colors.red)
+        centerText("2) Change User Password")
+
+        term.setCursorPos(1, 10)
+        term.setBackgroundColor(colors.red)
+        centerText("3) Change User Permission/Access")
+
+
+        term.setCursorPos(width, 1)
+        term.setBackgroundColor(colors.red)
+        term.write("x")
+        term.setBackgroundColor(colors.green)
+
+        local event, button, x, y
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event == "mouse_click" or event == "key"
+
+        if event == "key" then
+            local key = button
+            if key == keys.backspace then
+                done = true
+            elseif key == keys.one or key == keys.numPad1 then
+                deleteUser(user)
+                done = true
+            elseif key == keys.two or key == keys.numPad2 then
+                changePassword(user)
+            elseif key == keys.three or key == keys.numPad3 then
+                changePermission(user)
+            end
+        elseif event == "mouse_click" then
+            if y < 2 and x > width - 1 then
+                done = true
+            elseif y == 6 then
+                deleteUser(user)
+                done = true
+            elseif y == 8 then
+                changePassword(user)
+            elseif y == 10 then
+                changePermission(user)
+            end
+        end
+    end
+end
+
+local function getUserList()
+    cryptoNet.send(storageServerSocket, { "getUserList" })
+    local event
+    local userList = {}
+    repeat
+        event, userList = os.pullEvent("gotUserList")
+    until event == "gotUserList"
+    table.sort(userList, function(k1, k2) return k1.username < k2.username end)
+
+    return userList
+end
+
+local function drawUserList()
+    local scrollUsers = 0
+    local userList = getUserList()
+    local done = false
+    while done == false do
+        term.setBackgroundColor(colors.gray)
+        term.clear()
+        term.setCursorPos(1, 1)
+        for k, v in pairs(userList) do
+            if k > scrollUsers then
+                if k < (height + scrollUsers) then
+                    local text = v.username .. ": "
+                    if v.permissionLevel == 0 then
+                        text = text .. "Service"
+                    elseif v.permissionLevel == 1 then
+                        text = text .. "User"
+                    elseif v.permissionLevel == 2 then
+                        text = text .. "Admin"
+                    elseif v.permissionLevel == 3 then
+                        text = text .. "Super Admin"
+                    else
+                        text = text .. "Unknown"
+                    end
+                    for i = 1, width, 1 do
+                        term.setCursorPos(i, k - scrollUsers)
+                        term.write(" ")
+                    end
+                    term.setCursorPos(1, k - scrollUsers)
+                    term.write(text)
+                    term.setCursorPos(1, height)
+                end
+            end
+        end
+        for k = 1, height - 1, 1 do
+            if type(userList[k + scrollUsers]) == "nil" then
+                for i = 1, width, 1 do
+                    term.setCursorPos(i, k)
+                    term.write(" ")
+                end
+            end
+        end
+
+        --refresh button
+        term.setCursorPos(width - 13, height - 1)
+        term.setBackgroundColor(colors.red)
+        term.write(" Add User (F1) ")
+
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, height)
+            term.write(" ")
+        end
+        --term.setCursorPos(1, height)
+        --term.write("Discovered " .. serverType .. " Servers")
+        term.setCursorPos(width, 1)
+        term.setBackgroundColor(colors.red)
+        term.write("x")
+        term.setBackgroundColor(colors.gray)
+
+        local event, button, x, y
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event == "mouse_click" or event == "key" or event == "mouse_scroll"
+
+        if event == "key" then
+            local key = button
+            if key == keys.backspace then
+                done = true
+            elseif key == keys.f1 then
+                addUser()
+                userList = getUserList()
+            elseif key == keys.one or key == keys.numPad1 then
+                if userList[1 + scrollUsers] ~= nil then
+                    drawUserInfo(userList[1 + scrollUsers].username)
+                    userList = getUserList()
+                end
+            elseif key == keys.two or key == keys.numPad2 then
+                if userList[2 + scrollUsers] ~= nil then
+                    drawUserInfo(userList[2 + scrollUsers].username)
+                    userList = getUserList()
+                end
+            elseif key == keys.three or key == keys.numPad3 then
+                if userList[3 + scrollUsers] ~= nil then
+                    drawUserInfo(userList[3 + scrollUsers].username)
+                    userList = getUserList()
+                end
+            elseif key == keys.four or key == keys.numPad4 then
+                if userList[4 + scrollUsers] ~= nil then
+                    drawUserInfo(userList[4 + scrollUsers].username)
+                    userList = getUserList()
+                end
+            elseif key == keys.five or key == keys.numPad5 then
+                if userList[5 + scrollUsers] ~= nil then
+                    drawUserInfo(userList[5 + scrollUsers].username)
+                    userList = getUserList()
+                end
+            elseif key == keys.six or key == keys.numPad6 then
+                if userList[6 + scrollUsers] ~= nil then
+                    drawUserInfo(userList[6 + scrollUsers].username)
+                    userList = getUserList()
+                end
+            elseif key == keys.seven or key == keys.numPad7 then
+                if userList[7 + scrollUsers] ~= nil then
+                    drawUserInfo(userList[7 + scrollUsers].username)
+                    userList = getUserList()
+                end
+            elseif key == keys.eight or key == keys.numPad8 then
+                if userList[8 + scrollUsers] ~= nil then
+                    drawUserInfo(userList[8 + scrollUsers].username)
+                    userList = getUserList()
+                end
+            elseif key == keys.nine or key == keys.numPad9 then
+                if userList[9 + scrollUsers] ~= nil then
+                    drawUserInfo(userList[9 + scrollUsers].username)
+                    userList = getUserList()
+                end
+            end
+        elseif event == "mouse_scroll" then
+            if button == -1 then
+                if scrollUsers > 0 then
+                    scrollUsers = scrollUsers - 1
+                end
+            elseif button == 1 then
+                scrollUsers = scrollUsers + 1
+            end
+        elseif event == "mouse_click" then
+            --log("mouse_click x" .. tostring(x) .. " y" .. tostring(y) .. " scroll: " .. tostring(scroll))
+            if y == height - 1 and x > width - 12 then
+                --Add User button pressed
+                addUser()
+                userList = getUserList()
+            elseif y == 1 and x == width then
+                --x button clicked
+                done = true
+            elseif (userList[y + scrollUsers] ~= nil) and y ~= height then
+                drawUserInfo(userList[y + scrollUsers].username)
+                userList = getUserList()
+            end
+        end
+    end
+end
+
+local function drawAdminMenu(permissionLevel)
+    menu = true
+    local event
+    if type(permissionLevel) ~= "number" then
+        permissionLevel = 0
+    end
+
+    local done = false
+    while done == false do
+        term.setBackgroundColor(colors.gray)
+        term.clear()
+        term.setCursorPos(1, 1)
+        --Title
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, 1)
+            term.write(" ")
+        end
+        term.setCursorPos(1, 1)
+        centerText("Admin Menu")
+        term.setBackgroundColor(colors.gray)
+
+        term.setCursorPos(1, 3)
+        centerText("Username: " .. username)
+        term.setCursorPos(1, 4)
+        if permissionLevel == 2 then
+            centerText("Permission Level: Admin")
+        elseif permissionLevel > 2 then
+            centerText("Permission Level: Super Admin")
+        end
+        term.setCursorPos(1, 6)
+        term.setBackgroundColor(colors.red)
+        centerText("1) List Users")
+
+        term.setCursorPos(1, 8)
+        term.setBackgroundColor(colors.red)
+        centerText("2) Add User")
+
+        term.setCursorPos(1, 10)
+        term.setBackgroundColor(colors.red)
+        centerText("3) Remove User")
+
+        term.setCursorPos(1, 12)
+        term.setBackgroundColor(colors.red)
+        centerText("4) Change User Password")
+
+        term.setCursorPos(1, 14)
+        term.setBackgroundColor(colors.red)
+        centerText("5) Change User Permission/Access")
+
+        --draw close button
+        term.setCursorPos(width, 1)
+        term.setBackgroundColor(colors.red)
+        term.write("x")
+
+        term.setBackgroundColor(colors.black)
+        for i = 1, width, 1 do
+            term.setCursorPos(i, height)
+            term.write(" ")
+        end
+        term.setCursorPos(1, height)
+        term.setBackgroundColor(colors.gray)
+
+        local event, button, x, y
+        repeat
+            event, button, x, y = os.pullEvent()
+        until event == "mouse_click" or event == "key"
+
+        if event == "key" then
+            local key = button
+            if key == keys.backspace then
+                done = true
+            elseif key == keys.one or key == keys.numPad1 then
+                -- List Users
+                drawUserList()
+            elseif key == keys.two or key == keys.numPad2 then
+                -- Add User
+                addUser()
+            elseif key == keys.three or key == keys.numPad3 then
+                -- Remove User
+                deleteUser()
+            elseif key == keys.four or key == keys.numPad4 then
+                -- Change Password
+                changePassword()
+            elseif key == keys.five or key == keys.numPad5 then
+                -- Change permission
+                changePermission()
+            end
+        elseif event == "mouse_click" then
+            --log("mouse_click x" .. tostring(x) .. " y" .. tostring(y) .. " scroll: " .. tostring(scroll))
+            if y == 1 and x == width then
+                --x clicked
+                done = true
+            elseif y == 6 then
+                -- List Users
+                drawUserList()
+            elseif y == 8 then
+                -- Add User
+                addUser()
+            elseif y == 10 then
+                -- Remove User
+                deleteUser()
+            elseif y == 12 then
+                -- Change Password
+                changePassword()
+            elseif y == 14 then
+                -- Change permission
+                changePermission()
+            end
+        end
+    end
+    menu = false
+end
+
 local function drawUserMenu()
     menu = true
-    local scrollCraftingQueue = 0
     local event
-    local craftingQueue = {}
     local permissionLevel = 0
 
     --If the user is not logged in, login
@@ -1031,10 +1579,6 @@ local function drawUserMenu()
             event = os.pullEvent("login")
         until event == "login"
         password = ""
-        repeat
-            event = os.pullEvent("detailDBUpdated")
-        until event == "detailDBUpdated"
-        
     end
 
     loadingScreen("Getting User Information")
@@ -1071,10 +1615,14 @@ local function drawUserMenu()
         term.setBackgroundColor(colors.red)
         centerText("1) Change my password")
 
+        term.setCursorPos(1, 8)
+        term.setBackgroundColor(colors.red)
+        centerText("2) Log Out")
+
         if permissionLevel > 1 then
-            term.setCursorPos(1, 8)
+            term.setCursorPos(1, 10)
             term.setBackgroundColor(colors.red)
-            centerText("2) Access Admin Menu")
+            centerText("3) Access Admin Menu")
         end
 
         --draw close button
@@ -1100,12 +1648,21 @@ local function drawUserMenu()
             local key = button
             if key == keys.backspace then
                 done = true
-            elseif key == keys.one then
+            elseif key == keys.one or key == keys.numPad1 then
                 -- Change own password
                 changePassword(username)
-            elseif key == keys.two then
+            elseif key == keys.two or key == keys.numPad2 then
+                --logout
+                if permissionLevel > 0 then
+                    cryptoNet.logout(storageServerSocket)
+                    cryptoNet.logout(craftingServerSocket)
+                    sleep(1)
+                    done = true
+                end
+            elseif key == keys.three or key == keys.numPad3 then
                 if permissionLevel > 1 then
                     --Admin menu
+                    drawAdminMenu(permissionLevel)
                 end
             end
         elseif event == "mouse_click" then
@@ -1117,7 +1674,16 @@ local function drawUserMenu()
                 -- Change own password
                 changePassword(username)
             elseif y == 8 then
+                --logout
+                if permissionLevel > 0 then
+                    cryptoNet.logout(storageServerSocket)
+                    cryptoNet.logout(craftingServerSocket)
+                    sleep(1)
+                    done = true
+                end
+            elseif y == 10 then
                 -- Admin Menu
+                drawAdminMenu(permissionLevel)
             end
         end
     end
@@ -2194,7 +2760,7 @@ function onCryptoNetEvent(event)
         until event == "gotServerType"
         log("serverType: " .. tostring(data))
         --cryptoNet.send(socket, "Hello server!")
-        if data == "StorageServer" then
+        if data == "StorageServer" and not next(items) then
             getStorageServerCert()
             cryptoNet.send(socket, { "storageServer" })
             if settings.get("crafting") then
@@ -2207,11 +2773,11 @@ function onCryptoNetEvent(event)
 
                 login(craftingServerSocket, username, password, settings.get("StorageServer"))
 
-                --clear password 
+                --clear password
                 tmp = nil
                 password = ""
             else
-                --clear password 
+                --clear password
                 password = ""
                 print("Loading Database")
                 getItems()
@@ -2228,7 +2794,7 @@ function onCryptoNetEvent(event)
                     sleep(0.1)
                 end
             end
-        elseif data == "CraftingServer" then
+        elseif data == "CraftingServer" and not next(recipes) then
             getCraftingServerCert()
             cryptoNet.send(socket, { "craftingServer" })
             print("Loading Database")
@@ -2358,6 +2924,14 @@ function onCryptoNetEvent(event)
             os.queueEvent("gotPermissionLevel", message)
         elseif messageType == "setPassword" then
             os.queueEvent("gotSetPassword", message)
+        elseif messageType == "setPermissionLevel" then
+            os.queueEvent("gotSetPermissionLevel", message)
+        elseif messageType == "addUser" then
+            os.queueEvent("gotAddUser", message)
+        elseif messageType == "deleteUser" then
+            os.queueEvent("gotDeleteUser", message)
+        elseif messageType == "getUserList" then
+            os.queueEvent("gotUserList", message)
         elseif messageType == "hashLogin" then
             os.queueEvent("hashLogin", message, event[2][3])
         end

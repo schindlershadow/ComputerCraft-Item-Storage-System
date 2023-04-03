@@ -249,6 +249,29 @@ local function getList(storage)
     return list, itemCount
 end
 
+local function getUserList()
+    local filename = settings.get("serverName") .. "_users.tbl"
+    if fs.exists(filename) then
+        local file = fs.open(filename, "r")
+        local contents = file.readAll()
+        file.close()
+
+        local decoded = textutils.unserialize(contents)
+        local tab = {}
+        if type(decoded) ~= "nil" then
+            for k, v in pairs(decoded) do
+                local tmp = {}
+                tmp.username = k
+                tmp.permissionLevel = v[2]
+                tab[#tab + 1] = tmp
+            end
+            return tab
+        else
+            return nil
+        end
+    end
+end
+
 local function average(t)
     local sum = 0
     for _, v in pairs(t) do -- Get the sum of all numbers in t
@@ -776,26 +799,34 @@ local function onCryptoNetEvent(event)
                     file.close()
                 end
                 cryptoNet.send(socket, { message, fileContents })
+            elseif message == "getUserList" then
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                if tonumber(permissionLevel) >= 2 then
+                    cryptoNet.send(socket, { message, getUserList() })
+                end
             elseif message == "getPermissionLevel" then
                 cryptoNet.send(socket, { message, cryptoNet.getPermissionLevel(data, serverLAN) })
             elseif message == "setPermissionLevel" then
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
-                if permissionLevel >= 2 and userExists and type(data.permissionLevel) == "number" then
+                if permissionLevel >= 2 and userExists and type(data.permissionLevel) == "number" and data.permissionLevel < 3 then
                     cryptoNet.setPermissionLevel(data.username, data.permissionLevel, serverLAN)
-                    cryptoNet.setPermissionLevel(data.username, data.permissionLevel, serverWireless)
+                    --cryptoNet.setPermissionLevel(data.username, data.permissionLevel, serverWireless)
                     cryptoNet.send(socket, { message, true })
                 else
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "checkPasswordHashed" then
-                local check = cryptoNet.checkPasswordHashed(data.username, data.passwordHash, serverLAN)
-
-                if check then
-                    local permissionLevel = cryptoNet.getPermissionLevel(data.username, serverLAN)
-                    cryptoNet.send(socket, { message, true, permissionLevel })
-                else
-                    cryptoNet.send(socket, { message, false, 0 })
+                local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
+                -- check if user has perms or if on lan when logins are not required
+                if (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) or tonumber(permissionLevel) >= 2 then
+                    local check = cryptoNet.checkPasswordHashed(data.username, data.passwordHash, serverLAN)
+                    if check then
+                        local permissionLevel = cryptoNet.getPermissionLevel(data.username, serverLAN)
+                        cryptoNet.send(socket, { message, true, permissionLevel })
+                    else
+                        cryptoNet.send(socket, { message, false, 0 })
+                    end
                 end
             elseif message == "setPassword" then
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
@@ -805,11 +836,11 @@ local function onCryptoNetEvent(event)
                     ":" .. data.username .. ":" .. tostring(permissionLevel) .. ":" .. tostring(userExists))
                 if tonumber(permissionLevel) >= 2 and userExists and type(data.password) == "string" then
                     cryptoNet.setPassword(data.username, data.password, serverLAN)
-                    cryptoNet.setPassword(data.username, data.password, serverWireless)
+                    --cryptoNet.setPassword(data.username, data.password, serverWireless)
                     cryptoNet.send(socket, { message, true })
                 elseif userExists and data.username == socket.username then
                     cryptoNet.setPassword(data.username, data.password, serverLAN)
-                    cryptoNet.setPassword(data.username, data.password, serverWireless)
+                    --cryptoNet.setPassword(data.username, data.password, serverWireless)
                     cryptoNet.send(socket, { message, true })
                 else
                     cryptoNet.send(socket, { message, false })
@@ -822,42 +853,54 @@ local function onCryptoNetEvent(event)
                     ":" .. data.username .. ":" .. tostring(permissionLevel) .. ":" .. tostring(userExists))
                 if tonumber(permissionLevel) >= 2 and userExists and type(data.passwordHash) == "string" then
                     cryptoNet.setPasswordHashed(data.username, data.passwordHash, serverLAN)
-                    cryptoNet.setPasswordHashed(data.username, data.passwordHash, serverWireless)
+                    --cryptoNet.setPasswordHashed(data.username, data.passwordHash, serverWireless)
                     cryptoNet.send(socket, { message, true })
                 elseif userExists and data.username == socket.username then
                     cryptoNet.setPasswordHashed(data.username, data.passwordHash, serverLAN)
-                    cryptoNet.setPasswordHashed(data.username, data.passwordHash, serverWireless)
+                    --cryptoNet.setPasswordHashed(data.username, data.passwordHash, serverWireless)
                     cryptoNet.send(socket, { message, true })
                 else
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "addUser" then
+                print("Request to add user: " .. data.username)
+                log("Request to add user: " .. data.username)
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
                 if permissionLevel >= 2 and not userExists and type(data.password) == "string" then
                     cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverLAN)
-                    cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverWireless)
+                    --cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverWireless)
                     cryptoNet.send(socket, { message, true })
                 else
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "addUserHashed" then
+                print("Request to add user: " .. data.username)
+                log("Request to add user: " .. data.username)
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
                 if permissionLevel >= 2 and not userExists and type(data.passwordHash) == "string" then
                     cryptoNet.addUserHashed(data.username, data.passwordHash, data.permissionLevel, serverLAN)
-                    cryptoNet.addUserHashed(data.username, data.passwordHash, data.permissionLevel, serverWireless)
+                    --cryptoNet.addUserHashed(data.username, data.passwordHash, data.permissionLevel, serverWireless)
                     cryptoNet.send(socket, { message, true })
                 else
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "deleteUser" then
+                print("Request to delete user: " .. data.username)
+                log("Request to delete user: " .. data.username)
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
-                if permissionLevel >= 2 and userExists and type(data.password) == "string" then
-                    cryptoNet.deleteUser(data.username, serverLAN)
-                    cryptoNet.deleteUser(data.username, serverWireless)
-                    cryptoNet.send(socket, { message, true })
+                if permissionLevel >= 2 and userExists then
+                    local userPermissionLevel = cryptoNet.getPermissionLevel(data.username, serverLAN)
+                    if userPermissionLevel < 3 then
+                        cryptoNet.deleteUser(data.username, serverLAN)
+                        --cryptoNet.deleteUser(data.username, serverWireless)
+                        cryptoNet.send(socket, { message, true })
+                    else
+                        --super admins cannot be deleted
+                        cryptoNet.send(socket, { message, false })
+                    end
                 else
                     cryptoNet.send(socket, { message, false })
                 end
