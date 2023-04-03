@@ -2577,7 +2577,7 @@ local function inputHandler()
                 elseif key == keys.f1 then
                     drawUserMenu()
                     drawList()
-                elseif key == keys.f2 then
+                elseif key == keys.f3 then
                     drawCraftingQueue()
                     drawList()
                 elseif key == keys.f5 then
