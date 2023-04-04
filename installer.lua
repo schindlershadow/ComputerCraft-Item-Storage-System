@@ -149,6 +149,7 @@ local crafting = false
 local recipeURL =
 "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt"
 local craftingChest = "minecraft:chest_3"
+local craftingImportChest = "minecraft:chest_4"
 local exportChestName = "minecraft:chest_0"
 local exportChests = { "minecraft:chest_0" }
 local importChests = { "minecraft:chest_2" }
@@ -294,6 +295,15 @@ end
 if typeOfServer == "craftingServer" then
     term.clear()
     term.setCursorPos(1, 1)
+    print("Set the network name of the chest to be used for importing crafted items")
+    print("This is the chest located under the crafty turtle")
+    print("Example: minecraft:chest_4")
+    print("")
+    local craftingImportChestInput = io.read()    
+    craftingImportChest = craftingImportChestInput
+
+    term.clear()
+    term.setCursorPos(1, 1)
     print("Would you like to use a custom recipe URL?")
     print("The default recipe URL contains vanilla Minecraft recipes")
     print("Look on the github page to learn how to dump recipes for modpacks")
@@ -332,6 +342,7 @@ if typeOfServer == "craftingServer" then
     settings.set("recipeURL", recipeURL)
     settings.set("recipeFile", "recipes")
     settings.set("craftingChest", craftingChest)
+    settings.set("craftingImportChest", craftingImportChest)
     settings.set("requireLogin", loginRequirement)
     settings.set("username", username)
     settings.set("password", password)
