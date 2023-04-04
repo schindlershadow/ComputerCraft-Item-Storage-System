@@ -16,6 +16,35 @@ local isWirelessModem = false
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
 local username = ""
 local password = ""
+local bootTime = os.epoch("utc") / 1000
+
+if not fs.exists("cryptoNet") then
+    print("")
+    print("cryptoNet API not found on disk, downloading...")
+    local response = http.get(cryptoNetURL)
+    if response then
+        local file = fs.open("cryptoNet", "w")
+        file.write(response.readAll())
+        file.close()
+        response.close()
+        print("File downloaded as '" .. "cryptoNet" .. "'.")
+    else
+        print("Failed to download file from " .. cryptoNetURL)
+    end
+end
+os.loadAPI("cryptoNet")
+
+--Suppress IDE warnings
+os.getComputerID = os.getComputerID
+os.epoch = os.epoch
+os.loadAPI = os.loadAPI
+os.queueEvent = os.queueEvent
+os.startThread = os.startThread
+os.pullEvent = os.pullEvent
+os.startTimer = os.startTimer
+os.reboot = os.reboot
+utf8 = utf8
+cryptoNet = cryptoNet
 
 -- Settings
 --Settings
@@ -46,6 +75,7 @@ end
 term.setBackgroundColor(colors.blue)
 
 Item = { name = "", count = 1, nbt = "", tags = "" }
+---@diagnostic disable-next-line: duplicate-set-field
 function Item:new(name, count, nbt, tags)
     obj = obj or {}
     setmetatable(obj, self)
@@ -58,6 +88,7 @@ function Item:new(name, count, nbt, tags)
     return obj
 end
 
+---@diagnostic disable-next-line: duplicate-set-field
 function Item:getTable()
     local table = {}
     if self.name ~= "" then
@@ -782,7 +813,7 @@ local function drawCraftingStatus(nowCrafting)
 
         term.setBackgroundColor(colors.black)
 
-        local event, button, x, y
+        local button, x, y
         repeat
             event, button, x, y = os.pullEvent()
         until event == "craftingUpdate" or event == "mouse_click" or event == "key"
@@ -1309,7 +1340,7 @@ local function drawUserInfo(user)
         term.write("x")
         term.setBackgroundColor(colors.green)
 
-        local event, button, x, y
+        local button, x, y
         repeat
             event, button, x, y = os.pullEvent()
         until event == "mouse_click" or event == "key"
@@ -1558,7 +1589,7 @@ local function drawAdminMenu(permissionLevel)
         term.setCursorPos(1, height)
         term.setBackgroundColor(colors.gray)
 
-        local event, button, x, y
+        local button, x, y
         repeat
             event, button, x, y = os.pullEvent()
         until event == "mouse_click" or event == "key"
@@ -1696,7 +1727,7 @@ local function drawUserMenu()
         --term.write("User Menu")
         term.setBackgroundColor(colors.gray)
 
-        local event, button, x, y
+        local button, x, y
         repeat
             event, button, x, y = os.pullEvent()
         until event == "mouse_click" or event == "key"
@@ -1717,7 +1748,7 @@ local function drawUserMenu()
                     --check if server requires a login
                     if not isWirelessModem then
                         cryptoNet.send(storageServerSocket, { "requireLogin" })
-                        local event, loginRequired
+                        local loginRequired
                         repeat
                             event, loginRequired = os.pullEvent("requireLogin")
                         until event == "requireLogin"
@@ -1752,7 +1783,7 @@ local function drawUserMenu()
                     --check if server requires a login
                     if not isWirelessModem then
                         cryptoNet.send(storageServerSocket, { "requireLogin" })
-                        local event, loginRequired
+                        local loginRequired
                         repeat
                             event, loginRequired = os.pullEvent("requireLogin")
                         until event == "requireLogin"
@@ -2029,7 +2060,7 @@ local function drawCraftingMenu(sel, inputTable)
         end
 
 
-        local event, button, x, y
+        local button, x, y
         repeat
             event, button, x, y = os.pullEvent()
         until event == "mouse_click" or event == "key" or event == "mouse_scroll"
@@ -2579,6 +2610,9 @@ local function openMenu(sel)
 end
 
 local function inputHandler()
+    local speed = (os.epoch("utc") / 1000) - bootTime
+    --print("Boot time: " .. tostring(("%.3g"):format(speed) .. " seconds"))
+    log("Boot time: " .. tostring(("%.3g"):format(speed) .. " seconds"))
     while true do
         local event, key, x, y
         repeat
@@ -2840,14 +2874,14 @@ function onCryptoNetEvent(event)
     if event[1] == "login" then
         -- Logged in successfully
         -- The username logged in
-        local username = event[2]
+        local user = event[2]
         -- The socket that was logged in
         local socket = event[3]
-        print("Logged in as " .. username .. " to " .. socket.target)
-        log("Logged in as " .. username .. " to " .. socket.target)
+        print("Logged in as " .. user .. " to " .. socket.target)
+        log("Logged in as " .. user .. " to " .. socket.target)
         log("socket.target: " .. socket.target)
         cryptoNet.send(socket, { "getServerType" })
-        local event, data
+        local data
         repeat
             event, data = os.pullEvent("gotServerType")
         until event == "gotServerType"
@@ -2864,7 +2898,7 @@ function onCryptoNetEvent(event)
                 print("Logging into server:" .. settings.get("CraftingServer"))
                 log("Logging into server:" .. settings.get("CraftingServer"))
 
-                login(craftingServerSocket, username, password, settings.get("StorageServer"))
+                login(craftingServerSocket, user, password, settings.get("StorageServer"))
 
                 --clear password
                 tmp = nil
@@ -3043,27 +3077,11 @@ end
 
 loadingScreen("Storage Client")
 
-if not fs.exists("cryptoNet") then
-    print("")
-    print("cryptoNet API not found on disk, downloading...")
-    local response = http.get(cryptoNetURL)
-    if response then
-        local file = fs.open("cryptoNet", "w")
-        file.write(response.readAll())
-        file.close()
-        response.close()
-        print("File downloaded as '" .. "cryptoNet" .. "'.")
-    else
-        print("Failed to download file from " .. cryptoNetURL)
-    end
-end
-
 --sleep(0.5 + (math.random() % 1))
 --broadcastStorageServer()
 --sleep(0.5 + (math.random() % 1))
 --broadcastCraftingServer()
 --sleep(0.5 + (math.random() % 1))
-os.loadAPI("cryptoNet")
 
 if settings.get("StorageServer") == "StorageServer" or settings.get("StorageServer") == nil then
     discoverServers("StorageServer")

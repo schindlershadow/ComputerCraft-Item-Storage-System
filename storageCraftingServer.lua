@@ -1,14 +1,16 @@
 math.randomseed(os.time() + (6 * os.getComputerID()))
+local storage, items, storageUsed
 local serverLAN, serverWireless
 local tags = {}
 local clients = {}
 local recipes = {}
 local storageServerSocket
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
-local items, detailDB
+local detailDB
 local currentlyCrafting = {}
 local craftingUpdateClients = {}
 local speakers = {}
+local serverBootTime = os.epoch("utc") / 1000
 
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
@@ -22,7 +24,11 @@ settings.define("recipeURL",
     })
 settings.define("recipeFile", { description = "The temp file used for loading recipes", "recipes", type = "string" })
 settings.define("craftingChest",
-    { description = "The peripheral name of the crafting chest", "minecraft:chest_3", type = "string" })
+    { description = "The peripheral name of the crafting chest that is above the turtle", "minecraft:chest_3",
+        type = "string" })
+settings.define("craftingImportChest",
+    { description = "The peripheral name of the chest under the turtle to import items", "minecraft:chest_4",
+        type = "string" })
 settings.define("serverName",
     { description = "The hostname of this server", "CraftingServer" .. tostring(os.getComputerID()), type = "string" })
 settings.define("StorageServer", { description = "storage server hostname", default = "StorageServer", type = "string" })
@@ -43,6 +49,7 @@ if settings.load() == false then
         "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt")
     settings.set("recipeFile", "recipes")
     settings.set("craftingChest", "minecraft:chest_3")
+    settings.set("craftingImportChest", "minecraft:chest_4")
     print("Stop the server and edit .settings file with correct settings")
     settings.save()
     sleep(5)
@@ -413,21 +420,6 @@ local function getList(storage)
     return list, itemCount
 end
 
---Returns list of storage peripherals excluding import and export chests
-local function getStorage()
-    local storage = {}
-    local wrap = peripheral.wrap
-    local remote = modem.getNamesRemote()
-    for i in pairs(remote) do
-        if modem.hasTypeRemote(remote[i], "inventory") then
-            if remote[i] ~= settings.get("craftingChest") then
-                storage[#storage + 1] = wrap(remote[i])
-            end
-        end
-    end
-    return storage
-end
-
 local function getDatabaseFromServer()
     cryptoNet.send(storageServerSocket, { "getItems" })
     local event
@@ -524,32 +516,32 @@ local function getRecipes()
 
             --Rebuild the crafttweaker string with the new format
             local newLine = firstHalf .. '['
-            for row = 1, #newRecipes, 1 do
+            for row2 = 1, #newRecipes, 1 do
                 newLine = newLine .. '['
-                for slot = 1, #newRecipes[row], 1 do
-                    if #newRecipes[row][slot] == 1 then
-                        if string.find(newRecipes[row][slot][1], '%[') then
-                            newRecipes[row][slot][1] = '{' .. string.gsub(newRecipes[row][slot][1], '%[', '') .. '}'
+                for slot = 1, #newRecipes[row2], 1 do
+                    if #newRecipes[row2][slot] == 1 then
+                        if string.find(newRecipes[row2][slot][1], '%[') then
+                            newRecipes[row2][slot][1] = '{' .. string.gsub(newRecipes[row2][slot][1], '%[', '') .. '}'
                         end
-                        newLine = newLine .. newRecipes[row][slot][1]
+                        newLine = newLine .. newRecipes[row2][slot][1]
                     else
                         newLine = newLine .. '{'
-                        for j = 1, #newRecipes[row][slot] do
-                            if string.find(newRecipes[row][slot][j], '%[') then
-                                newRecipes[row][slot][j] = string.gsub(newRecipes[row][slot][j], '%[', '')
+                        for j = 1, #newRecipes[row2][slot] do
+                            if string.find(newRecipes[row2][slot][j], '%[') then
+                                newRecipes[row2][slot][j] = string.gsub(newRecipes[row2][slot][j], '%[', '')
                             end
-                            newLine = newLine .. newRecipes[row][slot][j]
-                            if j ~= #newRecipes[row][slot] then
+                            newLine = newLine .. newRecipes[row2][slot][j]
+                            if j ~= #newRecipes[row2][slot] then
                                 newLine = newLine .. ','
                             end
                         end
                         newLine = newLine .. '}'
                     end
-                    if slot ~= #newRecipes[row] then
+                    if slot ~= #newRecipes[row2] then
                         newLine = newLine .. ','
                     end
                 end
-                if row == #newRecipes then
+                if row2 == #newRecipes then
                     newLine = newLine .. ']'
                 else
                     newLine = newLine .. '],'
@@ -685,7 +677,7 @@ local function searchForItemWithTag(string, InputTable)
         end
     end
     if filteredTable == {} then
-        return nil
+        return {}
     else
         return filteredTable
     end
@@ -842,20 +834,20 @@ end
 
 local function isTagCraftable(searchTerm, inputTable)
     local stringSearch = string.match(searchTerm, 'tag:%w+:(.+)')
-    local items = {}
+    local itemsTmp = {}
     --print("searchTerm: " .. searchTerm)
     if type(tags[stringSearch]) ~= "nil" then
         --check tags database
         --print("Checking tags database")
         for i, k in pairs(tags[stringSearch]) do
-            items[#items + 1] = {}
-            items[#items]["name"] = k
+            itemsTmp[#itemsTmp + 1] = {}
+            itemsTmp[#itemsTmp]["name"] = k
         end
     else
-        items = searchForItemWithTag(searchTerm, inputTable)
+        itemsTmp = searchForItemWithTag(searchTerm, inputTable)
     end
 
-    if type(items) == nil then
+    if type(itemsTmp) == nil then
         return false
     end
     --print(dump(items))
@@ -864,8 +856,8 @@ local function isTagCraftable(searchTerm, inputTable)
     --check if tag has crafting recipe
     local tab = {}
     for i = 1, #recipes, 1 do
-        for k = 1, #items, 1 do
-            if (recipes[i].name == items[k].name) then
+        for k = 1, #itemsTmp, 1 do
+            if (recipes[i].name == itemsTmp[k].name) then
                 --return recipes[i].name
                 tab[#tab + 1] = recipes[i].name
             end
@@ -972,7 +964,10 @@ local function numInTurtle(itemName)
     return count
 end
 
-local function dumpAll()
+local function dumpAll(skipReload)
+    if skipReload == nil then
+        skipReload = false
+    end
     local reload = false
     for i = 1, 16, 1 do
         local item = turtle.getItemDetail(i)
@@ -982,12 +977,12 @@ local function dumpAll()
             reload = true
         end
     end
-    if reload and storageServerSocket ~= nil then
-        cryptoNet.send(storageServerSocket, { "forceImport" })
+    if reload and storageServerSocket ~= nil and not skipReload then
+        cryptoNet.send(storageServerSocket, { "forceImport", settings.get("craftingImportChest") })
         --reloadStorageDatabase()
         local event
         repeat
-            event = os.pullEvent("forceImport")
+            event = os.pullEvent()
         until event == "forceImport"
         --pingServer()
     end
@@ -1021,28 +1016,28 @@ end
 
 local function getAllTagRecipes(searchTerm)
     local stringSearch = string.match(searchTerm, 'tag:%w+:(.+)')
-    local items = {}
+    local itemsTmp = {}
     --print("searchTerm: " .. searchTerm)
     if type(tags[stringSearch]) ~= "nil" then
         --check tags database
         --print("Checking tags database")
         for i, k in pairs(tags[stringSearch]) do
-            items[#items + 1] = {}
-            items[#items]["name"] = k
+            itemsTmp[#itemsTmp + 1] = {}
+            itemsTmp[#itemsTmp]["name"] = k
         end
     else
-        items = searchForItemWithTag(searchTerm, recipes)
+        itemsTmp = searchForItemWithTag(searchTerm, recipes)
     end
 
-    if type(items) == nil then
+    if type(itemsTmp) == nil then
         return {}
     end
 
     --check if tag has crafting recipe
     local tab = {}
     for i = 1, #recipes, 1 do
-        for k = 1, #items, 1 do
-            if (recipes[i].name == items[k].name) then
+        for k = 1, #itemsTmp, 1 do
+            if (recipes[i].name == itemsTmp[k].name) then
                 --return recipes[i].name
                 tab[#tab + 1] = recipes[i]
             end
@@ -1233,7 +1228,7 @@ local function getBestRecipe(allRecipes, id)
 
     if bestScore == 0 then
         debugLog("uncraftable")
-        return nil
+        return 0, 0
     end
     print("Recipe score: " .. tostring(bestScore))
     debugLog("Recipe score: " .. tostring(bestScore))
@@ -1301,7 +1296,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
     debugLog("moveCount:" .. tostring(moveCount))
 
     --In case of garbage in the turtle's inventory
-    dumpAll()
+    dumpAll(true)
 
     --Moving materials to crafting grid
     local crafted = 0
@@ -1376,7 +1371,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                         "Not enough " .. recipe[row][slot][j]:match(".+:(.+)") .. " in system")
                                 end
                             end
-                            dumpAll()
+                            dumpAll(true)
                             failed = true
                         else
                             --item was found in system
@@ -1443,7 +1438,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                 print("failed to get item: " .. searchResult.name)
                                 updateClient(socket, "logUpdate",
                                     "Failed getting: " .. searchResult.name:match(".+:(.+)"))
-                                dumpAll()
+                                dumpAll(true)
                                 failed = true
                                 debugLog(searchResult)
                                 break
@@ -1463,7 +1458,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
         end
 
         if failed then
-            dumpAll()
+            dumpAll(true)
             return false
         else
             turtle.craft()
@@ -1781,6 +1776,7 @@ local function craftingManager()
         if craftingQueue.first ~= nil then
             --check if the queue has anything in it
             if craftingQueue.first <= craftingQueue.last then
+                local time = os.epoch("utc") / 1000
                 local craftingRequest = craftingQueue.popleft()
                 debugLog("craftingRequest.recipe: " .. textutils.serialise(craftingRequest.recipe))
                 debugLog("craftingRequest.timesToCraft: " .. tostring(craftingRequest.timesToCraft))
@@ -1803,7 +1799,7 @@ local function craftingManager()
                     end
                 end
 
-                reloadStorageDatabase()
+                --reloadStorageDatabase()
                 local ableToCraft = false
                 if craftingRequest.autoCraft then
                     ableToCraft = craft(craftingRequest.recipe, craftingRequest.timesToCraft, craftingRequest.socket)
@@ -1832,6 +1828,9 @@ local function craftingManager()
                     playSounds("cow_bell", true)
                 end
                 currentlyCrafting = {}
+                local speed = (os.epoch("utc") / 1000) - time
+                print("Craft took " .. tostring(("%.3g"):format(speed) .. " seconds total"))
+                debugLog("Craft took " .. tostring(speed) .. " seconds total")
             end
         end
         sleep(0.5)
@@ -1914,7 +1913,6 @@ local function serverHandler(event)
         -- Check the username to see if the client is logged in or should have an exception
         if socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) or socket.target == settings.get("StorageServer") then
             if message == "getItems" then
-                
                 if type(data) == "table" then
                     items = data
                     for k, v in pairs(data) do
@@ -2296,7 +2294,7 @@ local function onStart()
     local wirelessModem = nil
     local wiredModem = nil
 
-    dumpAll()
+    dumpAll(true)
 
     print("Looking for connected modems...")
 
@@ -2352,6 +2350,9 @@ local function onStart()
 
     getRecipes()
     os.startThread(craftingManager)
+    local speed = (os.epoch("utc") / 1000) - serverBootTime
+    print("Boot time: " .. tostring(("%.3g"):format(speed) .. " seconds"))
+    debugLog("Boot time: " .. tostring(("%.3g"):format(speed) .. " seconds"))
     --craftingManager()
 end
 
@@ -2389,9 +2390,6 @@ if fs.exists("tags.db") then
     print("Tags read: " .. tostring(tags.count))
 end
 os.loadAPI("cryptoNet")
-
-
-local storage, items, storageUsed
 
 print("")
 print("Crafting Server Ready")
