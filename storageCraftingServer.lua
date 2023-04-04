@@ -8,6 +8,7 @@ local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/m
 local items, detailDB
 local currentlyCrafting = {}
 local craftingUpdateClients = {}
+local speakers = {}
 
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
@@ -26,6 +27,8 @@ settings.define("serverName",
     { description = "The hostname of this server", "CraftingServer" .. tostring(os.getComputerID()), type = "string" })
 settings.define("StorageServer", { description = "storage server hostname", default = "StorageServer", type = "string" })
 settings.define("requireLogin", { description = "require a login for LAN clients", default = "false", type = "boolean" })
+settings.define("masterCraftingServer",
+    { description = "Defines master server vs slave server", default = "true", type = "boolean" })
 
 --Settings fails to load
 if settings.load() == false then
@@ -34,6 +37,7 @@ if settings.load() == false then
     settings.set("serverName", "CraftingServer" .. tostring(os.getComputerID()))
     settings.set("StorageServer", "StorageServer")
     settings.set("debug", false)
+    settings.set("masterCraftingServer", true)
     settings.set("requireLogin", false)
     settings.set("recipeURL",
         "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt")
@@ -710,11 +714,15 @@ local function updateClient(socket, message, messageToSend)
                 end
             end
         end
+    elseif type(message) == "boolean" then
+        currentlyCrafting = {}
     end
     cryptoNet.send(socket, { "craftingUpdate", table })
     --Update any clients subscribed to crafting updates
     for k, v in pairs(craftingUpdateClients) do
         cryptoNet.send(v, { "craftingUpdate", table })
+        cryptoNet.send(v, { "pushCurrentlyCrafting", currentlyCrafting })
+        cryptoNet.send(v, { "pushCraftingQueue", craftingQueue.dumpItems() })
     end
 end
 
@@ -917,7 +925,7 @@ end
 
 --Note: Large performance hit on larger systems
 local function reloadStorageDatabase()
-    --write("Reloading database..")
+    debugLog("Reloading database..")
     --storage = getStorage()
     --write("..")
 
@@ -929,6 +937,7 @@ local function reloadStorageDatabase()
     --pingServer()
 
     --getDatabaseFromServer()
+    debugLog("wait for itemsUpdated")
     local event
     repeat
         event = os.pullEvent("itemsUpdated")
@@ -973,7 +982,7 @@ local function dumpAll()
             reload = true
         end
     end
-    if reload then
+    if reload and storageServerSocket ~= nil then
         cryptoNet.send(storageServerSocket, { "forceImport" })
         --reloadStorageDatabase()
         local event
@@ -981,6 +990,22 @@ local function dumpAll()
             event = os.pullEvent("forceImport")
         until event == "forceImport"
         --pingServer()
+    end
+end
+
+local function playSounds(instrument, reversed)
+    for i = 1, 3, 1 do
+        local pitch
+        if reversed then
+            pitch = 24 - math.floor(24 / i)
+        else
+            pitch = math.floor(24 / i)
+        end
+        for speakerid = 1, #speakers, 1 do
+            local speaker = peripheral.wrap(speakers[speakerid])
+            speaker.playNote(instrument, 3, pitch)
+        end
+        --sleep(0.2)
     end
 end
 
@@ -1679,6 +1704,7 @@ local function craftBranch(recipeObj, ttl, amount, socket)
 end
 
 local function craft(item, amount, socket)
+    debugLog("craft")
     if type(socket) == "nil" then
         socket = storageServerSocket
     end
@@ -1691,6 +1717,7 @@ local function craft(item, amount, socket)
     local allRecipes
     if type(item) == "string" then
         --tag check
+        debugLog("tag check")
         if string.find(item, 'tag:%w+:(.+)') then
             allRecipes = getAllTagRecipes(item)
             item = string.match(item, 'tag:%w+:(.+)')
@@ -1705,12 +1732,14 @@ local function craft(item, amount, socket)
     end
 
     --If one of the recipes are craftable, craft it
+    debugLog("If one of the recipes are craftable, craft it")
     local craftableRecipes = haveCraftingMaterials(allRecipes, 1, socket)
     local recipeToCraft
 
     --print(tostring(#craftableRecipes))
 
     --Otherwise get the best recipe
+    debugLog("Otherwise get the best recipe")
     local outputAmount = 1
     if #craftableRecipes == 0 then
         --print("No currently craftable recipes, Searching for best recipe")
@@ -1795,10 +1824,12 @@ local function craftingManager()
                     print("Crafting Successful")
                     --cryptoNet.send(socket, { "craftingUpdate", true })
                     updateClient(craftingRequest.socket, true)
+                    playSounds("bell", false)
                 else
                     print("Crafting Failed!")
                     --cryptoNet.send(socket, { "craftingUpdate", false })
                     updateClient(craftingRequest.socket, false)
+                    playSounds("cow_bell", true)
                 end
                 currentlyCrafting = {}
             end
@@ -1879,9 +1910,11 @@ local function serverHandler(event)
         local message = event[2][1]
         local data = event[2][2]
         local socket = event[3]
+        debugLog("message: " .. message)
         -- Check the username to see if the client is logged in or should have an exception
         if socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) or socket.target == settings.get("StorageServer") then
             if message == "getItems" then
+                
                 if type(data) == "table" then
                     items = data
                     for k, v in pairs(data) do
@@ -1939,21 +1972,30 @@ local function serverHandler(event)
                 cryptoNet.send(socket, { message, settings.get("serverName") })
                 local uniq = true
                 for i in pairs(clients) do
-                    if clients[i] == id then
+                    if clients[i] == socket then
                         uniq = false
                     end
                 end
                 if uniq then
-                    clients[#clients + 1] = id
+                    clients[#clients + 1] = socket
                 end
-                print("")
-                print("clients: ")
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+                local count = 0
+                for _ in pairs(clients) do count = count + 1 end
+                print("Clients: " .. tostring(count))
                 for i in pairs(clients) do
-                    print(tostring(clients[i]))
+                    print(tostring(clients[i].username) ..
+                        ":" .. string.sub(tostring(clients[i].sender), 1, 5) .. ":" .. tostring(clients[i].target))
                 end
-                print("")
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
             elseif message == "getServerType" then
                 cryptoNet.send(socket, { message, "CraftingServer" })
+            elseif message == "isMainCraftingServer" then
+                if settings.get("masterCraftingServer") then
+                    cryptoNet.send(socket, { message, true })
+                else
+                    cryptoNet.send(socket, { message, false })
+                end
             elseif message == "requireLogin" then
                 --timeout no longer needed
                 timeoutConnect = nil
@@ -2272,6 +2314,8 @@ local function onStart()
                 print("Wired modem found on " .. side .. " side")
                 debugLog("Wired modem found on " .. side .. " side")
             end
+        elseif peripheral.getType(side) == "speaker" then
+            table.insert(speakers, side)
         end
     end
 
@@ -2308,6 +2352,7 @@ local function onStart()
 
     getRecipes()
     os.startThread(craftingManager)
+    --craftingManager()
 end
 
 debugLog("~~Boot~~")

@@ -7,7 +7,14 @@ local detailDB = {}
 local storageUsed = 0
 local storageMaxSize = 0
 local storageSize = 0
+local storageFreeSlots = 0
+local storageTotalSlots = 0
 local storages
+local monitors = {}
+local mainCraftingServer
+local craftingEnabled = false
+local currentlyCrafting = {}
+local craftingQueue = {}
 
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
@@ -215,13 +222,19 @@ local function getList(storage)
     local itemCount = 0
     local getName = peripheral.getName
     local wrap = peripheral.wrap
+    local freeSlots = 0
+    local total = 0
 
     for _, chest in pairs(storage) do
         local tmpList = {}
         local name = getName(chest)
+        local numberOfSlots = 0
+
+        total = total + (chest.size())
         for slot, item in pairs(chest.list()) do
             item["slot"] = slot
             item["chestName"] = name
+            numberOfSlots = numberOfSlots + 1
 
             if item.details == nil then
                 --this is a massive time save
@@ -240,13 +253,15 @@ local function getList(storage)
                     item["details"] = wrap(name).getItemDetail(slot)
                 end
             end
+            --free = free + (item.details.maxCount - item.count)
             itemCount = itemCount + item.count
             --table.insert(list, item)
             list[#list + 1] = item
             --print(("%d x %s in slot %d"):format(item.count, item.name, slot))
         end
+        freeSlots = freeSlots + ((chest.size() - numberOfSlots))
     end
-    return list, itemCount
+    return list, itemCount, freeSlots, total
 end
 
 local function getUserList()
@@ -289,24 +304,24 @@ local function getStorageSize(storage)
     local setCursorPos = term.setCursorPos
     local slots = 0
     local total = 0
+    local free = 0
+    local totalSlots = 0
 
 
     for i = 1, #workingStorage, 1 do
         local size = workingStorage[i].size()
-        slots = slots + size
+        totalSlots = totalSlots + size
     end
 
     --If the number of chests slots is unchanged from last db refresh, skip max storage calc
-    if slots == storageSize then
-        return storageSize, storageMaxSize
+    if totalSlots == storageSize then
+        return storageSize, storageMaxSize, storageFreeSlots, storageTotalSlots
     end
     if storageSize ~= 0 then
         print("")
         print("Storage change detected")
         print("")
     end
-
-    slots = 0
 
     print("")
     print("")
@@ -331,6 +346,9 @@ local function getStorageSize(storage)
             local slotItem = getItemDetail(k)
             if type(slotItem) ~= "nil" then
                 total = total + slotItem.maxCount
+            else
+                total = total + 64
+                free = free + 1
             end
         end
         local speed = (epoch("utc") / 1000) - time
@@ -340,7 +358,7 @@ local function getStorageSize(storage)
             (floor((#storage - i) * average(speedHistory))) .. " seconds left                                        ")
         time = epoch("utc") / 1000
     end
-    return slots, total
+    return slots, total, free, totalSlots
 end
 
 local function printClients()
@@ -360,6 +378,9 @@ local function pingClients(message)
     for k, v in pairs(clients) do
         cryptoNet.send(v, { message })
     end
+    if mainCraftingServer ~= nil then
+        cryptoNet.send(mainCraftingServer, { message })
+    end
 end
 
 --Note: Large performance hit on larger systems
@@ -367,7 +388,8 @@ local function reloadStorageDatabase()
     print("Reloading database..")
     storages = getStorage()
     --This part is slow
-    items, storageUsed = getList(storages)
+    items, storageUsed, storageFreeSlots, storageTotalSlots = getList(storages)
+    --log("storageFreeSlots:" .. tostring(storageFreeSlots) .. " storageTotalSlots:" .. tostring(storageTotalSlots))
     print("Writing storage database....")
 
     if fs.exists("storage.db") then
@@ -378,6 +400,8 @@ local function reloadStorageDatabase()
     decoded.detailDB = detailDB
     decoded.storageMaxSize = storageMaxSize
     decoded.storageSize = storageSize
+    decoded.storageFreeSlots = storageFreeSlots
+    decoded.storageTotalSlots = storageTotalSlots
 
     local storageFile = fs.open("storage.db", "w")
     storageFile.write(textutils.serialise(decoded))
@@ -624,6 +648,189 @@ local function debugMenu()
     end
 end
 
+local function centerText(monitor, text)
+    if text == nil then
+        text = ""
+    end
+    local x, y = monitor.getSize()
+    local x1, y1 = monitor.getCursorPos()
+    monitor.setCursorPos((math.floor(x / 2) - (math.floor(#text / 2))), y1)
+    monitor.write(text)
+end
+
+local function mergeCraftingQueue()
+    local event
+
+    --merge whats crafting and crafting queue
+    local queue = {}
+    if next(currentlyCrafting) then
+        queue = { currentlyCrafting }
+    end
+    for i = 1, #craftingQueue, 1 do
+        table.insert(queue, craftingQueue[i])
+    end
+    --log("queue: " .. textutils.serialise(queue))
+    return queue
+end
+
+--Main loop for monitor
+local function monitorHandler()
+    local name = (settings.get("serverName"))
+    while true do
+        local queue = {}
+        if craftingEnabled then
+            --request crafting queue
+            queue = mergeCraftingQueue()
+        end
+        for monitorid = 1, #monitors, 1 do
+            local monitor = peripheral.wrap(monitors[monitorid])
+            local width, height = monitor.getSize()
+            local bgColor, barColor
+            if monitor.isColor() then
+                bgColor = colors.blue
+                barColor = colors.white
+            else
+                bgColor = colors.black
+                barColor = colors.black
+            end
+            monitor.setTextScale(0.5)
+            monitor.setBackgroundColor(bgColor)
+            monitor.clear()
+            monitor.setCursorPos(1, 1)
+            centerText(monitor, name)
+            monitor.setCursorPos(1, 3)
+            monitor.write("Space:")
+            local storageBar 
+            if storageUsed == storageMaxSize then
+                storageBar = width - 2
+            else
+                storageBar = math.floor(((storageUsed / storageMaxSize)) * (width))
+            end
+            local bar = ""
+
+
+            --generate the progress bar
+            for i = 1, storageBar, 1 do
+                if monitor.isColor() then
+                    bar = bar .. " "
+                else
+                    bar = bar .. "-"
+                end
+            end
+            --write the empty part of the bar
+            monitor.setBackgroundColor(barColor)
+            --monitor.clearLine()
+            for i = 2, width - 1, 1 do
+                monitor.setCursorPos(i, 4)
+                if monitor.isColor() then
+                    monitor.write(" ")
+                else
+                    monitor.write("|")
+                end
+            end
+            monitor.setCursorPos(2, 4)
+            local percent = (storageUsed / storageMaxSize) * 100
+            if percent < 50 then
+                monitor.setBackgroundColor(colors.green)
+            elseif percent < 70 then
+                monitor.setBackgroundColor(colors.orange)
+            else
+                monitor.setBackgroundColor(colors.red)
+            end
+            
+            monitor.write(bar)
+            monitor.setBackgroundColor(bgColor)
+
+            monitor.setCursorPos(1, 5)
+            centerText(monitor, tostring(storageUsed) ..
+                "/" ..
+                tostring(storageMaxSize) ..
+                " Items " .. tostring(("%.3g"):format(percent) .. "%"))
+
+            monitor.setCursorPos(1, 6)
+            monitor.write("Slots:")
+            if (storageTotalSlots - storageFreeSlots) == storageTotalSlots then
+                storageBar = width - 2
+            else
+                storageBar = math.floor((((storageTotalSlots - storageFreeSlots) / storageTotalSlots)) * (width))
+            end
+            bar = ""
+            --generate the progress bar
+            for i = 1, storageBar, 1 do
+                if monitor.isColor() then
+                    bar = bar .. " "
+                else
+                    bar = bar .. "-"
+                end
+            end
+            --write the empty part of the bar
+            monitor.setBackgroundColor(barColor)
+            --monitor.clearLine()
+            for i = 2, width - 1, 1 do
+                monitor.setCursorPos(i, 7)
+                if monitor.isColor() then
+                    monitor.write(" ")
+                else
+                    monitor.write("|")
+                end
+            end
+            monitor.setCursorPos(2, 7)
+            percent = ((storageTotalSlots - storageFreeSlots) / storageTotalSlots) * 100
+            if percent < 50 then
+                monitor.setBackgroundColor(colors.green)
+            elseif percent < 70 then
+                monitor.setBackgroundColor(colors.orange)
+            else
+                monitor.setBackgroundColor(colors.red)
+            end
+            monitor.write(bar)
+            monitor.setBackgroundColor(bgColor)
+            monitor.setCursorPos(1, 8)
+            centerText(monitor, tostring(storageTotalSlots - storageFreeSlots) ..
+                "/" ..
+                tostring(storageTotalSlots) ..
+                " Slots " .. tostring(("%.3g"):format(percent) .. "%"))
+            monitor.setCursorPos(1, 10)
+            --Print connected clients
+            local clientCount = 0
+            for _ in pairs(clients) do clientCount = clientCount + 1 end
+            centerText(monitor, "Clients connected: " .. tostring(clientCount))
+
+            --Draw crafting queue
+            if craftingEnabled and mainCraftingServer ~= nil then
+                if monitor.isColor() then
+                    monitor.setBackgroundColor(colors.gray)
+                    for i=12, height,1 do
+                        monitor.setCursorPos(1,i)
+                        monitor.clearLine()
+                    end
+                else
+                    monitor.setBackgroundColor(colors.black)
+                end
+                
+                monitor.setCursorPos(1, 12)
+                centerText(monitor, mainCraftingServer.serverName)
+                monitor.setCursorPos(1, 14)
+                monitor.write("Crafting Queue:")
+                for k, v in pairs(queue) do
+                    if k < (height - 15) then
+                        local text
+                        text = v.name .. ": #" .. tostring(v.amount) .. " - " .. v.recipeName:match("(.+):.+")
+                        for i = 1, width, 1 do
+                            monitor.setCursorPos(i, k + 15)
+                            monitor.write(" ")
+                        end
+                        monitor.setCursorPos(1, k + 15)
+                        monitor.write(text)
+                        --term.setCursorPos(1, height)
+                    end
+                end
+            end
+        end
+        sleep(1)
+    end
+end
+
 --Main loop for importing items into the system via defined import chests
 local function importHandler()
     while true do
@@ -688,10 +895,20 @@ local function onCryptoNetEvent(event)
                 end
                 if uniq then
                     clients[#clients + 1] = socket
+                    cryptoNet.send(socket, { "isMainCraftingServer" })
                 end
                 printClients()
             elseif message == "getServerType" then
                 cryptoNet.send(socket, { message, "StorageServer" })
+            elseif message == "isMainCraftingServer" then
+                if data then
+                    cryptoNet.send(socket, { "storageCraftingServer" })
+                    cryptoNet.send(socket, { "watchCrafting" })
+                    mainCraftingServer = socket
+                    craftingEnabled = true
+                end
+            elseif message == "storageCraftingServer" then
+                mainCraftingServer.serverName = data
             elseif message == "ping" then
                 cryptoNet.send(socket, { "ping", "ack" })
             elseif message == "reloadStorageDatabase" then
@@ -756,8 +973,8 @@ local function onCryptoNetEvent(event)
                         end
                     end
                 end
-                --reloadStorageDatabase()
-                threadedStorageDatabaseReload()
+                reloadStorageDatabase()
+                --threadedStorageDatabaseReload()
             elseif message == "importAll" then
                 local inputStorage = getExportChests()
                 local list = getList(inputStorage)
@@ -773,8 +990,8 @@ local function onCryptoNetEvent(event)
                         peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
                     end
                 end
-                --reloadStorageDatabase()
-                threadedStorageDatabaseReload()
+                reloadStorageDatabase()
+                --threadedStorageDatabaseReload()
                 cryptoNet.send(socket, { message })
             elseif message == "export" then
                 print("Exporting Item(s): " .. dump(data["item"]))
@@ -904,6 +1121,21 @@ local function onCryptoNetEvent(event)
                 else
                     cryptoNet.send(socket, { message, false })
                 end
+            elseif message == "getCurrentlyCrafting" then
+                debugLog("gotCurrentlyCrafting: " .. dump(data))
+                os.queueEvent("gotCurrentlyCrafting", data)
+            elseif message == "getCraftingQueue" then
+                os.queueEvent("gotCraftingQueue", data)
+            elseif message == "pushCurrentlyCrafting" then
+                debugLog("gotCurrentlyCrafting: " .. dump(data))
+                currentlyCrafting = data
+            elseif message == "pushCraftingQueue" then
+                craftingQueue = data
+            elseif message == "getFreeSlots" then
+                local tmp = {}
+                tmp.freeSlots = storageFreeSlots
+                tmp.totalSlots = storageTotalSlots
+                cryptoNet.send(socket, { message, tmp })
             end
         else
             --User is not logged in
@@ -958,6 +1190,9 @@ local function onCryptoNetEvent(event)
 
         for i in pairs(clients) do
             if clients[i].target == socket.target then
+                if mainCraftingServer ~= nil and clients[i].target == mainCraftingServer.target then
+                    mainCraftingServer = nil
+                end
                 table.remove(clients, i)
                 print("Client Disconnected: " ..
                     tostring(socket.username) ..
@@ -998,6 +1233,8 @@ local function onStart()
                 print("Wired modem found on " .. side .. " side")
                 debugLog("Wired modem found on " .. side .. " side")
             end
+        elseif peripheral.getType(side) == "monitor" then
+            table.insert(monitors, side)
         end
     end
 
@@ -1010,7 +1247,12 @@ local function onStart()
         serverWireless = cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
     end
 
-    importHandler()
+    os.startThread(importHandler)
+    if next(monitors) then
+        --os.startThread(monitorHandler)
+        monitorHandler()
+    end
+    --importHandler
 end
 
 term.clear()
@@ -1036,10 +1278,12 @@ if fs.exists("storage.db") then
         detailDB = decoded.detailDB
         storageMaxSize = decoded.storageMaxSize
         storageSize = decoded.storageSize
+        --storageFreeSlots = decoded.storageFreeSlots
+        --storageTotalSlots = decoded.storageTotalSlots
     end
 end
 
-items, storageUsed = getList(storages)
+items, storageUsed, storageFreeSlots, storageTotalSlots = getList(storages)
 
 if settings.get("debug") == false then
     write("\nGetting storage size")

@@ -2,6 +2,8 @@ math.randomseed(os.time() + (5 * os.getComputerID()))
 local timeoutConnect = nil
 local width, height = term.getSize()
 local scroll = 0
+local freeSlots = 0
+local totalSlots = 0
 local search = ""
 local items = {}
 local recipes = {}
@@ -227,6 +229,10 @@ local function getItems()
     repeat
         event = os.pullEvent("itemsUpdated")
     until event == "itemsUpdated"
+    cryptoNet.send(storageServerSocket, { "getFreeSlots" })
+    repeat
+        event = os.pullEvent("freeSlotsUpdated")
+    until event == "freeSlotsUpdated"
 end
 
 local function import(item)
@@ -882,7 +888,12 @@ local function drawCraftingQueue()
         for k, v in pairs(queue) do
             if k > scrollCraftingQueue then
                 if k < (height + scrollCraftingQueue) then
-                    local text = v.displayName .. ": #" .. tostring(v.amount) .. " - " .. v.name
+                    local text
+                    if v.displayName ~= nil then
+                        text = v.displayName .. ": #" .. tostring(v.amount) .. " - " .. v.name
+                    else
+                        text = v.name .. ": #" .. tostring(v.amount) .. " - " .. v.name
+                    end
                     for i = 1, width, 1 do
                         term.setCursorPos(i, k - scrollCraftingQueue)
                         term.write(" ")
@@ -2519,7 +2530,7 @@ local function drawList(list)
             term.write("  Queue  ")
             term.setBackgroundColor(colors.blue)
 
-            term.setCursorPos(1, height - 2)
+            term.setCursorPos(1, height - 3)
             if menuSel == "crafting" then
                 term.setBackgroundColor(colors.green)
             else
@@ -2528,14 +2539,24 @@ local function drawList(list)
             term.write(" Crafting ")
             term.setBackgroundColor(colors.blue)
 
-            term.setCursorPos(1, height - 1)
+            term.setCursorPos(1, height - 2)
             if menuSel == "storage" then
                 term.setBackgroundColor(colors.green)
             else
                 term.setBackgroundColor(colors.red)
             end
             term.write(" Storage  ")
-            term.setBackgroundColor(colors.blue)
+            --term.setBackgroundColor(colors.blue)
+            term.setCursorPos(1, height - 1)
+            if freeSlots < 50 then
+                term.setBackgroundColor(colors.green)
+            elseif freeSlots < 70 then
+                term.setBackgroundColor(colors.orange)
+            else
+                term.setBackgroundColor(colors.red)
+            end
+            term.write(" " .. tostring(("%.2g"):format(100 - (((totalSlots - freeSlots) / totalSlots) * 100))) ..
+            "% Free ")
         end
     end
 end
@@ -2574,19 +2595,19 @@ local function inputHandler()
                     --Import button pressed
                     importAll()
                     drawList()
-                elseif settings.get("crafting") == true and y == height - 1 and x > width - 8 then
+                elseif settings.get("crafting") == true and y == height - 1 and x > width - 10 then
                     --User menu button pressed
                     drawUserMenu()
                     drawList()
-                elseif settings.get("crafting") == true and y == height - 1 and x < 8 then
+                elseif settings.get("crafting") == true and y == height - 2 and x < 11 then
                     --Storage menu button pressed
                     menuSel = "storage"
                     drawList()
-                elseif settings.get("crafting") == true and y == height - 2 and x < 8 then
+                elseif settings.get("crafting") == true and y == height - 3 and x < 11 then
                     --Crafting menu button pressed
                     menuSel = "crafting"
                     drawList()
-                elseif settings.get("crafting") == true and y == height - 3 and x > width - 8 then
+                elseif settings.get("crafting") == true and y == height - 3 and x > width - 10 then
                     --Crafting queue menu button pressed
                     drawCraftingQueue()
                     drawList()
@@ -3006,6 +3027,10 @@ function onCryptoNetEvent(event)
             os.queueEvent("gotUserList", message)
         elseif messageType == "hashLogin" then
             os.queueEvent("hashLogin", message, event[2][3])
+        elseif messageType == "getFreeSlots" then
+            freeSlots = message.freeSlots
+            totalSlots = message.totalSlots
+            os.queueEvent("freeSlotsUpdated")
         end
     elseif event[1] == "timer" then
         if event[2] == timeoutConnect and (type(storageServerSocket) == "nil" or type(storageServerSocket.username) == "nil") then
