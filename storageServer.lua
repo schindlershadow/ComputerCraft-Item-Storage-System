@@ -39,6 +39,10 @@ os.epoch = os.epoch
 os.loadAPI = os.loadAPI
 os.queueEvent = os.queueEvent
 os.startThread = os.startThread
+os.pullEvent = os.pullEvent
+os.startTimer = os.startTimer
+os.reboot = os.reboot
+utf8 = utf8
 cryptoNet = cryptoNet
 
 --Settings
@@ -919,6 +923,7 @@ local function importHandler()
     end
 end
 
+--Cryptonet event handler 
 local function onCryptoNetEvent(event)
     -- When a client logs in
     if event[1] == "login" or event[1] == "hash_login" then
@@ -1379,4 +1384,5 @@ else
     --parallel.waitForAll(storageHandler, importHandler)
     cryptoNet.startEventLoop(onStart, onCryptoNetEvent)
 end
+
 cryptoNet.closeAll()

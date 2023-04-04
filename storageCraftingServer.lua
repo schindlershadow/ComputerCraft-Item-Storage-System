@@ -12,6 +12,34 @@ local craftingUpdateClients = {}
 local speakers = {}
 local serverBootTime = os.epoch("utc") / 1000
 
+if not fs.exists("cryptoNet") then
+    print("")
+    print("cryptoNet API not found on disk, downloading...")
+    local response = http.get(cryptoNetURL)
+    if response then
+        local file = fs.open("cryptoNet", "w")
+        file.write(response.readAll())
+        file.close()
+        response.close()
+        print("File downloaded as '" .. "cryptoNet" .. "'.")
+    else
+        print("Failed to download file from " .. cryptoNetURL)
+    end
+end
+os.loadAPI("cryptoNet")
+
+--Suppress IDE warnings
+os.getComputerID = os.getComputerID
+os.epoch = os.epoch
+os.loadAPI = os.loadAPI
+os.queueEvent = os.queueEvent
+os.startThread = os.startThread
+os.pullEvent = os.pullEvent
+os.startTimer = os.startTimer
+os.reboot = os.reboot
+utf8 = utf8
+cryptoNet = cryptoNet
+
 --Settings
 settings.define("debug", { description = "Enables debug options", default = "false", type = "boolean" })
 --Oneliner bash to extract recipes from craft tweaker output:
@@ -72,6 +100,7 @@ local function dump(o)
     end
 end
 
+--Logs text to log file
 local function log(text)
     local logFile = fs.open("logs/craftingServer.log", "a")
     if type(text) == "string" then
@@ -83,6 +112,7 @@ local function log(text)
     logFile.close()
 end
 
+--Logs text only if debug mode is enabled
 local function debugLog(text)
     if settings.get("debug") then
         local logFile = fs.open("logs/craftingServerDebug.log", "a")
@@ -96,6 +126,8 @@ local function debugLog(text)
     end
 end
 
+--These set of global functions are used when importing recipes
+--MUST be global
 function addShaped(recipeName, name, arg3, arg4)
     --print("name: " .. name)
     --print("itemOutput: " .. itemOutput)
@@ -137,6 +169,7 @@ function addShaped(recipeName, name, arg3, arg4)
     recipes[#recipes + 1] = tab
 end
 
+--MUST be global
 function addShapeless(recipeName, name, arg3, arg4)
     local tab = {}
     local outputNumber = 1
@@ -198,13 +231,15 @@ function addShapeless(recipeName, name, arg3, arg4)
     recipes[#recipes + 1] = tab
 end
 
---These MUST be global
+--MUST be global
 craftingTable = { addShaped = addShaped, addShapeless = addShapeless }
 
+--MUST be global
 function getInstance()
     return "none"
 end
 
+--MUST be global
 IIngredientEmpty = { getInstance = getInstance }
 
 local craftingQueue = {}
@@ -283,21 +318,7 @@ local function inTable(arr, element) -- function to check if something is in an 
     return false -- if no element was found, return false
 end
 
-local function removeDuplicates(arr)
-    local newArray = {}                        -- new array that will be arr, but without duplicates
-    for _, element in pairs(arr) do
-        if not inTable(newArray, element) then -- making sure we had not added it yet to prevent duplicates
-            table.insert(newArray, element)
-        else
-            local index = findInTable(newArray, element)
-            if index ~= nil then
-                newArray[index]["count"] = newArray[index].count + element.count
-            end
-        end
-    end
-    return newArray -- returning the new, duplicate removed array
-end
-
+--MUST be global
 function table.contains(table, element)
     for _, value in pairs(table) do
         if value == element then
@@ -391,35 +412,6 @@ local function addTag(item)
     tags.countItems = countItems
 end
 
---gets the contents of a table of chests
-local function getList(storage)
-    local list = {}
-    local itemCount = 0
-    local getName = peripheral.getName
-    local wrap = peripheral.wrap
-    for _, chest in pairs(storage) do
-        local tmpList = {}
-        local name = getName(chest)
-        for slot, item in pairs(chest.list()) do
-            item["slot"] = slot
-            item["chestName"] = name
-            if not (inTags(item.name)) then
-                item["details"] = wrap(name).getItemDetail(slot)
-                addTag(item)
-            else
-                item["details"] = reconstructTags(item.name)
-            end
-
-            itemCount = itemCount + item.count
-            --table.insert(list, item)
-            list[#list + 1] = item
-            --print(("%d x %s in slot %d"):format(item.count, item.name, slot))
-        end
-    end
-
-    return list, itemCount
-end
-
 local function getDatabaseFromServer()
     cryptoNet.send(storageServerSocket, { "getItems" })
     local event
@@ -461,6 +453,7 @@ end
 
 --Grab recipe file from an http source in crafttweaker output format and covert it to lua code
 local function getRecipes()
+    --This whole thing is extremely jank to workaround limited CC storage
     print("Loading recipes...")
     print("Recipe URL set to: " .. settings.get("recipeURL"))
     local contents = http.get(settings.get("recipeURL"))
@@ -832,6 +825,7 @@ local function haveCraftingMaterials(tableOfRecipes, amount, socket)
     return recipeIsCraftable
 end
 
+--unused, may remove
 local function isTagCraftable(searchTerm, inputTable)
     local stringSearch = string.match(searchTerm, 'tag:%w+:(.+)')
     local itemsTmp = {}
@@ -887,9 +881,10 @@ end
 
 local function reloadServerDatabase()
     cryptoNet.send(storageServerSocket, { "reloadStorageDatabase" })
-    --pingServer()
 end
 
+--TODO: get this to work. currently unused
+--Avoid costly database reload
 local function patchStorageDatabase(itemName, count)
     print("patching db item:" .. itemName .. " #" .. tostring(count))
     debugLog("patching db item:" .. itemName .. " #" .. tostring(count))
@@ -964,6 +959,7 @@ local function numInTurtle(itemName)
     return count
 end
 
+--dumps turtle inventory to system
 local function dumpAll(skipReload)
     if skipReload == nil then
         skipReload = false
@@ -988,6 +984,7 @@ local function dumpAll(skipReload)
     end
 end
 
+--Play tune on speakers
 local function playSounds(instrument, reversed)
     for i = 1, 3, 1 do
         local pitch
@@ -1212,6 +1209,7 @@ local function scoreBranch(recipe, itemName, ttl, amount, socket)
     return score
 end
 
+--Try to find best recipe from a list of recipes using a scoring system
 local function getBestRecipe(allRecipes, id)
     local bestRecipe
     local bestScore = 0
@@ -1230,7 +1228,7 @@ local function getBestRecipe(allRecipes, id)
         debugLog("uncraftable")
         return 0, 0
     end
-    print("Recipe score: " .. tostring(bestScore))
+    --print("Recipe score: " .. tostring(bestScore))
     debugLog("Recipe score: " .. tostring(bestScore))
 
     return bestRecipe, bestCount
@@ -1483,15 +1481,6 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
     return true
 end
 
-local function getCountFromRecipe(recipe)
-    for _, v in pairs(recipes) do
-        if v.recipe == recipe then
-            return v.count
-        end
-    end
-    return nil
-end
-
 --Brute-force recersive crafting
 local function craftBranch(recipeObj, ttl, amount, socket)
     local recipe = recipeObj.recipe
@@ -1698,6 +1687,7 @@ local function craftBranch(recipeObj, ttl, amount, socket)
     end
 end
 
+--Craft recipe assuming all materials are available 
 local function craft(item, amount, socket)
     debugLog("craft")
     if type(socket) == "nil" then
@@ -1771,6 +1761,7 @@ local function craft(item, amount, socket)
     --return craftBranch(recipeToCraft, ttl, amount, id)
 end
 
+--Consumes crafting jobs from the queue, runs on its own thread
 local function craftingManager()
     while true do
         if craftingQueue.first ~= nil then
@@ -1890,7 +1881,8 @@ local function debugMenu()
     end
 end
 
-local function serverHandler(event)
+--Cryptonet event handler 
+local function onCryptoNetEvent(event)
     -- When a crafting server logs in to storage server
     if event[1] == "login" and not next(recipes) then
         local username = event[2]
@@ -2362,21 +2354,6 @@ print("debug mode: " .. tostring(settings.get("debug")))
 print("recipeFile is set to : " .. (settings.get("recipeFile")))
 print("craftingChest is set to: " .. (settings.get("craftingChest")))
 
-if not fs.exists("cryptoNet") then
-    print("")
-    print("cryptoNet API not found on disk, downloading...")
-    local response = http.get(cryptoNetURL)
-    if response then
-        local file = fs.open("cryptoNet", "w")
-        file.write(response.readAll())
-        file.close()
-        response.close()
-        print("File downloaded as '" .. "cryptoNet" .. "'.")
-    else
-        print("Failed to download file from " .. cryptoNetURL)
-    end
-end
-
 if fs.exists("tags.db") then
     print("Reading Tags Database")
     local tagsFile = fs.open("tags.db", "r")
@@ -2389,7 +2366,6 @@ if fs.exists("tags.db") then
     end
     print("Tags read: " .. tostring(tags.count))
 end
-os.loadAPI("cryptoNet")
 
 print("")
 print("Crafting Server Ready")
@@ -2399,9 +2375,9 @@ cryptoNet.setLoggingEnabled(true)
 if settings.get("debug") then
     --print(dump(recipes))
     --parallel.waitForAny(debugMenu, serverHandler)
-    cryptoNet.startEventLoop(onStart, serverHandler)
+    cryptoNet.startEventLoop(onStart, onCryptoNetEvent)
 else
-    cryptoNet.startEventLoop(onStart, serverHandler)
+    cryptoNet.startEventLoop(onStart, onCryptoNetEvent)
     --serverHandler()
 end
 

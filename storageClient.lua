@@ -266,11 +266,6 @@ local function getItems()
     until event == "freeSlotsUpdated"
 end
 
-local function import(item)
-    --pingStorageServer()
-    cryptoNet.send(storageServerSocket, { "import", item:getTable() })
-end
-
 local function importAll()
     loadingScreen("Importing from Export chests")
     --print("Waiting for server to be ready")
@@ -2870,7 +2865,8 @@ local function onStart()
     end
 end
 
-function onCryptoNetEvent(event)
+--Cryptonet event handler 
+local function onCryptoNetEvent(event)
     if event[1] == "login" then
         -- Logged in successfully
         -- The username logged in
@@ -3076,12 +3072,6 @@ function onCryptoNetEvent(event)
 end
 
 loadingScreen("Storage Client")
-
---sleep(0.5 + (math.random() % 1))
---broadcastStorageServer()
---sleep(0.5 + (math.random() % 1))
---broadcastCraftingServer()
---sleep(0.5 + (math.random() % 1))
 
 if settings.get("StorageServer") == "StorageServer" or settings.get("StorageServer") == nil then
     discoverServers("StorageServer")
