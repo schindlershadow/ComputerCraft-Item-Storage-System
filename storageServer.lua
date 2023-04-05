@@ -831,7 +831,7 @@ local function mergeCraftingQueue()
         queue = { currentlyCrafting }
     end
     for i = 1, #craftingQueue, 1 do
-        table.insert(queue, craftingQueue[i])
+        table.insert(queue, craftingQueue[i].recipe)
     end
     --log("queue: " .. textutils.serialise(queue))
     return queue
@@ -978,10 +978,12 @@ local function monitorHandler()
                     monitor.setCursorPos(1, 14)
                     monitor.write("Crafting Queue:")
                     for k, v in pairs(queue) do
-                        if k < (height - 15) then
+                        if k < (height - 15) and v ~= nil then
                             local text
-                            text = v.name:match(".+:(.+)") ..
-                                ": #" .. tostring(v.amount) .. " - " .. v.recipeName:match("(.+):.+")
+                            --text = v.displayName .. ": #" .. tostring(v.amount) .. " - " .. v.recipeName:match("(.+):.+")
+                            text = v.displayName ..
+                                ": #" .. tostring(v.amount) .. " - " .. v.recipeName
+
                             for i = 1, width, 1 do
                                 monitor.setCursorPos(i, k + 15)
                                 monitor.write(" ")
@@ -1063,7 +1065,7 @@ local function onCryptoNetEvent(event)
     elseif event[1] == "encrypted_message" then
         local socket = event[3]
         -- Check the username to see if the client is logged in or allow without login if wired
-        if (socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName"))) and event[2][1] ~= "hashLogin" then
+        if socket ~= nil and (socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName"))) and event[2][1] ~= "hashLogin" then
             local message = event[2][1]
             local data = event[2][2]
             if socket.username == nil then
@@ -1198,7 +1200,7 @@ local function onCryptoNetEvent(event)
                 cryptoNet.send(socket, { message })
             elseif message == "export" then
                 print(socket.username .. " requested: " .. tostring(message))
-                print("Export: "  .. (data.item.name) .. " #" .. tostring(data.item.count))
+                print("Export: " .. (data.item.name) .. " #" .. tostring(data.item.count))
                 log("Export: " .. dump(data["item"]))
                 getItem(data["item"], data["chest"])
                 pingClients("databaseReload")
@@ -1348,8 +1350,16 @@ local function onCryptoNetEvent(event)
                 tmp.freeSlots = storageFreeSlots
                 tmp.totalSlots = storageTotalSlots
                 cryptoNet.send(socket, { message, tmp })
+            elseif message == "pullItems" then
+                debugLog("pullItems:" .. dump(data))
+                local itemsMoved = peripheral.wrap(data.craftingChest).pullItems(data.chestName, data.slot,
+                data.moveCount)
+                cryptoNet.send(socket, { message, itemsMoved })
+                local patchstatus = patchStorageDatabase(data.name, -1 * itemsMoved, data.chestName, data.slot)
+            elseif message == "patchStorageDatabase" then
+                local patchstatus = patchStorageDatabase(data.name, data.count, data.chestName, data.slot)
             end
-        else
+        elseif event[2] ~= nil then
             --User is not logged in
             local message = event[2][1]
             local data = event[2][2]
