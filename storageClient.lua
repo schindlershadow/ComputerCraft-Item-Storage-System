@@ -2943,37 +2943,39 @@ local function onCryptoNetEvent(event)
         -- Login failed (wrong username or password)
         print("Login Failed")
     elseif event[1] == "plain_message" then
-        local messageType = event[2][1]
-        local message = event[2][2]
-        if messageType == "getRecipes" then
-            if type(message) == "table" then
-                table.sort(message, function(a, b)
-                    return a.name < b.name
-                end)
-                recipes = message
-                os.queueEvent("gotRecipes")
-            else
-                sleep(0.2)
-                getRecipes()
+        if event[2] ~= nil and type(event[2]) == "table" then
+            local messageType = event[2][1]
+            local message = event[2][2]
+            if messageType == "getRecipes" then
+                if type(message) == "table" then
+                    table.sort(message, function(a, b)
+                        return a.name < b.name
+                    end)
+                    recipes = message
+                    os.queueEvent("gotRecipes")
+                else
+                    sleep(0.2)
+                    getRecipes()
+                end
+            elseif messageType == "getItems" then
+                if type(message) == "table" then
+                    local tab = removeDuplicates(message)
+                    table.sort(
+                        tab,
+                        function(a, b)
+                            return a.count > b.count
+                        end
+                    )
+                    items = tab
+                    os.queueEvent("itemsUpdated")
+                else
+                    sleep(0.5 + (math.random() % 0.2))
+                    getItems()
+                end
+            elseif messageType == "getDetailDB" then
+                detailDB = message
+                os.queueEvent("detailDBUpdated")
             end
-        elseif messageType == "getItems" then
-            if type(message) == "table" then
-                local tab = removeDuplicates(message)
-                table.sort(
-                    tab,
-                    function(a, b)
-                        return a.count > b.count
-                    end
-                )
-                items = tab
-                os.queueEvent("itemsUpdated")
-            else
-                sleep(0.5 + (math.random() % 0.2))
-                getItems()
-            end
-        elseif messageType == "getDetailDB" then
-            detailDB = message
-            os.queueEvent("detailDBUpdated")
         end
     elseif event[1] == "connection_closed" then
         --print(dump(event))
