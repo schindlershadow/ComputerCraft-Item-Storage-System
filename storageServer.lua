@@ -712,13 +712,13 @@ local function getItem(requestItem, chest)
             if chestP ~= nil then
                 if requestItem.nbt == nil then
                     if item.count >= amount then
-                        print("Export: " .. requestItem.name .. " #" .. tostring(amount))
+                        --print("Export: " .. requestItem.name .. " #" .. tostring(amount))
                         debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
                         local moved = chestP.pullItems(item["chestName"], item["slot"], amount)
                         local patchstatus = patchStorageDatabase(item.name, -1 * moved, item.chestName, item.slot)
                         return
                     else
-                        print("Export: " .. requestItem.name .. " #" .. tostring(amount))
+                        --print("Export: " .. requestItem.name .. " #" .. tostring(amount))
                         debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
                         local moved = chestP.pullItems(item["chestName"], item["slot"])
                         amount = amount - item.count
@@ -727,13 +727,13 @@ local function getItem(requestItem, chest)
                 else
                     if item.nbt == requestItem.nbt then
                         if item.count >= amount then
-                            print("Export: " .. requestItem.name .. " #" .. tostring(amount))
+                            --print("Export: " .. requestItem.name .. " #" .. tostring(amount))
                             debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
                             local moved = chestP.pullItems(item["chestName"], item["slot"], amount)
                             local patchstatus = patchStorageDatabase(item.name, -1 * moved, item.chestName, item.slot)
                             return
                         else
-                            print("Export: " .. requestItem.name .. " #" .. tostring(amount))
+                            --print("Export: " .. requestItem.name .. " #" .. tostring(amount))
                             debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
                             local moved = chestP.pullItems(item["chestName"], item["slot"])
                             amount = amount - item.count
@@ -1023,15 +1023,15 @@ local function importHandler()
                         --return
                     else
                         --send to found slot
-                        print("Import: " .. item.name .. " #" .. tostring(item.count))
-                        debugLog("forceImport: " ..
-                            item.name .. " #" .. tostring(item.count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
                         local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
                         if moved > 0 then
                             local patchstatus = patchStorageDatabase(item.name, moved, chest, slot)
                             if not patchstatus then
                                 reload = true
                             end
+                            print("Import: " .. item.name .. " #" .. tostring(moved))
+                            debugLog("importHandler: " ..
+                                item.name .. " #" .. tostring(moved) .. " chest:" .. chest .. " slot:" .. tostring(slot))
                         else
                             --local test = peripheral.wrap(chest).getItemDetail(item["slot"])
                             --debugLog("moved is 0: " .. textutils.serialize(test))
@@ -1069,7 +1069,7 @@ local function onCryptoNetEvent(event)
             if socket.username == nil then
                 socket.username = "LAN Host"
             end
-            print(socket.username .. " requested: " .. tostring(message))
+            --print(socket.username .. " requested: " .. tostring(message))
             log("User: " .. socket.username .. " Client: " .. socket.target .. " request: " .. tostring(message))
             if message == "storageServer" then
                 cryptoNet.send(socket, { message, settings.get("serverName") })
@@ -1122,6 +1122,7 @@ local function onCryptoNetEvent(event)
                     cryptoNet.send(socket, { message, details })
                 end
             elseif message == "forceImport" then
+                print(socket.username .. " requested: " .. tostring(message))
                 local inputStorage = { peripheral.wrap(data) }
                 local list = getList(inputStorage)
                 local reload = false
@@ -1137,16 +1138,16 @@ local function onCryptoNetEvent(event)
                             reload = false
                         else
                             --send to found slot
-                            print("Import: " .. item.name .. " #" .. tostring(item.count))
-                            debugLog("forceImport: " ..
-                                item.name ..
-                                " #" .. tostring(item.count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
                             local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
                             if moved > 0 then
                                 local patchstatus = patchStorageDatabase(item.name, moved, chest, item.slot)
                                 if not patchstatus then
                                     reload = true
                                 end
+                                print("Import: " .. item.name .. " #" .. tostring(moved))
+                                debugLog("forceImport: " ..
+                                    item.name ..
+                                    " #" .. tostring(moved) .. " chest:" .. chest .. " slot:" .. tostring(slot))
                             end
                         end
                     end
@@ -1155,6 +1156,7 @@ local function onCryptoNetEvent(event)
                     cryptoNet.send(socket, { message, "forceImport" })
                 end
             elseif message == "import" then
+                print(socket.username .. " requested: " .. tostring(message))
                 local inputStorage = getExportChests()
                 local list = getList(inputStorage)
                 local filteredTable = search(data, list)
@@ -1168,14 +1170,15 @@ local function onCryptoNetEvent(event)
                             --sleep(5)
                         else
                             --send to found slot
-                            print("Import: " .. item.name .. " #" .. tostring(item.count))
-                            peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
+                            local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
+                            print("Import: " .. item.name .. " #" .. tostring(moved))
                         end
                     end
                 end
                 reloadStorageDatabase()
                 --threadedStorageDatabaseReload()
             elseif message == "importAll" then
+                print(socket.username .. " requested: " .. tostring(message))
                 local inputStorage = getExportChests()
                 local list = getList(inputStorage)
                 for i, item in pairs(list) do
@@ -1186,15 +1189,16 @@ local function onCryptoNetEvent(event)
                         sleep(5)
                     else
                         --send to found slot
-                        print("Import: " .. item.name .. " #" .. tostring(item.count))
-                        peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
+                        local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
+                        print("Import: " .. item.name .. " #" .. tostring(moved))
                     end
                 end
                 reloadStorageDatabase()
                 --threadedStorageDatabaseReload()
                 cryptoNet.send(socket, { message })
             elseif message == "export" then
-                print("Exporting Item(s): " .. dump(data["item"]))
+                print(socket.username .. " requested: " .. tostring(message))
+                print("Export: "  .. (data.item.name) .. " #" .. tostring(data.item.count))
                 log("Export: " .. dump(data["item"]))
                 getItem(data["item"], data["chest"])
                 pingClients("databaseReload")
@@ -1226,6 +1230,7 @@ local function onCryptoNetEvent(event)
             elseif message == "getPermissionLevel" then
                 cryptoNet.send(socket, { message, cryptoNet.getPermissionLevel(data, serverLAN) })
             elseif message == "setPermissionLevel" then
+                print(socket.username .. " requested: " .. tostring(message))
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
                 if permissionLevel >= 2 and userExists and type(data.permissionLevel) == "number" and data.permissionLevel < 3 then
@@ -1248,6 +1253,7 @@ local function onCryptoNetEvent(event)
                     end
                 end
             elseif message == "setPassword" then
+                print(socket.username .. " requested: " .. tostring(message))
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
                 debugLog("setPassword:" ..
@@ -1265,6 +1271,7 @@ local function onCryptoNetEvent(event)
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "setPasswordHashed" then
+                print(socket.username .. " requested: " .. tostring(message))
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
                 debugLog("setPassword:" ..
@@ -1282,6 +1289,7 @@ local function onCryptoNetEvent(event)
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "addUser" then
+                print(socket.username .. " requested: " .. tostring(message))
                 print("Request to add user: " .. data.username)
                 log("Request to add user: " .. data.username)
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
@@ -1294,6 +1302,7 @@ local function onCryptoNetEvent(event)
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "addUserHashed" then
+                print(socket.username .. " requested: " .. tostring(message))
                 print("Request to add user: " .. data.username)
                 log("Request to add user: " .. data.username)
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
@@ -1306,6 +1315,7 @@ local function onCryptoNetEvent(event)
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "deleteUser" then
+                print(socket.username .. " requested: " .. tostring(message))
                 print("Request to delete user: " .. data.username)
                 log("Request to delete user: " .. data.username)
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
