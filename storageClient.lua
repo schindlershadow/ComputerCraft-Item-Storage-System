@@ -2582,7 +2582,7 @@ local function drawList(list)
                 term.setBackgroundColor(colors.red)
             end
             term.write(" " .. tostring(("%.2g"):format(100 - (((totalSlots - freeSlots) / totalSlots) * 100))) ..
-            "% Free ")
+                "% Free ")
         end
     end
 end
@@ -2608,6 +2608,7 @@ local function inputHandler()
     local speed = (os.epoch("utc") / 1000) - bootTime
     --print("Boot time: " .. tostring(("%.3g"):format(speed) .. " seconds"))
     log("Boot time: " .. tostring(("%.3g"):format(speed) .. " seconds"))
+    --log(textutils.serialise(items))
     while true do
         local event, key, x, y
         repeat
@@ -2865,7 +2866,7 @@ local function onStart()
     end
 end
 
---Cryptonet event handler 
+--Cryptonet event handler
 local function onCryptoNetEvent(event)
     if event[1] == "login" then
         -- Logged in successfully
@@ -3041,8 +3042,8 @@ local function onCryptoNetEvent(event)
         elseif messageType == "importAll" then
             os.queueEvent("importAllComplete")
         elseif messageType == "databaseReload" then
-            os.queueEvent("databaseReloaded")
             getItems()
+            os.queueEvent("databaseReloaded")
         elseif messageType == "getPermissionLevel" then
             os.queueEvent("gotPermissionLevel", message)
         elseif messageType == "setPassword" then
