@@ -126,6 +126,12 @@ local function debugLog(text)
     end
 end
 
+local function dumpItems()
+    for k, v in pairs(items) do
+        debugLog("k: " .. tostring(k) .. " v: " .. textutils.serialize(v))
+    end
+end
+
 local function getInputStorage()
     local storage = {}
     local peripherals = {}
@@ -245,6 +251,18 @@ local function addDetailsDB(item)
 
     detailDB.count = countDetails
     detailDB.countItems = countItems
+end
+
+local function calcFreeSlots()
+    local freeSlots = 0
+    for _, chest in pairs(storages) do
+        local numberOfSlots = 0
+        for slot, item in pairs(chest.list()) do
+            numberOfSlots = numberOfSlots + 1
+        end
+        freeSlots = freeSlots + ((chest.size() - numberOfSlots))
+    end
+    return freeSlots
 end
 
 --gets the contents of a table of chests
@@ -468,6 +486,64 @@ local function threadedStorageDatabaseReload()
     --until event == "databaseReloaded"
 end
 
+--Avoid costly database reload by patching database in memory
+local function patchStorageDatabase(itemName, count, chest, slot)
+    if count == 0 or itemName == nil or chest == nil or slot == nil then
+        return false
+    end
+    --print("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
+    debugLog("Patching database item:" ..
+        itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
+    local stringSearch
+    --Strip out the item: from the front of the item name
+    if string.find(itemName, 'item:(.+)') then
+        stringSearch = string.match(itemName, 'item:(.+)')
+    else
+        stringSearch = itemName
+    end
+    if type(stringSearch) == "nil" then
+        stringSearch = itemName
+    end
+
+    local savedDetails = {}
+
+    for k, v in pairs(items) do
+        if v.name == stringSearch then
+            if v.chestName == chest then
+                if v.slot == slot then
+                    items[k].count = items[k].count + count
+                    storageUsed = storageUsed + count
+                    if items[k].count < 1 then
+                        --If there is 0 items, delete from list
+                        table.remove(items, k)
+                    end
+                    return true
+                end
+            end
+            if not next(savedDetails) then
+                savedDetails = v.details
+            end
+        end
+    end
+
+    --If we managed to capture details from other slots, create new entry in list
+    if next(savedDetails) then
+        local tmp = {}
+        tmp.count = count
+        tmp.slot = slot
+        tmp.details = savedDetails
+        tmp.name = itemName
+        tmp.chestName = chest
+        table.insert(items, tmp)
+        --dumpItems()
+        return true
+    end
+
+    --Patching failed, fallback to full reload
+    reloadStorageDatabase()
+    return false
+end
+
 local function search(string, InputTable)
     local filteredTable = {}
     local find = string.find
@@ -515,55 +591,67 @@ local function findFreeSpace(item, storage)
     local wrap = peripheral.wrap
     local find = string.find
     if filteredTable == nil then
+        --debugLog("Item not found in system")
         --Item not found in system
         --Find first chest with a free slot
         for k, chest in pairs(localStorage) do
             local list = chest.list()
             local size = chest.size()
-            local chestName = getName(chest)
-            --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
+            --skip full chests
+            if #list < size then
+                local chestName = getName(chest)
+                --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
 
-            local index
-            --workaround for storage drawers mod. slot 1 has the size of each slot but only slots 2..n can hold items so loop should start at 2
-            if find(chestName, "storagedrawers:") then
-                --print("applying storage drawers mod workaround")
-                index = 2
-            else --otherwise slots should start at 1
-                index = 1
-            end
-            for i = index, size, 1 do
-                if list[i] == nil then
-                    --print("Found free slot at chest: " .. getName(chest) .. " Slot: " .. tostring(i))
-                    return chestName, i
+                local index
+                --workaround for storage drawers mod. slot 1 has the size of each slot but only slots 2..n can hold items so loop should start at 2
+                if find(chestName, "storagedrawers:") then
+                    --print("applying storage drawers mod workaround")
+                    index = 2
+                else --otherwise slots should start at 1
+                    index = 1
+                end
+
+                --Find a slot that has nothing
+                for i = index, size, 1 do
+                    if list[i] == nil then
+                        --print("Found free slot at chest: " .. chestName .. " Slot: " .. tostring(i))
+                        --debugLog("Found free slot at chest: " .. chestName .. " Slot: " .. tostring(i))
+                        --local test = wrap(chestName).getItemDetail(i)
+                        --debugLog("slot info:" ..textutils.serialize(test))
+                        return chestName, i
+                    end
                 end
             end
         end
     else
+        --debugLog("Item was found in the system")
         --Item was found in the system
         --print("Item was found in the system")
+        local limit
         for k, v in pairs(filteredTable) do
             --text = v["name"] .. " #" .. v["count"]
             --print(v["name"] .. " #" .. v["count"] .. " " .. v["chestName"] .. " " .. v["slot"])
-            local limit
             --workaround for storage drawers mod. slot 1 reports the true item limit, slots 2..n report 0
-            if find(v["chestName"], "storagedrawers:") then
-                --getItemLimit is broken on cc-restitched
-                --limit = wrap(v["chestName"]).getItemLimit(1)
-                local slotItem = wrap(v["chestName"]).getItemDetail(1)
-                if type(slotItem) ~= "nil" then
-                    limit = slotItem.maxCount
+            if limit == nil then
+                if find(v["chestName"], "storagedrawers:") then
+                    --getItemLimit is broken on cc-restitched
+                    --limit = wrap(v["chestName"]).getItemLimit(1)
+                    local slotItem = wrap(v["chestName"]).getItemDetail(1)
+                    if type(slotItem) ~= "nil" then
+                        limit = slotItem.maxCount
+                    else
+                        limit = 64
+                    end
                 else
-                    limit = 64
-                end
-            else
-                --limit = wrap(v["chestName"]).getItemLimit(v["slot"])
+                    --limit = wrap(v["chestName"]).getItemLimit(v["slot"])
 
-                --workaround for getItemLimit being broken on cc-restitched as of ver 1.101.2
-                local slotItem = wrap(v["chestName"]).getItemDetail(v["slot"])
-                if type(slotItem) ~= "nil" then
-                    limit = slotItem.maxCount
-                else
-                    limit = 64
+                    --workaround for getItemLimit being broken on cc-restitched as of ver 1.101.2
+                    local slotItem = wrap(v["chestName"]).getItemDetail(v["slot"])
+                    if type(slotItem) ~= "nil" then
+                        limit = slotItem.maxCount
+                    else
+                        limit = 64
+                    end
                 end
             end
 
@@ -573,26 +661,36 @@ local function findFreeSpace(item, storage)
                 return v["chestName"], v["slot"]
             end
         end
+
         --Find first chest with a free slot
         --print("Find first chest with a free slot")
+        --debugLog("Find first chest with a free slot")
         for k, chest in pairs(localStorage) do
             local list = chest.list()
             local size = chest.size()
-            local chestName = getName(chest)
-            --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
+            --skip full chests
+            if #list < size then
+                local chestName = getName(chest)
+                --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
 
-            --workaround for storage drawers mod. slot 1 has the size of each slot but only slots 2..n can hold items so loop should start at 2
-            local index
-            if find(chestName, "storagedrawers:") then
-                --print("applying storage drawers mod workaround")
-                index = 2
-            else --otherwise slots should start at 1
-                index = 1
-            end
-            for i = index, size, 1 do
-                if list[i] == nil then
-                    --print("Found free slot at chest: " .. getName(chest) .. " Slot: " .. tostring(i))
-                    return chestName, i
+                --workaround for storage drawers mod. slot 1 has the size of each slot but only slots 2..n can hold items so loop should start at 2
+                local index
+                if find(chestName, "storagedrawers:") then
+                    --print("applying storage drawers mod workaround")
+                    index = 2
+                else --otherwise slots should start at 1
+                    index = 1
+                end
+
+                --Find a slot that has nothing
+                for i = index, size, 1 do
+                    if list[i] == nil then
+                        --print("Found free slot at chest: " .. chestName .. " Slot: " .. tostring(i))
+                        --debugLog("Found free slot at chest: " .. chestName .. " Slot: " .. tostring(i))
+                        --local test = wrap(chestName).getItemDetail(i)
+                        --debugLog("slot info:" ..textutils.serialize(test))
+                        return chestName, i
+                    end
                 end
             end
         end
@@ -604,7 +702,7 @@ local function getItem(requestItem, chest)
         print("ERROR: invaild export chest set on client")
         return
     end
-    print(tostring(inExportChests(chest)))
+    --print(tostring(inExportChests(chest)))
     local amount = requestItem.count
     local filteredTable = search(requestItem.name, items)
     local wrap = peripheral.wrap
@@ -615,23 +713,31 @@ local function getItem(requestItem, chest)
                 if requestItem.nbt == nil then
                     if item.count >= amount then
                         print("Export: " .. requestItem.name .. " #" .. tostring(amount))
-                        chestP.pullItems(item["chestName"], item["slot"], amount)
+                        debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
+                        local moved = chestP.pullItems(item["chestName"], item["slot"], amount)
+                        local patchstatus = patchStorageDatabase(item.name, -1 * moved, item.chestName, item.slot)
                         return
                     else
                         print("Export: " .. requestItem.name .. " #" .. tostring(amount))
-                        chestP.pullItems(item["chestName"], item["slot"])
+                        debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
+                        local moved = chestP.pullItems(item["chestName"], item["slot"])
                         amount = amount - item.count
+                        local patchstatus = patchStorageDatabase(item.name, -1 * moved, item.chestName, item.slot)
                     end
                 else
                     if item.nbt == requestItem.nbt then
                         if item.count >= amount then
                             print("Export: " .. requestItem.name .. " #" .. tostring(amount))
-                            chestP.pullItems(item["chestName"], item["slot"], amount)
+                            debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
+                            local moved = chestP.pullItems(item["chestName"], item["slot"], amount)
+                            local patchstatus = patchStorageDatabase(item.name, -1 * moved, item.chestName, item.slot)
                             return
                         else
                             print("Export: " .. requestItem.name .. " #" .. tostring(amount))
-                            chestP.pullItems(item["chestName"], item["slot"])
+                            debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
+                            local moved = chestP.pullItems(item["chestName"], item["slot"])
                             amount = amount - item.count
+                            local patchstatus = patchStorageDatabase(item.name, -1 * moved, item.chestName, item.slot)
                         end
                     end
                 end
@@ -639,7 +745,7 @@ local function getItem(requestItem, chest)
         end
     end
     --reloadStorageDatabase()
-    threadedStorageDatabaseReload()
+    --threadedStorageDatabaseReload()
 end
 
 --debug function
@@ -691,6 +797,8 @@ local function debugMenu()
             find(true)
         elseif input == "getItem" then
             getItem(true, settings.get("exportChests")[1])
+            pingClients("databaseReload")
+            storageFreeSlots = calcFreeSlots()
         elseif input == "send" then
             --sendItem(true)
         elseif input == "list" then
@@ -898,24 +1006,43 @@ local function importHandler()
         --check if list is not empty
         --print(dump(list))
         if next(list) then
+            local reload = false
             local localStorage = storages
             for i, item in pairs(list) do
-                --print("finding free space....")
-                local chest, slot = findFreeSpace(item, storages)
-                --print("chest: " .. tostring(chest) .. " slot: " .. tostring(slot))
-                if chest == nil then
-                    --TODO: implement space full alert
-                    print("No free space found!")
-                    reloadStorageDatabase()
-                    --sleep(5)
-                    --return
-                else
-                    --send to found slot
-                    print("Import: " .. item.name .. " #" .. tostring(item.count))
-                    peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                local currentItemDetail = peripheral.wrap(item.chestName).getItemDetail(item.slot)
+                if currentItemDetail ~= nil then
+                    --print("finding free space....")
+                    local chest, slot = findFreeSpace(item, storages)
+                    --print("chest: " .. tostring(chest) .. " slot: " .. tostring(slot))
+                    if chest == nil then
+                        --TODO: implement space full alert
+                        print("No free space found!")
+                        reloadStorageDatabase()
+                        reload = false
+                        --sleep(5)
+                        --return
+                    else
+                        --send to found slot
+                        print("Import: " .. item.name .. " #" .. tostring(item.count))
+                        debugLog("forceImport: " ..
+                            item.name .. " #" .. tostring(item.count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
+                        local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
+                        if moved > 0 then
+                            local patchstatus = patchStorageDatabase(item.name, moved, chest, slot)
+                            if not patchstatus then
+                                reload = true
+                            end
+                        else
+                            --local test = peripheral.wrap(chest).getItemDetail(item["slot"])
+                            --debugLog("moved is 0: " .. textutils.serialize(test))
+                            --reloadStorageDatabase()
+                            reload = false
+                        end
+                    end
                 end
             end
-            reloadStorageDatabase()
+            storageFreeSlots = calcFreeSlots()
+            pingClients("databaseReload")
             --threadedStorageDatabaseReload()
             --sleep(5)
         end
@@ -923,7 +1050,7 @@ local function importHandler()
     end
 end
 
---Cryptonet event handler 
+--Cryptonet event handler
 local function onCryptoNetEvent(event)
     -- When a client logs in
     if event[1] == "login" or event[1] == "hash_login" then
@@ -1011,15 +1138,20 @@ local function onCryptoNetEvent(event)
                         else
                             --send to found slot
                             print("Import: " .. item.name .. " #" .. tostring(item.count))
-                            local moved = peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                            debugLog("forceImport: " ..
+                                item.name ..
+                                " #" .. tostring(item.count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
+                            local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
                             if moved > 0 then
-                                reload = true
+                                local patchstatus = patchStorageDatabase(item.name, moved, chest, item.slot)
+                                if not patchstatus then
+                                    reload = true
+                                end
                             end
                         end
                     end
-                    if reload then
-                        reloadStorageDatabase()
-                    end
+                    storageFreeSlots = calcFreeSlots()
+                    pingClients("databaseReload")
                     cryptoNet.send(socket, { message, "forceImport" })
                 end
             elseif message == "import" then
@@ -1037,7 +1169,7 @@ local function onCryptoNetEvent(event)
                         else
                             --send to found slot
                             print("Import: " .. item.name .. " #" .. tostring(item.count))
-                            peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                            peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
                         end
                     end
                 end
@@ -1055,7 +1187,7 @@ local function onCryptoNetEvent(event)
                     else
                         --send to found slot
                         print("Import: " .. item.name .. " #" .. tostring(item.count))
-                        peripheral.wrap(item.chestName).pushItems(chest, item["slot"])
+                        peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
                     end
                 end
                 reloadStorageDatabase()
@@ -1065,8 +1197,10 @@ local function onCryptoNetEvent(event)
                 print("Exporting Item(s): " .. dump(data["item"]))
                 log("Export: " .. dump(data["item"]))
                 getItem(data["item"], data["chest"])
+                pingClients("databaseReload")
+                storageFreeSlots = calcFreeSlots()
                 --reloadStorageDatabase()
-                threadedStorageDatabaseReload()
+                --threadedStorageDatabaseReload()
             elseif message == "storageUsed" then
                 cryptoNet.send(socket, { message, storageUsed })
             elseif message == "storageSize" then
@@ -1355,6 +1489,10 @@ if fs.exists("storage.db") then
 end
 
 items, storageUsed, storageFreeSlots, storageTotalSlots = getList(storages)
+--debugLog(dump(items))
+--for k,v in pairs(items) do
+--    debugLog("k: " .. tostring(k) .. " v: " .. textutils.serialize(v))
+--end
 
 if settings.get("debug") == false then
     write("\nGetting storage size")
