@@ -52,11 +52,17 @@ settings.define("recipeURL",
     })
 settings.define("recipeFile", { description = "The temp file used for loading recipes", "recipes", type = "string" })
 settings.define("craftingChest",
-    { description = "The peripheral name of the crafting chest that is above the turtle", "minecraft:chest_3",
-        type = "string" })
+    {
+        description = "The peripheral name of the crafting chest that is above the turtle",
+        "minecraft:chest_3",
+        type = "string"
+    })
 settings.define("craftingImportChest",
-    { description = "The peripheral name of the chest under the turtle to import items", "minecraft:chest_4",
-        type = "string" })
+    {
+        description = "The peripheral name of the chest under the turtle to import items",
+        "minecraft:chest_4",
+        type = "string"
+    })
 settings.define("serverName",
     { description = "The hostname of this server", "CraftingServer" .. tostring(os.getComputerID()), type = "string" })
 settings.define("StorageServer", { description = "storage server hostname", default = "StorageServer", type = "string" })
@@ -1687,7 +1693,7 @@ local function craftBranch(recipeObj, ttl, amount, socket)
     end
 end
 
---Craft recipe assuming all materials are available 
+--Craft recipe assuming all materials are available
 local function craft(item, amount, socket)
     debugLog("craft")
     if type(socket) == "nil" then
@@ -1881,7 +1887,7 @@ local function debugMenu()
     end
 end
 
---Cryptonet event handler 
+--Cryptonet event handler
 local function onCryptoNetEvent(event)
     -- When a crafting server logs in to storage server
     if event[1] == "login" and not next(recipes) then
@@ -1952,11 +1958,13 @@ local function onCryptoNetEvent(event)
                     socket.username = "LAN Host"
                 end
             end
-            print(socket.username .. " requested: " .. tostring(message))
-            log("User: " .. socket.username .. " Client: " .. socket.target .. " request: " .. tostring(message))
+            --print(socket.username .. " requested: " .. tostring(message))
+            log("User: " ..
+            socket.username ..
+            " Client: " .. socket.target .. "Sender: " .. socket.sender .. " request: " .. tostring(message))
             --log(socket.name)
             --log(socket.channel)
-            log("Sender: " .. socket.sender)
+            --log("Sender: " .. socket.sender)
             --log(socket.name)
             if message == "storageCraftingServer" then
                 cryptoNet.send(socket, { message, settings.get("serverName") })
@@ -2005,8 +2013,10 @@ local function onCryptoNetEvent(event)
                 --debugLog("getCurrentlyCrafting")
                 cryptoNet.send(socket, { message, currentlyCrafting })
             elseif message == "craft" then
+                print(socket.username .. " requested: " .. tostring(message))
                 turtle.craft()
             elseif message == "craftItem" then
+                print(socket.username .. " requested: " .. tostring(message))
                 print("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
                 debugLog("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
                 --reloadStorageDatabase()
@@ -2019,6 +2029,7 @@ local function onCryptoNetEvent(event)
                 craftingRequest.socket = socket
                 craftingQueue.pushright(craftingRequest)
             elseif message == "autoCraftItem" then
+                print(socket.username .. " requested: " .. tostring(message))
                 print("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
                 debugLog("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
                 --reloadStorageDatabase()
@@ -2116,6 +2127,7 @@ local function onCryptoNetEvent(event)
             elseif message == "getPermissionLevel" then
                 cryptoNet.send(socket, { message, cryptoNet.getPermissionLevel(data, serverLAN) })
             elseif message == "setPermissionLevel" then
+                print(socket.username .. " requested: " .. tostring(message))
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
                 if permissionLevel >= 2 and userExists and type(data.permissionLevel) == "number" then
@@ -2126,6 +2138,7 @@ local function onCryptoNetEvent(event)
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "setPassword" then
+                print(socket.username .. " requested: " .. tostring(message))
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
                 if permissionLevel >= 2 and userExists and type(data.password) == "string" then
@@ -2140,6 +2153,7 @@ local function onCryptoNetEvent(event)
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "addUser" then
+                print(socket.username .. " requested: " .. tostring(message))
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
                 if permissionLevel >= 2 and not userExists and type(data.password) == "string" then
@@ -2150,6 +2164,7 @@ local function onCryptoNetEvent(event)
                     cryptoNet.send(socket, { message, false })
                 end
             elseif message == "deleteUser" then
+                print(socket.username .. " requested: " .. tostring(message))
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
                 local userExists = cryptoNet.userExists(data.username, serverLAN)
                 if permissionLevel >= 2 and userExists and type(data.password) == "string" then
