@@ -137,6 +137,9 @@ local function getRecipes()
     repeat
         event = os.pullEvent("gotRecipes")
     until event == "gotRecipes"
+    if not next(recipes) then
+        getRecipes()
+    end
 end
 
 local function pingStorageServer()
