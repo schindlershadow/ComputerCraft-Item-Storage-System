@@ -149,7 +149,7 @@ local crafting = false
 local recipeURL =
 "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt"
 local craftingChest = "minecraft:chest_3"
-local craftingImportChest = "minecraft:chest_4"
+--local craftingImportChest = "minecraft:chest_4"
 local exportChestName = "minecraft:chest_0"
 local exportChests = { "minecraft:chest_0" }
 local importChests = { "minecraft:chest_2" }
@@ -293,6 +293,7 @@ if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
 end
 
 if typeOfServer == "craftingServer" then
+    --[[
     term.clear()
     term.setCursorPos(1, 1)
     print("Set the network name of the chest to be used for importing crafted items")
@@ -301,6 +302,7 @@ if typeOfServer == "craftingServer" then
     print("")
     local craftingImportChestInput = io.read()    
     craftingImportChest = craftingImportChestInput
+    --]]
 
     term.clear()
     term.setCursorPos(1, 1)
@@ -342,7 +344,7 @@ if typeOfServer == "craftingServer" then
     settings.set("recipeURL", recipeURL)
     settings.set("recipeFile", "recipes")
     settings.set("craftingChest", craftingChest)
-    settings.set("craftingImportChest", craftingImportChest)
+    --settings.set("craftingImportChest", craftingImportChest)
     settings.set("requireLogin", loginRequirement)
     settings.set("username", username)
     settings.set("password", password)
