@@ -1,5 +1,5 @@
 math.randomseed(os.time() + (6 * os.getComputerID()))
-local storage, items, storageUsed
+local storage, items
 local serverLAN, serverWireless
 local tags = {}
 local clients = {}
@@ -130,6 +130,31 @@ local function debugLog(text)
 
         logFile.close()
     end
+end
+
+--fixes tags entry in recipe causing textutils.serialise to throw error
+local function cleanRecipe(table)
+    local arr = {}
+    --print("size: " .. tostring(#table))
+    for k, v in pairs(table) do
+        local tab = {}
+        tab.recipeType = v.recipeType
+        tab.name = v.name
+        tab.count = v.count
+        tab.recipeName = v.recipeName
+        tab.recipe = v.recipe
+        tab.recipeInput = v.recipeInput
+        tab.displayName = v.displayName
+        --tab.tags = v.tags
+        --No idea why this works
+        local tag = textutils.serialize(v.tags)
+        tab.tags = textutils.unserialise(tag)
+        arr[#arr + 1] = tab
+        --print(tostring(k))
+        --debugLog("k: " .. tostring(k) .. " dump: " .. dump(tab))
+        --debugLog(textutils.serialize(tab))
+    end
+    return arr
 end
 
 --These set of global functions are used when importing recipes
@@ -636,6 +661,7 @@ local function searchForTag(string, InputTable, count)
     return returnV, number, returnK
 end
 
+--Returns matched item obj, total number in list and index of matched obj
 local function search(searchTerm, InputTable, count)
     if string.find(searchTerm, "tag:") then
         return searchForTag(searchTerm, InputTable, count)
@@ -649,11 +675,12 @@ local function search(searchTerm, InputTable, count)
         for k, v in pairs(InputTable) do
             if (v["name"]) == (stringSearch) then
                 number = number + v.count
-            end
-            if (v["name"]) == (stringSearch) and v.count >= count then
-                --print("Found: " .. tostring(v.count) .. " of " .. v.name)
-                returnV = v
-                returnK = k
+
+                if v.count >= count then
+                    --print("Found: " .. tostring(v.count) .. " of " .. v.name)
+                    returnV = v
+                    returnK = k
+                end
             end
         end
         return returnV, number, returnK
@@ -753,7 +780,7 @@ local function haveCraftingMaterials(tableOfRecipes, amount, socket)
         socket = storageServerSocket
     end
     debugLog("haveCraftingMaterials")
-    debugLog(tableOfRecipes)
+    --debugLog(tableOfRecipes)
     debugLog("amount:" .. tostring(amount))
     if type(amount) == "nil" then
         amount = 1
@@ -773,7 +800,7 @@ local function haveCraftingMaterials(tableOfRecipes, amount, socket)
 
         debugLog("haveCraftingMaterials: numNeeded")
         local numNeeded = calculateNumberOfItems(recipe, amount)
-        debugLog(textutils.serialise(numNeeded))
+        debugLog(dump(numNeeded))
         --print(textutils.serialise(numNeeded))
 
 
@@ -955,13 +982,18 @@ local function dumpAll(skipReload)
         end
     end
     if reload and storageServerSocket ~= nil and not skipReload then
-        cryptoNet.send(storageServerSocket, { "forceImport", settings.get("craftingImportChest") })
         --reloadStorageDatabase()
+        --cryptoNet.send(storageServerSocket, { "forceImport", settings.get("craftingImportChest") })
+        
+        --local event
+        --repeat
+        --    event = os.pullEvent()
+        --until event == "forceImport"
+
         local event
         repeat
-            event = os.pullEvent()
-        until event == "forceImport"
-        --pingServer()
+            event = os.pullEvent("itemsUpdated")
+        until event == "itemsUpdated"
     end
 end
 
@@ -1215,6 +1247,63 @@ local function getBestRecipe(allRecipes, id)
     return bestRecipe, bestCount
 end
 
+--Avoid costly database reload by patching database in memory
+local function patchStorageDatabase(itemName, count, chest, slot)
+    if count == 0 or itemName == nil or chest == nil or slot == nil then
+        return false
+    end
+    --print("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
+    debugLog("Patching database item:" ..
+        itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
+    local stringSearch
+    --Strip out the item: from the front of the item name
+    if string.find(itemName, 'item:(.+)') then
+        stringSearch = string.match(itemName, 'item:(.+)')
+    else
+        stringSearch = itemName
+    end
+    if type(stringSearch) == "nil" then
+        stringSearch = itemName
+    end
+
+    local savedDetails = {}
+
+    for k, v in pairs(items) do
+        if v.name == stringSearch then
+            if v.chestName == chest then
+                if v.slot == slot then
+                    items[k].count = items[k].count + count
+                    if items[k].count < 1 then
+                        --If there is 0 items, delete from list
+                        table.remove(items, k)
+                    end
+                    return true
+                end
+            end
+            if not next(savedDetails) then
+                savedDetails = v.details
+            end
+        end
+    end
+
+    --If we managed to capture details from other slots, create new entry in list
+    if next(savedDetails) then
+        local tmp = {}
+        tmp.count = count
+        tmp.slot = slot
+        tmp.details = savedDetails
+        tmp.name = itemName
+        tmp.chestName = chest
+        table.insert(items, tmp)
+        --dumpItems()
+        return true
+    end
+
+    --Patching failed, fallback to full reload
+    getDatabaseFromServer()
+    return false
+end
+
 local function pullItems(craftingChest, chestName, slot, moveCount, itemName)
     tmp = {}
     tmp.craftingChest = craftingChest
@@ -1259,7 +1348,7 @@ local function pullItems(craftingChest, chestName, slot, moveCount, itemName)
     --]]
     --Patch db on both servers at the same time
     cryptoNet.send(storageServerSocket, { "patchStorageDatabase", tmp })
-    --local patchstatus = patchStorageDatabase(itemName, -1 * moved, chestName, slot)
+    local patchstatus = patchStorageDatabase(itemName, -1 * moved, chestName, slot)
     return moved
 end
 
@@ -1362,8 +1451,15 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                         local lastGoodIndex = 0
 
                         --This handles recipes that can have substitutions
+                        debugLog("This handles recipes that can have substitutions")
                         for k = 1, #recipe[row][slot], 1 do
                             searchResults[k], insystem[k], indexs[k] = search(recipe[row][slot][k], items, moveCount)
+                            if debug then
+                                debugLog("searchResults[k]: " .. textutils.serialize(searchResults[k]))
+                                local itemToBeMoved = peripheral.wrap(searchResults[k].chestName).list()
+                                    [searchResults[k].slot]
+                                debugLog("itemToBeMoved: " .. textutils.serialize(itemToBeMoved))
+                            end
                             if type(searchResults[k]) ~= "nil" then
                                 found = true
                                 foundIndexs[k] = true
@@ -1427,7 +1523,11 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                 searchResult = search(recipe[row][slot][lastGoodIndex], items, 1)
                             end
 
+
+
                             --Move the items from the system to crafting chest
+                            debugLog("Move the items from the system to crafting chest")
+                            debugLog(textutils.serialize(searchResult))
                             print("Getting: " .. searchResult.name:match(".+:(.+)"))
                             debugLog("Getting: " .. searchResult.name)
                             updateClient(socket, "logUpdate", searchResult.name:match(".+:(.+)"))
@@ -1730,6 +1830,7 @@ end
 
 --Craft recipe assuming all materials are available
 local function craft(item, amount, socket)
+    getDatabaseFromServer()
     debugLog("craft")
     if type(socket) == "nil" then
         socket = storageServerSocket
@@ -1758,14 +1859,14 @@ local function craft(item, amount, socket)
     end
 
     --If one of the recipes are craftable, craft it
-    debugLog("If one of the recipes are craftable, craft it")
+    --debugLog("If one of the recipes are craftable, craft it")
     local craftableRecipes = haveCraftingMaterials(allRecipes, 1, socket)
     local recipeToCraft
 
     --print(tostring(#craftableRecipes))
 
     --Otherwise get the best recipe
-    debugLog("Otherwise get the best recipe")
+    --debugLog("Otherwise get the best recipe")
     local outputAmount = 1
     if #craftableRecipes == 0 then
         --print("No currently craftable recipes, Searching for best recipe")
@@ -1835,6 +1936,7 @@ local function craftingManager()
                 local ableToCraft = false
                 if craftingRequest.autoCraft then
                     ableToCraft = craft(craftingRequest.recipe, craftingRequest.timesToCraft, craftingRequest.socket)
+                    --[[
                     if ableToCraft == false then
                         print("Crafting Failed!")
                         --try again
@@ -1842,6 +1944,7 @@ local function craftingManager()
                         reloadStorageDatabase()
                         ableToCraft = craft(craftingRequest.recipe, craftingRequest.timesToCraft, craftingRequest.socket)
                     end
+                    --]]
                 else
                     ableToCraft = craftRecipe(craftingRequest.recipe, craftingRequest.timesToCraft,
                         craftingRequest.socket)
@@ -2036,7 +2139,8 @@ local function onCryptoNetEvent(event)
                 log("Logging into server:" .. settings.get("StorageServer"))
                 cryptoNet.login(storageServerSocket, settings.get("username"), settings.get("password"))
             elseif message == "databaseReload" then
-                os.startThread(getDatabaseFromServer)
+                --os.startThread(getDatabaseFromServer)
+                getDatabaseFromServer()
             elseif message == "forceImport" then
                 os.queueEvent("forceImport")
             elseif message == "getRecipes" then
@@ -2071,6 +2175,7 @@ local function onCryptoNetEvent(event)
                 --reloadStorageDatabase()
 
                 local craftingRequest = {}
+                craftingRequest.autoCraft = true
                 craftingRequest.recipe = data
                 craftingRequest.name = data.name
                 craftingRequest.timesToCraft = math.ceil(data.amount / data.count)
@@ -2111,8 +2216,11 @@ local function onCryptoNetEvent(event)
                         cryptoNet.send(socket, { message, craftableRecipes })
                     else
                         print("0 craftable recipes")
-                        debugLog(textutils.serialise(allRecipes))
-                        cryptoNet.send(socket, { message, allRecipes })
+                        debugLog("0 craftable recipes")
+                        local clean = cleanRecipe(allRecipes)
+                        --debugLog(textutils.serialize(clean, {false, true}))
+                        cryptoNet.send(socket, { message, clean })
+                        --cryptoNet.send(socket, { message, {allRecipes[1]} })
                     end
                 end
             elseif message == "getItems" then
