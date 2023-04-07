@@ -488,10 +488,11 @@ local function threadedStorageDatabaseReload()
 end
 
 --Avoid costly database reload by patching database in memory
-local function patchStorageDatabase(itemName, count, chest, slot)
-    if count == 0 or itemName == nil or chest == nil or slot == nil then
+local function patchStorageDatabase(inputItem, count, chest, slot)
+    if count == 0 or inputItem == nil or chest == nil or slot == nil then
         return false
     end
+    local itemName = inputItem.name
 
     --print("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
     debugLog("Patching database item:" ..
@@ -513,29 +514,31 @@ local function patchStorageDatabase(itemName, count, chest, slot)
         if v.name == stringSearch then
             if v.chestName == chest then
                 if v.slot == slot then
-                    --handler for techreborn storage_units
-                    if (string.find(chest, "techreborn:") and string.find(chest, "storage_unit")) then
-                        local slotDetails = peripheral.wrap(chest).getItemDetail(slot)
-                        if slotDetails ~= nil then
-                            items[k].count = slotDetails.count
+                    if v.nbt == inputItem.nbt then
+                        --handler for techreborn storage_units
+                        if (string.find(chest, "techreborn:") and string.find(chest, "storage_unit")) then
+                            local slotDetails = peripheral.wrap(chest).getItemDetail(slot)
+                            if slotDetails ~= nil then
+                                items[k].count = slotDetails.count
+                            else
+                                items[k].count = 0
+                            end
+
+                            --storageUsed = storageUsed + (slotDetails.count - count)
                         else
-                            items[k].count = 0
+                            items[k].count = items[k].count + count
+                            storageUsed = storageUsed + count
+                        end
+                        if items[k].count < 1 then
+                            --If there is 0 items, delete from list
+                            table.remove(items, k)
                         end
 
-                        --storageUsed = storageUsed + (slotDetails.count - count)
-                    else
-                        items[k].count = items[k].count + count
-                        storageUsed = storageUsed + count
+                        return true
                     end
-                    if items[k].count < 1 then
-                        --If there is 0 items, delete from list
-                        table.remove(items, k)
-                    end
-
-                    return true
                 end
             end
-            if not next(savedDetails) then
+            if not next(savedDetails) and v.details ~= nil and v.nbt == inputItem.nbt then
                 savedDetails = v.details
             end
         end
@@ -549,6 +552,7 @@ local function patchStorageDatabase(itemName, count, chest, slot)
         tmp.details = savedDetails
         tmp.name = itemName
         tmp.chestName = chest
+        tmp.nbt = savedDetails.nbt
         table.insert(items, tmp)
         storageUsed = storageUsed + count
         return true
@@ -562,6 +566,7 @@ local function patchStorageDatabase(itemName, count, chest, slot)
             tmp.details = slotDetails
             tmp.name = itemName
             tmp.chestName = chest
+            tmp.nbt = slotDetails.nbt
             table.insert(items, tmp)
             storageUsed = storageUsed + count
             return true
@@ -626,6 +631,7 @@ local function cleanTable(table)
         tab.displayName = v.displayName
         tab.chestName = v.chestName
         tab.slot = v.slot
+        tab.nbt = v.nbt
         --tab.tags = v.tags
         --No idea why this works
         local tag = textutils.serialize(v.tags)
@@ -725,13 +731,13 @@ local function findFreeSpace(item, storage)
                     return v["chestName"], 1
                 end
                 limit = slotItem.maxCount - slotItem.count
-                if v["count"] <= limit then
+                if v["count"] <= limit and item.nbt == v.nbt then
                     return v["chestName"], 1
                 end
             else
                 --if the slot is not full, then it has free space
                 --print("limit: " .. tostring(limit) .. " count: " .. tostring(v["count"]))
-                if v["count"] <= limit then
+                if v["count"] <= limit and item.nbt == v.nbt then
                     return v["chestName"], v["slot"]
                 end
             end
@@ -788,19 +794,19 @@ local function getItem(requestItem, chest)
             local chestP = wrap(chest)
             if chestP ~= nil and not (item.slot == 1 and (string.find(chest, "techreborn:") and string.find(chest, "storage_unit"))) then
                 --dont export from the first slot of a techreborn storage_unit
-                if requestItem.nbt == nil then
+                if requestItem.nbt == nil and item.nbt == nil then
                     if item.count >= amount then
                         --print("Export: " .. requestItem.name .. " #" .. tostring(amount))
                         debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
                         local moved = chestP.pullItems(item["chestName"], item["slot"], amount)
-                        local patchstatus = patchStorageDatabase(item.name, -1 * moved, item.chestName, item.slot)
+                        local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
                         return
                     else
                         --print("Export: " .. requestItem.name .. " #" .. tostring(amount))
                         debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
                         local moved = chestP.pullItems(item["chestName"], item["slot"])
                         amount = amount - item.count
-                        local patchstatus = patchStorageDatabase(item.name, -1 * moved, item.chestName, item.slot)
+                        local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
                     end
                 else
                     if item.nbt == requestItem.nbt then
@@ -808,14 +814,14 @@ local function getItem(requestItem, chest)
                             --print("Export: " .. requestItem.name .. " #" .. tostring(amount))
                             debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
                             local moved = chestP.pullItems(item["chestName"], item["slot"], amount)
-                            local patchstatus = patchStorageDatabase(item.name, -1 * moved, item.chestName, item.slot)
+                            local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
                             return
                         else
                             --print("Export: " .. requestItem.name .. " #" .. tostring(amount))
                             debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" .. item.chestName .. " slot:" .. item.slot))
                             local moved = chestP.pullItems(item["chestName"], item["slot"])
                             amount = amount - item.count
-                            local patchstatus = patchStorageDatabase(item.name, -1 * moved, item.chestName, item.slot)
+                            local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
                         end
                     end
                 end
@@ -1117,7 +1123,7 @@ local function importHandler()
                     --send to found slot
                     local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
                     if moved > 0 then
-                        local patchstatus = patchStorageDatabase(item.name, moved, chest, slot)
+                        local patchstatus = patchStorageDatabase(item, moved, chest, slot)
                         if not patchstatus then
                             reload = true
                         end
@@ -1232,7 +1238,7 @@ local function onCryptoNetEvent(event)
                             --send to found slot
                             local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
                             if moved > 0 then
-                                local patchstatus = patchStorageDatabase(item.name, moved, chest, item.slot)
+                                local patchstatus = patchStorageDatabase(item, moved, chest, item.slot)
                                 if not patchstatus then
                                     reload = true
                                 end
@@ -1445,9 +1451,9 @@ local function onCryptoNetEvent(event)
                 local itemsMoved = peripheral.wrap(data.craftingChest).pullItems(data.chestName, data.slot,
                     data.moveCount)
                 cryptoNet.send(socket, { message, itemsMoved })
-                local patchstatus = patchStorageDatabase(data.name, -1 * itemsMoved, data.chestName, data.slot)
+                local patchstatus = patchStorageDatabase(data, -1 * itemsMoved, data.chestName, data.slot)
             elseif message == "patchStorageDatabase" then
-                local patchstatus = patchStorageDatabase(data.name, data.count, data.chestName, data.slot)
+                local patchstatus = patchStorageDatabase(data, data.count, data.chestName, data.slot)
             end
         elseif event[2] ~= nil then
             --User is not logged in
