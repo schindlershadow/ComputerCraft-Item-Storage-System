@@ -2612,7 +2612,7 @@ local function onStart()
     end
 
     --Only open wireless server if master crafting server
-    if type(wirelessModem) ~= "nil" and not settings.get("isMasterCraftingServer") then
+    if type(wirelessModem) ~= "nil" and settings.get("isMasterCraftingServer") then
         debugLog("Start the wireless cryptoNet server")
         serverWireless = cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
     end
