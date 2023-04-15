@@ -1742,7 +1742,9 @@ local function drawUserMenu()
                 --logout
                 if permissionLevel > 0 then
                     cryptoNet.logout(storageServerSocket)
-                    cryptoNet.logout(craftingServerSocket)
+                    if settings.get("crafting") then
+                        cryptoNet.logout(craftingServerSocket)
+                    end
                     sleep(1)
                     --check if server requires a login
                     if not isWirelessModem then
