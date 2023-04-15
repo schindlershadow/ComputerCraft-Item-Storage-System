@@ -1492,7 +1492,7 @@ local function onCryptoNetEvent(event)
                             break
                         end
                     end
-                    if type(serverWireless) ~= nil and type(serverWireless.sockets) ~= nil then
+                    if type(serverWireless) == "table" then
                         for k, v in pairs(serverWireless.sockets) do
                             if v.target == socket.target then
                                 serverWireless.sockets[k] = socket
