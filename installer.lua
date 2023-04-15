@@ -120,6 +120,30 @@ file.close()
 
 print("")
 print("Startup file Install Complete")
+
+--Download audio files
+if turtle then
+    print("Downloading audio files")
+    download = http.get(
+        "https://github.com/schindlershadow/ComputerCraft-Item-Storage-System/raw/main/craftingComplete.dfpwm")
+    handle = download.readAll()
+    download.close()
+    file = fs.open("craftingComplete.dfpwm", "w")
+    file.write(handle)
+    file.close()
+
+    download = http.get(
+        "https://github.com/schindlershadow/ComputerCraft-Item-Storage-System/raw/main/craftingFailed.dfpwm")
+    handle = download.readAll()
+    download.close()
+    file = fs.open("craftingFailed.dfpwm", "w")
+    file.write(handle)
+    file.close()
+
+    print("Download complete")
+end
+
+
 sleep(2)
 
 term.clear()
