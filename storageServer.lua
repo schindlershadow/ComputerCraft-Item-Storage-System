@@ -54,7 +54,9 @@ settings.define(
     "importChests",
     { description = "The peripheral name of the import chests", default = { "minecraft:chest_2" }, type = "table" }
 )
-settings.define("craftingChests", { description = "The peripheral name of the crafting chests that are above the turtle(s)", { "minecraft:chest_3" }, type = "table" })
+settings.define("craftingChests",
+{ description = "The peripheral name of the crafting chests that are above the turtle(s)", { "minecraft:chest_3" },
+    type = "table" })
 settings.define("serverName",
     { description = "The hostname of this server", "StorageServer" .. tostring(os.getComputerID()), type = "string" })
 settings.define("requireLogin", { description = "require a login for LAN clients", default = "false", type = "boolean" })
@@ -1490,10 +1492,12 @@ local function onCryptoNetEvent(event)
                             break
                         end
                     end
-                    for k, v in pairs(serverWireless.sockets) do
-                        if v.target == socket.target then
-                            serverWireless.sockets[k] = socket
-                            break
+                    if type(serverWireless) ~= nil then
+                        for k, v in pairs(serverWireless.sockets) do
+                            if v.target == socket.target then
+                                serverWireless.sockets[k] = socket
+                                break
+                            end
                         end
                     end
                     os.queueEvent("hash_login", socket.username, socket)
