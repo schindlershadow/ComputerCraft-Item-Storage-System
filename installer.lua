@@ -177,6 +177,7 @@ local craftingChest = "minecraft:chest_3"
 local exportChestName = "minecraft:chest_0"
 local exportChests = { "minecraft:chest_0" }
 local importChests = { "minecraft:chest_2" }
+local craftingChests = { "minecraft:chest_3" }
 
 
 if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
@@ -222,6 +223,14 @@ if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
     end
 
     if typeOfServer == "craftingServer" then
+        term.clear()
+        term.setCursorPos(1, 1)
+        print("Set the hostname of the Storage Server this crafting server should connect to")
+        print("Example: StorageServer5")
+        print("")
+        local storageServerHostname = io.read()
+        settings.set("StorageServer", storageServerHostname)
+
         if loginRequirement then
             term.clear()
             term.setCursorPos(1, 1)
@@ -238,13 +247,35 @@ if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
             end
         end
 
+        --[[
         term.clear()
         term.setCursorPos(1, 1)
-        print("Set the hostname of the Storage Server this crafting server should connect to")
-        print("Example: StorageServer5")
+        print("Crafting Server Role")
+        print("Select a Role for this crafting server")
+        print("Note: At least 1 Master crafting server is required")
         print("")
-        local storageServerHostname = io.read()
-        settings.set("StorageServer", storageServerHostname)
+        print("1 Master")
+        print("2 Slave (currently not working)")
+        print("")
+        local masterCraftingServerInput = io.read()
+        if masterCraftingServerInput == "2" then
+            masterCraftingServer = false
+        else
+            masterCraftingServer = true
+        end
+        settings.set("isMasterCraftingServer", masterCraftingServer)
+        --]]
+        local masterCraftingServer = true
+
+        if masterCraftingServer == false then
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("Set the hostname of the master crafting server this crafting server should connect to")
+            print("Example: CraftingServer2")
+            print("")
+            local masterCraftingServerHostname = io.read()
+            settings.set("MasterCraftingServer", storageServerHostname)
+        end
     else
         term.clear()
         term.setCursorPos(1, 1)
@@ -304,6 +335,9 @@ if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
         end
     end
 
+    
+
+    --[[
     term.clear()
     term.setCursorPos(1, 1)
     print("Set the network name of the chest to be used for crafting")
@@ -314,9 +348,20 @@ if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
     if craftingChestInput ~= "0" then
         craftingChest = craftingChestInput
     end
+    --]]
 end
 
 if typeOfServer == "craftingServer" then
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("Set the network name of the chest to be used for crafting")
+    print("Example: minecraft:chest_3")
+    print("Enter 0 if your not using autocrafting")
+    print("")
+    local craftingChestInput = io.read()
+    if craftingChestInput ~= "0" then
+        craftingChest = craftingChestInput
+    end
     --[[
     term.clear()
     term.setCursorPos(1, 1)
@@ -324,10 +369,9 @@ if typeOfServer == "craftingServer" then
     print("This is the chest located under the crafty turtle")
     print("Example: minecraft:chest_4")
     print("")
-    local craftingImportChestInput = io.read()    
+    local craftingImportChestInput = io.read()
     craftingImportChest = craftingImportChestInput
     --]]
-
     term.clear()
     term.setCursorPos(1, 1)
     print("Would you like to use a custom recipe URL?")
@@ -407,10 +451,27 @@ elseif typeOfServer == "storageServer" then
         end
     end
 
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("Set the number of crafting chests to be used for crafting")
+    print("Type 0 to set default")
+    print("")
+    local numOfCraftingChests = tonumber(io.read())
+    if numOfCraftingChests ~= 0 then
+        for i = 1, numOfCraftingChests do
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("Set the network name of crafting chest #" .. tostring(i))
+            print("Example: minecraft:chest_3")
+            print("")
+            craftingChests[i] = io.read()
+        end
+    end
+
     settings.set("debug", false)
     settings.set("exportChests", exportChests)
     settings.set("importChests", importChests)
-    settings.set("craftingChest", craftingChest)
+    settings.set("craftingChests", craftingChests)
     settings.set("requireLogin", loginRequirement)
 else
     term.clear()

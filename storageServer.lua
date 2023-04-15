@@ -54,8 +54,7 @@ settings.define(
     "importChests",
     { description = "The peripheral name of the import chests", default = { "minecraft:chest_2" }, type = "table" }
 )
-settings.define("craftingChest",
-    { description = "The peripheral name of the crafting chest", "minecraft:chest_3", type = "string" })
+settings.define("craftingChests", { description = "The peripheral name of the crafting chests that are above the turtle(s)", { "minecraft:chest_3" }, type = "table" })
 settings.define("serverName",
     { description = "The hostname of this server", "StorageServer" .. tostring(os.getComputerID()), type = "string" })
 settings.define("requireLogin", { description = "require a login for LAN clients", default = "false", type = "boolean" })
@@ -69,7 +68,7 @@ if settings.load() == false then
     settings.set("requireLogin", false)
     settings.set("exportChests", { "minecraft:chest_0" })
     settings.set("importChests", { "minecraft:chest_2" })
-    settings.set("craftingChest", "minecraft:chest_3")
+    settings.set("craftingChests", { "minecraft:chest_3" })
     print("Stop the server and edit .settings file with correct settings")
     settings.save()
     sleep(5)
@@ -185,6 +184,16 @@ local function inImportChests(search)
     return false
 end
 
+local function inCraftingChests(search)
+    local importChests = settings.get("craftingChests")
+    for _, chest in pairs(importChests) do
+        if chest == search then
+            return true
+        end
+    end
+    return false
+end
+
 --Returns list of storage peripherals excluding import and export chests
 local function getStorage()
     local storage = {}
@@ -195,7 +204,7 @@ local function getStorage()
         local remote = modem.getNamesRemote()
         for i in pairs(remote) do
             if modem.hasTypeRemote(remote[i], "inventory") then
-                if inExportChests(remote[i]) == false and inImportChests(remote[i]) == false and remote[i] ~= settings.get("craftingChest") then
+                if inExportChests(remote[i]) == false and inImportChests(remote[i]) == false and inCraftingChests(remote[i]) == false then
                     storage[#storage + 1] = wrap(remote[i])
                 end
             end
@@ -1582,7 +1591,7 @@ term.clear()
 print("debug mode: " .. tostring(settings.get("debug")))
 print("exportChests are set to : " .. dump(settings.get("exportChests")))
 print("importChests are set to: " .. dump(settings.get("importChests")))
-print("craftingChest is set to: " .. (settings.get("craftingChest")))
+print("craftingChests is set to: " .. dump(settings.get("craftingChests")))
 
 print("")
 print("Server is loading, please wait....")
