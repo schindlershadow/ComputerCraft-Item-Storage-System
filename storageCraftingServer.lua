@@ -3,8 +3,9 @@ local storage, items
 local serverLAN, serverWireless
 local tags = {}
 local clients = {}
+local slaves = {}
 local recipes = {}
-local storageServerSocket
+local storageServerSocket, masterCraftingServerSocket
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
 local detailDB
 local currentlyCrafting = {}
@@ -37,6 +38,7 @@ os.startThread = os.startThread
 os.pullEvent = os.pullEvent
 os.startTimer = os.startTimer
 os.reboot = os.reboot
+os.setComputerLabel = os.setComputerLabel
 utf8 = utf8
 cryptoNet = cryptoNet
 
@@ -57,18 +59,14 @@ settings.define("craftingChest",
         "minecraft:chest_3",
         type = "string"
     })
-settings.define("craftingImportChest",
-    {
-        description = "The peripheral name of the chest under the turtle to import items",
-        "minecraft:chest_4",
-        type = "string"
-    })
 settings.define("serverName",
     { description = "The hostname of this server", "CraftingServer" .. tostring(os.getComputerID()), type = "string" })
 settings.define("StorageServer", { description = "storage server hostname", default = "StorageServer", type = "string" })
 settings.define("requireLogin", { description = "require a login for LAN clients", default = "false", type = "boolean" })
-settings.define("masterCraftingServer",
+settings.define("isMasterCraftingServer",
     { description = "Defines master server vs slave server", default = "true", type = "boolean" })
+settings.define("masterCraftingServer",
+    { description = "The hostname of the master crafting server", "CraftingServer", type = "string" })
 
 --Settings fails to load
 if settings.load() == false then
@@ -77,13 +75,13 @@ if settings.load() == false then
     settings.set("serverName", "CraftingServer" .. tostring(os.getComputerID()))
     settings.set("StorageServer", "StorageServer")
     settings.set("debug", false)
-    settings.set("masterCraftingServer", true)
+    settings.set("isMasterCraftingServer", true)
+    settings.set("masterCraftingServer", "CraftingServer")
     settings.set("requireLogin", false)
     settings.set("recipeURL",
         "https://raw.githubusercontent.com/schindlershadow/ComputerCraft-Item-Storage-System/main/vanillaRecipes.txt")
     settings.set("recipeFile", "recipes")
     settings.set("craftingChest", "minecraft:chest_3")
-    settings.set("craftingImportChest", "minecraft:chest_4")
     print("Stop the server and edit .settings file with correct settings")
     settings.save()
     sleep(5)
@@ -984,7 +982,7 @@ local function dumpAll(skipReload)
     if reload and storageServerSocket ~= nil and not skipReload then
         --reloadStorageDatabase()
         --cryptoNet.send(storageServerSocket, { "forceImport", settings.get("craftingImportChest") })
-        
+
         --local event
         --repeat
         --    event = os.pullEvent()
@@ -1011,6 +1009,27 @@ local function playSounds(instrument, reversed)
             speaker.playNote(instrument, 3, pitch)
         end
         --sleep(0.2)
+    end
+end
+
+local function playAudio(complete)
+    local dfpwm = require("cc.audio.dfpwm")
+    local audioFile
+    if complete then
+        audioFile = "craftingComplete.dfpwm"
+    else
+        audioFile = "craftingFailed.dfpwm"
+    end
+
+    local decoder = dfpwm.make_decoder()
+    for chunk in io.lines(audioFile, 16 * 1024) do
+        local buffer = decoder(chunk)
+        for speakerid = 1, #speakers, 1 do
+            local speaker = peripheral.wrap(speakers[speakerid])
+            while not speaker.playAudio(buffer, 3) do
+                os.pullEvent("speaker_audio_empty")
+            end
+        end
     end
 end
 
@@ -1452,6 +1471,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
 
                         --This handles recipes that can have substitutions
                         debugLog("This handles recipes that can have substitutions")
+                        local debug = settings.get("debug")
                         for k = 1, #recipe[row][slot], 1 do
                             searchResults[k], insystem[k], indexs[k] = search(recipe[row][slot][k], items, moveCount)
                             if debug then
@@ -1955,12 +1975,14 @@ local function craftingManager()
                     print("Crafting Successful")
                     --cryptoNet.send(socket, { "craftingUpdate", true })
                     updateClient(craftingRequest.socket, true)
-                    playSounds("bell", false)
+                    --playSounds("bell", false)
+                    playAudio(true)
                 else
                     print("Crafting Failed!")
                     --cryptoNet.send(socket, { "craftingUpdate", false })
                     updateClient(craftingRequest.socket, false)
-                    playSounds("cow_bell", true)
+                    --playSounds("cow_bell", true)
+                    playAudio(false)
                 end
                 currentlyCrafting = {}
                 local speed = (os.epoch("utc") / 1000) - time
@@ -2025,6 +2047,52 @@ local function debugMenu()
     end
 end
 
+--Logs in using password hash
+--This allows multiple servers to use a central server as an auth server by passing the hash
+local function login(socket, user, pass, servername)
+    --Check if wireless server
+    local startIndex, endIndex = string.find(servername, "_Wireless")
+    if startIndex then
+        --get the server name by cutting out "_Wireless"
+        servername = string.sub(servername, 1, startIndex - 1)
+        log("wireless server rename: " .. servername)
+    else
+        log("servername " .. servername)
+    end
+
+    local tmp = {}
+    tmp.username = user
+    tmp.password = pass
+    tmp.servername = servername
+    --mark for garbage collection
+    pass = nil
+    --log("hashLogin")
+    cryptoNet.send(socket, { "hashLogin", tmp })
+    --mark for garbage collection
+    tmp = nil
+    local event
+    local loginStatus = false
+    local permissionLevel = 0
+    repeat
+        event, loginStatus, permissionLevel = os.pullEvent("hashLogin")
+    until event == "hashLogin"
+    log("loginStatus:" .. tostring(loginStatus))
+    if loginStatus == true then
+        socket.username = user
+        socket.permissionLevel = permissionLevel
+        os.queueEvent("login", user, socket)
+        --Register as slave crafting server
+        cryptoNet.send(socket, { "registerSlaveServer" })
+        debugLog("Successfully logged in")
+    else
+        term.setCursorPos(1, 1)
+        debugLog("Failed login")
+        error("Failed to login to Server")
+    end
+
+    return socket
+end
+
 --Cryptonet event handler
 local function onCryptoNetEvent(event)
     -- When a crafting server logs in to storage server
@@ -2035,12 +2103,27 @@ local function onCryptoNetEvent(event)
         -- The logged-in username is also stored in the socket
         print("Login successful using " .. socket.username)
         os.queueEvent("storageServerLogin")
+        --If this is a slave crafting server, login to master crafting server
+        if not settings.get("isMasterCraftingServer") and masterCraftingServerSocket == nil then
+            print("Connecting to master server: " .. settings.get("MasterCraftingServer"))
+            log("Connecting to master server: " .. settings.get("MasterCraftingServer"))
+            masterCraftingServerSocket = cryptoNet.connect(settings.get("MasterCraftingServer"))
+            -- Log in with a username and password
+            print("Logging into master server:" .. settings.get("MasterCraftingServer"))
+            log("Logging into master server:" .. settings.get("MasterCraftingServer"))
+
+            login(masterCraftingServerSocket, settings.get("username"), settings.get("password"),
+                settings.get("StorageServer"))
+        end
     elseif event[1] == "login" or event[1] == "hash_login" then
         local username = event[2]
         -- The socket of the client that just logged in
         local socket = event[3]
         -- The logged-in username is also stored in the socket
         print(socket.username .. " just logged in.")
+    elseif event[1] == "login_failed" then
+        -- Login failed (wrong username or password)
+        print("Login Failed")
     elseif event[1] == "plain_message" then
         local message = event[2][1]
         local data = event[2][2]
@@ -2077,6 +2160,8 @@ local function onCryptoNetEvent(event)
                     sleep(0.5 + (math.random() % 0.2))
                     pingServer()
                 end
+            elseif message == "requireLogin" then
+                cryptoNet.send(socket, { message, settings.get("requireLogin") })
             end
         else
             --User is not logged in
@@ -2124,10 +2209,30 @@ local function onCryptoNetEvent(event)
                         ":" .. string.sub(tostring(clients[i].sender), 1, 5) .. ":" .. tostring(clients[i].target))
                 end
                 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+            elseif message == "registerSlaveServer" then
+                cryptoNet.send(socket, { message, settings.get("serverName") })
+                local uniq = true
+                for i in pairs(slaves) do
+                    if slaves[i] == socket then
+                        uniq = false
+                    end
+                end
+                if uniq then
+                    slaves[#slaves + 1] = socket
+                end
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+                local count = 0
+                for _ in pairs(slaves) do count = count + 1 end
+                print("Slaves: " .. tostring(count))
+                for i in pairs(slaves) do
+                    print(tostring(slaves[i].username) ..
+                        ":" .. string.sub(tostring(slaves[i].sender), 1, 5) .. ":" .. tostring(slaves[i].target))
+                end
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
             elseif message == "getServerType" then
                 cryptoNet.send(socket, { message, "CraftingServer" })
             elseif message == "isMainCraftingServer" then
-                if settings.get("masterCraftingServer") then
+                if settings.get("isMasterCraftingServer") then
                     cryptoNet.send(socket, { message, true })
                 else
                     cryptoNet.send(socket, { message, false })
@@ -2321,7 +2426,7 @@ local function onCryptoNetEvent(event)
                 end
             elseif message == "checkPasswordHashed" then
                 os.queueEvent("gotCheckPasswordHashed", data, event[2][3])
-            elseif message == "watchCrafting" then
+            elseif message == "watchCrafting" and not settings.get("isMasterCraftingServer") then
                 local uniq = true
                 for i in pairs(craftingUpdateClients) do
                     if craftingUpdateClients[i] == socket then
@@ -2385,6 +2490,8 @@ local function onCryptoNetEvent(event)
                     log("User: " .. data.username .. " failed to login")
                     cryptoNet.send(socket, { "hashLogin", false })
                 end
+            elseif message == "requireLogin" then
+                cryptoNet.send(socket, { message, settings.get("requireLogin") })
             else
                 debugLog("User is not logged in. Sender: " .. socket.sender .. " Target: " .. socket.target)
                 --debugLog("socket.username: " .. tostring(socket.username))
@@ -2400,12 +2507,37 @@ local function onCryptoNetEvent(event)
             cryptoNet.closeAll()
             os.reboot()
         end
+        if not settings.get("isMasterCraftingServer") and socket.sender == masterCraftingServerSocket.sender then
+            cryptoNet.closeAll()
+            os.reboot()
+        end
     elseif event[1] == "timer" then
         if event[2] == timeoutConnect and (type(storageServerSocket) == "nil") then
             --Reboot after failing to connect
             cryptoNet.closeAll()
             os.reboot()
         end
+    end
+end
+
+local function getMasterCraftingServerCert()
+    --Download the cert from the MasterCraftingServer if it doesnt exist already
+    local filePath = settings.get("MasterCraftingServer") .. ".crt"
+    if not fs.exists(filePath) then
+        log("Download the cert from the MasterCraftingServer")
+        cryptoNet.send(masterCraftingServerSocket, { "getCertificate" })
+        --wait for reply from server
+        log("wait for reply from MasterCraftingServer")
+        local event, data
+        repeat
+            event, data = os.pullEvent("gotCertificate")
+        until event == "gotCertificate"
+
+        log("write the cert file")
+        --write the file
+        local file = fs.open(filePath, "w")
+        file.write(data)
+        file.close()
     end
 end
 
@@ -2431,9 +2563,13 @@ local function postStart()
     cryptoNet.send(storageServerSocket, { "storageServer" })
     getDatabaseFromServer()
     getDetailDBFromServer()
+    if not settings.get("isMasterCraftingServer") then
+        getMasterCraftingServerCert()
+    end
 end
 
 local function onStart()
+    os.setComputerLabel(settings.get("serverName"))
     --clear out old log
     if fs.exists("logs/craftingServer.log") then
         fs.delete("logs/craftingServer.log")
@@ -2475,7 +2611,8 @@ local function onStart()
         serverLAN = cryptoNet.host(settings.get("serverName", true, false, wiredModem.side))
     end
 
-    if type(wirelessModem) ~= "nil" then
+    --Only open wireless server if master crafting server
+    if type(wirelessModem) ~= "nil" and not settings.get("isMasterCraftingServer") then
         debugLog("Start the wireless cryptoNet server")
         serverWireless = cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
     end
@@ -2485,18 +2622,24 @@ local function onStart()
     print("Connecting to server: " .. settings.get("StorageServer"))
     storageServerSocket = cryptoNet.connect(settings.get("StorageServer"), 5, 1, settings.get("StorageServer") .. ".crt",
         wiredModem.side)
-    --timeout no longer needed
+    
+    debugLog("requireLogin: " .. tostring(settings.get("requireLogin")) .. " isMasterCraftingServer: " .. tostring(settings.get("isMasterCraftingServer")))
     if settings.get("requireLogin") then
+        --If we send a "ping" and server requires login, it will return "requireLogin" which will start the login process on this server
         cryptoNet.send(storageServerSocket, { "ping" })
         local event
+        --Wait until login is complete
         repeat
             event = os.pullEvent("storageServerLogin")
         until event == "storageServerLogin"
+    elseif not settings.get("isMasterCraftingServer") then
+        print("Connecting to master server: " .. settings.get("MasterCraftingServer"))
+        log("Connecting to master server: " .. settings.get("MasterCraftingServer"))
+        debugLog("Connecting to master server: " .. settings.get("MasterCraftingServer"))
+        masterCraftingServerSocket = cryptoNet.connect(settings.get("MasterCraftingServer"))
     end
+    --timeout no longer needed
     timeoutConnect = nil
-    -- Log in with a username and password
-    --print("Logging into server:" .. settings.get("StorageServer"))
-    --cryptoNet.login(storageServerSocket, "test", "123")
 
     postStart()
 
