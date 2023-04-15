@@ -43,6 +43,7 @@ os.startThread = os.startThread
 os.pullEvent = os.pullEvent
 os.startTimer = os.startTimer
 os.reboot = os.reboot
+os.setComputerLabel = os.setComputerLabel
 utf8 = utf8
 cryptoNet = cryptoNet
 
@@ -2765,6 +2766,7 @@ local function inputHandler()
 end
 
 local function onStart()
+    os.setComputerLabel("StorageClient" .. tostring(os.getComputerID()))
     --clear out old log
     if fs.exists("logs/clientDebug.log") then
         fs.delete("logs/clientDebug.log")

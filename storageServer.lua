@@ -42,6 +42,7 @@ os.startThread = os.startThread
 os.pullEvent = os.pullEvent
 os.startTimer = os.startTimer
 os.reboot = os.reboot
+os.setComputerLabel = os.setComputerLabel
 utf8 = utf8
 cryptoNet = cryptoNet
 
@@ -1522,6 +1523,7 @@ local function onCryptoNetEvent(event)
 end
 
 local function onStart()
+    os.setComputerLabel(settings.get("serverName"))
     --clear out old log
     if fs.exists("logs/server.log") then
         fs.delete("logs/server.log")
