@@ -124,16 +124,16 @@ print("Startup file Install Complete")
 --Download audio files
 if turtle then
     print("Downloading audio files")
-    download = http.get(
-        "https://github.com/schindlershadow/ComputerCraft-Item-Storage-System/raw/main/craftingComplete.dfpwm")
+    url = "https://github.com/schindlershadow/ComputerCraft-Item-Storage-System/raw/main/craftingComplete.dfpwm"
+    download = http.get({ ["url"] = url,["binary"] = true,["redirect"] = true })
     handle = download.readAll()
     download.close()
     file = fs.open("craftingComplete.dfpwm", "w")
     file.write(handle)
     file.close()
 
-    download = http.get(
-        "https://github.com/schindlershadow/ComputerCraft-Item-Storage-System/raw/main/craftingFailed.dfpwm")
+    url = "https://github.com/schindlershadow/ComputerCraft-Item-Storage-System/raw/main/craftingFailed.dfpwm"
+    download = http.get({ ["url"] = url,["binary"] = true,["redirect"] = true })
     handle = download.readAll()
     download.close()
     file = fs.open("craftingFailed.dfpwm", "w")
@@ -335,7 +335,7 @@ if typeOfServer == "craftingServer" or typeOfServer == "storageServer" then
         end
     end
 
-    
+
 
     --[[
     term.clear()
