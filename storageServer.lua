@@ -673,7 +673,7 @@ local function findFreeSpace(item, storage)
             local list = chest.list()
             local size = chest.size()
             --skip full chests
-            if #list < size then
+            if list ~= nil and #list < size then
                 local chestName = getName(chest)
                 --print("checking chest #" .. tostring(k) .. " Name: " .. getName(chest) .. " slot1 is: " .. tostring(list[1]))
                 --Do not use techreborn storage_units
