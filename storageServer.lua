@@ -55,8 +55,11 @@ settings.define(
     { description = "The peripheral name of the import chests", default = { "minecraft:chest_2" }, type = "table" }
 )
 settings.define("craftingChests",
-{ description = "The peripheral name of the crafting chests that are above the turtle(s)", { "minecraft:chest_3" },
-    type = "table" })
+    {
+        description = "The peripheral name of the crafting chests that are above the turtle(s)",
+        { "minecraft:chest_3" },
+        type = "table"
+    })
 settings.define("serverName",
     { description = "The hostname of this server", "StorageServer" .. tostring(os.getComputerID()), type = "string" })
 settings.define("requireLogin", { description = "require a login for LAN clients", default = "false", type = "boolean" })
@@ -1107,10 +1110,12 @@ local function importHandler()
         for k, chest in pairs(inputStorage) do
             local chestName = peripheral.getName(chest)
             local itemList = chest.list()
-            for slot, item in pairs(itemList) do
-                item.chestName = chestName
-                item.slot = slot
-                list[#list + 1] = item
+            if itemList ~= nil then
+                for slot, item in pairs(itemList) do
+                    item.chestName = chestName
+                    item.slot = slot
+                    list[#list + 1] = item
+                end
             end
         end
         --check if list is not empty
