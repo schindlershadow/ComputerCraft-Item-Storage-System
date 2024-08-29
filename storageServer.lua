@@ -479,7 +479,7 @@ local function reloadStorageDatabase()
     decoded.storageTotalSlots = storageTotalSlots
 
     local storageFile = fs.open("storage.db", "w")
-    storageFile.write(textutils.serialise(decoded))
+    storageFile.write(textutils.serialise(decoded, { allow_repetitions = true }))
     storageFile.close()
     local speedWrittingdb = (os.epoch("utc") / 1000) - timeWrittingdb
     --print("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
@@ -573,18 +573,20 @@ local function patchStorageDatabase(inputItem, count, chest, slot)
         return true
     else
         --if all else fails, reach out to chest to get details
-        local slotDetails = peripheral.wrap(chest).getItemDetail(slot)
-        if slotDetails ~= nil then
-            local tmp = {}
-            tmp.count = slotDetails.count
-            tmp.slot = slot
-            tmp.details = slotDetails
-            tmp.name = itemName
-            tmp.chestName = chest
-            tmp.nbt = slotDetails.nbt
-            table.insert(items, tmp)
-            storageUsed = storageUsed + count
-            return true
+        if chest ~= nil and slot ~= nil and peripheral.wrap(chest) ~= nil then
+            local slotDetails = peripheral.wrap(chest).getItemDetail(slot)
+            if slotDetails ~= nil then
+                local tmp = {}
+                tmp.count = slotDetails.count
+                tmp.slot = slot
+                tmp.details = slotDetails
+                tmp.name = itemName
+                tmp.chestName = chest
+                tmp.nbt = slotDetails.nbt
+                table.insert(items, tmp)
+                storageUsed = storageUsed + count
+                return true
+            end
         end
     end
 
