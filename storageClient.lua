@@ -3073,8 +3073,12 @@ local function onCryptoNetEvent(event)
             os.queueEvent("freeSlotsUpdated")
         end
     elseif event[1] == "timer" then
-        if event[2] == timeoutConnect and (type(storageServerSocket) == "nil" or type(storageServerSocket.username) == "nil") then
+        if event[2] == timeoutConnect and (type(storageServerSocket) == "nil" or (type(storageServerSocket.username) == "nil" and isWirelessModem )) then
             --Reboot after failing to connect
+            term.clear()
+            print("Connection lost")
+            log("Connection lost: event[2]: " .. tostring(event[2]) .. " storageServerSocket type: " ..  type(storageServerSocket) .. " storageServerSocket.username: " .. storageServerSocket.username)
+            sleep(2)
             cryptoNet.closeAll()
             os.reboot()
         end
