@@ -3077,7 +3077,7 @@ local function onCryptoNetEvent(event)
             --Reboot after failing to connect
             term.clear()
             print("Connection lost")
-            log("Connection lost: event[2]: " .. tostring(event[2]) .. " storageServerSocket type: " ..  type(storageServerSocket) .. " storageServerSocket.username: " .. storageServerSocket.username)
+            --log("Connection lost: event[2]: " .. tostring(event[2]) .. " storageServerSocket type: " ..  type(storageServerSocket) .. " storageServerSocket.username: " .. storageServerSocket.username)
             sleep(2)
             cryptoNet.closeAll()
             os.reboot()
