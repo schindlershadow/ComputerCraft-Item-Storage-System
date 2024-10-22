@@ -585,7 +585,7 @@ local function getRecipes()
     for i = 1, #lines, 1 do
         local line = lines[i]
         --ignore recipes that need a tag or damage value
-        if string.find(line, '|') or string.find(line, 'withTag') or string.find(line, 'withDamage') then
+        if string.find(line, '|') or string.find(line, 'withTag') or string.find(line, 'withDamage') or string.find(line, 'withJsonComponent') then
             line = ""
         else
             line = string.gsub(line, "<", '"')
