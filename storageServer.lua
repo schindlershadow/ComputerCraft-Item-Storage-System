@@ -425,6 +425,8 @@ local function getStorageSize(storage)
         local getItemLimit = workingStorage[i].getItemLimit
         local getItemDetail = workingStorage[i].getItemDetail
         for k = 1, size do
+            setCursorPos(1,y)
+            write("Processing slot: " .. tostring(k) .. "/" .. tostring(size))
             -- getItemLimit is broken on cc-restitched
             -- total = total + getItemLimit(k)
             local slotItem = getItemDetail(k)
