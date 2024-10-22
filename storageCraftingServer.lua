@@ -605,7 +605,7 @@ local function getRecipes()
     print("Number of lines " .. tostring(count))
     while count > 0 do
         local outFile = fs.open(tostring(fileNumber) .. fileName, "w")
-        for i = 1, 500, 1 do
+        for i = 1, 100, 1 do
             if count > 0 then
                 outFile.writeLine(lines[count])
                 count = count - 1

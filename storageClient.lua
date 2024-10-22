@@ -2806,7 +2806,7 @@ local function onStart()
     print("Connecting to server: " .. settings.get("StorageServer"))
     log("Connecting to server: " .. settings.get("StorageServer"))
 
-    timeoutConnect = os.startTimer(15)
+    timeoutConnect = os.startTimer(25)
     storageServerSocket = cryptoNet.connect(settings.get("StorageServer"))
 
     --check if server requires a login

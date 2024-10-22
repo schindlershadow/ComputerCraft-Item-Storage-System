@@ -93,6 +93,7 @@ if settings.load() == false then
 end
 
 -- Table of all wired modems
+--[[
 local modems = {peripheral.find("modem", function(name, modem)
     if modem.isWireless() then
         return false
@@ -100,6 +101,15 @@ local modems = {peripheral.find("modem", function(name, modem)
         return true
     end
 end)}
+]]--
+-- CC: tweaked changed wired modems to peripheral_hub
+local modems = peripheral.find("peripheral_hub")
+
+if type(modems[1]) == "nil" then
+    local tmpTable = {}
+    tmpTable[1] = modems
+    modems = tmpTable
+end
 
 -- Dumps a table to string
 local function dump(o)
@@ -1211,6 +1221,7 @@ end
 -- Cryptonet event handler
 local function onCryptoNetEvent(event)
     -- When a client logs in
+    debugLog("onCryptoNetEvent: " .. textutils.serialise(event[1]))
     if event[1] == "login" or event[1] == "hash_login" then
         local username = event[2]
         -- The socket of the client that just logged in
@@ -1602,9 +1613,10 @@ local function onStart()
     local wiredModem = nil
 
     print("Looking for connected modems...")
+    debugLog("Looking for connected modems")
 
     for _, side in ipairs(peripheral.getNames()) do
-        if peripheral.getType(side) == "modem" then
+        if peripheral.getType(side) == "modem" or peripheral.getType(side) == "peripheral_hub" then
             local modem = peripheral.wrap(side)
             if modem.isWireless() then
                 wirelessModem = modem
@@ -1624,10 +1636,12 @@ local function onStart()
 
     -- Start the cryptoNet server
     if type(wiredModem) ~= "nil" then
+        debugLog("Starting wired cryptoNet server on side " .. wiredModem.side)
         serverLAN = cryptoNet.host(settings.get("serverName", true, false, wiredModem.side))
     end
 
     if type(wirelessModem) ~= "nil" then
+        debugLog("Starting wireless cryptoNet server on side " .. wirelessModem.side)
         serverWireless = cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
     end
 
