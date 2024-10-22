@@ -419,19 +419,24 @@ local function getStorageSize(storage)
     for i = 1, #workingStorage, 1 do
         setCursorPos(11, y - 1)
         write(tostring(i))
-        setCursorPos(1, y)
         local size = workingStorage[i].size()
         slots = slots + size
         local getItemLimit = workingStorage[i].getItemLimit
         local getItemDetail = workingStorage[i].getItemDetail
+        local chestList = workingStorage[i].list()
         for k = 1, size do
-            setCursorPos(1,y)
+            setCursorPos(1, y)
             write("Processing slot: " .. tostring(k) .. "/" .. tostring(size))
             -- getItemLimit is broken on cc-restitched
             -- total = total + getItemLimit(k)
-            local slotItem = getItemDetail(k)
-            if type(slotItem) ~= "nil" then
-                total = total + slotItem.maxCount
+            if type(chestList[slot]) ~= "nil" then
+                local slotItem = getItemDetail(k)
+                if type(slotItem) ~= "nil" then
+                    total = total + slotItem.maxCount
+                else
+                    total = total + 64
+                    free = free + 1
+                end
             else
                 total = total + 64
                 free = free + 1
@@ -439,6 +444,7 @@ local function getStorageSize(storage)
         end
         local speed = (epoch("utc") / 1000) - time
         speedHistory[#speedHistory + 1] = speed
+        setCursorPos(1, y - 2)
         term.write(floor(speed * 1000) / 1000 .. " seconds per storage   ETA: " ..
                        (floor((#storage - i) * average(speedHistory))) ..
                        " seconds left                                        ")
