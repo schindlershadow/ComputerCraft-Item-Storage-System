@@ -2989,7 +2989,7 @@ local function onCryptoNetEvent(event)
         --log(dump(event))
         cryptoNet.closeAll()
         os.reboot()
-    elseif event[1] == "encrypted_message" then
+    elseif event[1] == "encrypted_message" and type(event[2]) ~= "nil" then
         --log("Server said: " .. dump(event[2]))
         local messageType = event[2][1]
         local message = event[2][2]
