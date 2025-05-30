@@ -115,10 +115,12 @@ local function dump(o)
     if type(o) == "table" then
         local s = ""
         for k, v in pairs(o) do
-            if type(k) ~= "number" then
-                k = '"' .. k .. '"'
+            if type(k) ~= "table" then
+                if type(k) ~= "number" then
+                    k = '"' .. k .. '"'
+                end
+                s = s .. "[" .. k .. "] = " .. dump(v) .. ","
             end
-            s = s .. "[" .. k .. "] = " .. dump(v) .. ","
         end
         return s
     else
@@ -211,7 +213,7 @@ function addShaped(recipeName, name, arg3, arg4)
         -- Convert to variable recipe format
         for i = 1, #recipe, 1 do
             for j = 1, #recipe[i], 1 do
-                recipe[i][j] = {recipe[i][j]}
+                recipe[i][j] = { recipe[i][j] }
             end
         end
         tab["recipe"] = recipe
@@ -252,7 +254,7 @@ function addShapeless(recipeName, name, arg3, arg4)
         -- Put every item into a table to have a uniform recipe
         for i = 1, #recipe, 1 do
             if type(recipe[i]) ~= "table" then
-                recipe[i] = {recipe[i]}
+                recipe[i] = { recipe[i] }
             end
         end
     else
@@ -261,15 +263,15 @@ function addShapeless(recipeName, name, arg3, arg4)
 
     -- Convert to universal shaped variable recipe format
 
-    local convertedRecipe = {{}, {}, {}}
+    local convertedRecipe = { {}, {}, {} }
     for row = 1, 3, 1 do
         for slot = 1, 3, 1 do
             if type(recipe[((row - 1) * 3) + slot]) == "nil" then
-                convertedRecipe[row][slot] = {"none"}
+                convertedRecipe[row][slot] = { "none" }
             elseif isVar then
                 convertedRecipe[row][slot] = recipe[((row - 1) * 3) + slot]
             else
-                convertedRecipe[row][slot] = {recipe[((row - 1) * 3) + slot]}
+                convertedRecipe[row][slot] = { recipe[((row - 1) * 3) + slot] }
             end
         end
     end
@@ -459,7 +461,7 @@ local function addTag(item)
         if type(tags[keyset[i]]) == "nil" then
             print("Found new tag: " .. keyset[i])
             print("Found new item: " .. item.name)
-            tags[keyset[i]] = {item.name}
+            tags[keyset[i]] = { item.name }
             countTags = countTags + 1
             countItems = countItems + 1
         elseif table.contains(tags[keyset[i]], item.name) == false then
@@ -474,7 +476,7 @@ local function addTag(item)
 end
 
 local function getDatabaseFromServer()
-    cryptoNet.send(storageServerSocket, {"getItems"})
+    cryptoNet.send(storageServerSocket, { "getItems" })
     local event
     repeat
         event = os.pullEvent("itemsUpdated")
@@ -482,7 +484,7 @@ local function getDatabaseFromServer()
 end
 
 local function getDetailDBFromServer()
-    cryptoNet.send(storageServerSocket, {"getDetailDB"})
+    cryptoNet.send(storageServerSocket, { "getDetailDB" })
     local event
     repeat
         event = os.pullEvent("detailDBUpdated")
@@ -498,7 +500,7 @@ local function getDetailDBFromServer()
 end
 
 local function pingServer()
-    cryptoNet.send(storageServerSocket, {"ping"})
+    cryptoNet.send(storageServerSocket, { "ping" })
 
     local event
     repeat
@@ -767,13 +769,13 @@ local function updateClient(socket, message, messageToSend)
     elseif type(message) == "boolean" then
         currentlyCrafting = {}
     end
-    cryptoNet.send(socket, {"craftingUpdate", table})
+    cryptoNet.send(socket, { "craftingUpdate", table })
     if message == "itemUpdate" or type(message) == "boolean" then
         -- Update any clients subscribed to crafting updates
         for k, v in pairs(craftingUpdateClients) do
-            cryptoNet.send(v, {"craftingUpdate", table})
-            cryptoNet.send(v, {"pushCurrentlyCrafting", currentlyCrafting})
-            cryptoNet.send(v, {"pushCraftingQueue", craftingQueue.dumpItems()})
+            cryptoNet.send(v, { "craftingUpdate", table })
+            cryptoNet.send(v, { "pushCurrentlyCrafting", currentlyCrafting })
+            cryptoNet.send(v, { "pushCraftingQueue", craftingQueue.dumpItems() })
         end
     end
 end
@@ -838,7 +840,7 @@ local function haveCraftingMaterials(tableOfRecipes, amount, socket)
         -- print(textutils.serialise(numNeeded))
 
         craftable = true
-        for i = 1, #recipe, 1 do -- row
+        for i = 1, #recipe, 1 do  -- row
             local row = recipe[i]
             for k = 1, #row, 1 do -- slot
                 local slot = row[k]
@@ -870,7 +872,7 @@ local function haveCraftingMaterials(tableOfRecipes, amount, socket)
                             craftable2 = true
                         else
                             print(tostring(item:match(".+:(.+)")) .. ": Need: " .. tostring(numNeeded[item]) ..
-                                      " Found: " .. tostring(number))
+                                " Found: " .. tostring(number))
                             updateClient(socket, "logUpdate", tostring(item:match(".+:(.+)")) .. ": " ..
                                 tostring(number) .. "/" .. tostring(numNeeded[item]))
                         end
@@ -947,7 +949,7 @@ local function isCraftable(searchTerm)
 end
 
 local function reloadServerDatabase()
-    cryptoNet.send(storageServerSocket, {"reloadStorageDatabase"})
+    cryptoNet.send(storageServerSocket, { "reloadStorageDatabase" })
 end
 
 -- Note: Large performance hit on larger systems
@@ -1118,9 +1120,9 @@ local function recipeContains(recipe, itemName)
     -- log(textutils.serialise(recipe))
     for i = 1, #recipe.recipe, 1 do -- row
         local row = recipe.recipe[i]
-        for j = 1, #row, 1 do -- slot
+        for j = 1, #row, 1 do       -- slot
             local slot = row[j]
-            for k = 1, #slot, 1 do -- item
+            for k = 1, #slot, 1 do  -- item
                 local item = slot[k]
                 -- log("recipeContains: " .. item .. ", " .. itemName)
                 if item == itemName then
@@ -1168,7 +1170,7 @@ local function scoreBranch(recipe, itemName, ttl, amount, socket)
         return 0
     end
 
-    for i = 1, #recipe, 1 do -- row
+    for i = 1, #recipe, 1 do  -- row
         local row = recipe[i]
         for j = 1, #row, 1 do -- slot
             local slot = row[j]
@@ -1244,7 +1246,7 @@ local function scoreBranch(recipe, itemName, ttl, amount, socket)
                                 if recipeContains(allRecipes[m], itemName) == false and
                                     recipeContains(allRecipes[m], item) == false then
                                     debugLog("checking recipe: " .. allRecipes[m].name .. " from: " ..
-                                                 allRecipes[m].recipeName)
+                                        allRecipes[m].recipeName)
                                     ttl = ttl - 1
                                     local scoreTab = scoreBranch(allRecipes[m].recipe, allRecipes[m].name, ttl - 1,
                                         allRecipes[m].count, socket)
@@ -1307,7 +1309,7 @@ local function patchStorageDatabase(itemName, count, chest, slot)
     end
     -- print("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
     debugLog("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" ..
-                 tostring(slot))
+        tostring(slot))
     local stringSearch
     -- Strip out the item: from the front of the item name
     if string.find(itemName, 'item:(.+)') then
@@ -1400,7 +1402,7 @@ local function pullItems(craftingChest, chestName, slot, moveCount, itemName)
     end
     --]]
     -- Patch db on both servers at the same time
-    cryptoNet.send(storageServerSocket, {"patchStorageDatabase", tmp})
+    cryptoNet.send(storageServerSocket, { "patchStorageDatabase", tmp })
     local patchstatus = patchStorageDatabase(itemName, -1 * moved, chestName, slot)
     return moved
 end
@@ -1593,7 +1595,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                 -- try again
                                 local itemsLeft = moveCount - itemsMoved
                                 debugLog("try again: itemsMoved:" .. tostring(itemsMoved) .. " < moveCount:" ..
-                                             tostring(moveCount) .. " Items left:" .. tostring(itemsLeft))
+                                    tostring(moveCount) .. " Items left:" .. tostring(itemsLeft))
                                 reloadStorageDatabase()
                                 -- use same item as searchResult to avoid stacking issues
                                 local newSearchResult = search("item:" .. searchResult.name, items, itemsLeft)
@@ -1709,7 +1711,7 @@ local function craftBranch(recipeObj, ttl, amount, socket)
     end
 
     local craftedAnything = false
-    for i = 1, #recipe, 1 do -- row
+    for i = 1, #recipe, 1 do  -- row
         local row = recipe[i]
         for j = 1, #row, 1 do -- slot
             local slot = row[j]
@@ -1842,7 +1844,7 @@ local function craftBranch(recipeObj, ttl, amount, socket)
     if craftedAnything then
         local tab = {}
         tab.recipe = recipe
-        local craftable = haveCraftingMaterials({tab}, amount, socket)
+        local craftable = haveCraftingMaterials({ tab }, amount, socket)
         if #craftable < 1 then
             local status = craftBranch(recipeObj, ttl - 1, amount, socket)
             if status == false then
@@ -1851,7 +1853,7 @@ local function craftBranch(recipeObj, ttl, amount, socket)
                 updateClient(socket, "logUpdate", "failed")
             end
             debugLog("This is to ensure the materials needed to craft parent were not used in child recipe: " ..
-                         tostring(status))
+                tostring(status))
             return status
         else
             craft = true
@@ -1906,7 +1908,7 @@ local function craft(item, amount, socket)
             allRecipes = getAllRecipes(item)
         end
     elseif type(item) == "table" then
-        allRecipes = {item}
+        allRecipes = { item }
     end
 
     -- If one of the recipes are craftable, craft it
@@ -2097,7 +2099,7 @@ local function login(socket, user, pass, servername)
     -- mark for garbage collection
     pass = nil
     -- log("hashLogin")
-    cryptoNet.send(socket, {"hashLogin", tmp})
+    cryptoNet.send(socket, { "hashLogin", tmp })
     -- mark for garbage collection
     tmp = nil
     local event
@@ -2112,7 +2114,7 @@ local function login(socket, user, pass, servername)
         socket.permissionLevel = permissionLevel
         os.queueEvent("login", user, socket)
         -- Register as slave crafting server
-        cryptoNet.send(socket, {"registerSlaveServer"})
+        cryptoNet.send(socket, { "registerSlaveServer" })
         debugLog("Successfully logged in")
     else
         term.setCursorPos(1, 1)
@@ -2192,7 +2194,7 @@ local function onCryptoNetEvent(event)
                     pingServer()
                 end
             elseif message == "requireLogin" then
-                cryptoNet.send(socket, {message, settings.get("requireLogin")})
+                cryptoNet.send(socket, { message, settings.get("requireLogin") })
             end
         else
             -- User is not logged in
@@ -2203,7 +2205,7 @@ local function onCryptoNetEvent(event)
         debugLog("encrypted_message: " .. dump(event[2]))
         -- Check the username to see if the client is logged in or should have an exception
         if (socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) or
-            socket.target == settings.get("StorageServer")) and event[2][1] ~= "hashLogin" then
+                socket.target == settings.get("StorageServer")) and event[2][1] ~= "hashLogin" then
             local message = event[2][1]
             local data = event[2][2]
             if socket.username == nil then
@@ -2215,13 +2217,13 @@ local function onCryptoNetEvent(event)
             end
             -- print(socket.username .. " requested: " .. tostring(message))
             log("User: " .. socket.username .. " Client: " .. socket.target .. "Sender: " .. socket.sender ..
-                    " request: " .. tostring(message))
+                " request: " .. tostring(message))
             -- log(socket.name)
             -- log(socket.channel)
             -- log("Sender: " .. socket.sender)
             -- log(socket.name)
             if message == "storageCraftingServer" then
-                cryptoNet.send(socket, {message, settings.get("serverName")})
+                cryptoNet.send(socket, { message, settings.get("serverName") })
                 local uniq = true
                 for i in pairs(clients) do
                     if clients[i] == socket then
@@ -2240,11 +2242,11 @@ local function onCryptoNetEvent(event)
                 for i in pairs(clients) do
                     print(
                         tostring(clients[i].username) .. ":" .. string.sub(tostring(clients[i].sender), 1, 5) .. ":" ..
-                            tostring(clients[i].target))
+                        tostring(clients[i].target))
                 end
                 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
             elseif message == "registerSlaveServer" then
-                cryptoNet.send(socket, {message, settings.get("serverName")})
+                cryptoNet.send(socket, { message, settings.get("serverName") })
                 local uniq = true
                 for i in pairs(slaves) do
                     if slaves[i] == socket then
@@ -2262,16 +2264,16 @@ local function onCryptoNetEvent(event)
                 print("Slaves: " .. tostring(count))
                 for i in pairs(slaves) do
                     print(tostring(slaves[i].username) .. ":" .. string.sub(tostring(slaves[i].sender), 1, 5) .. ":" ..
-                              tostring(slaves[i].target))
+                        tostring(slaves[i].target))
                 end
                 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
             elseif message == "getServerType" then
-                cryptoNet.send(socket, {message, "CraftingServer"})
+                cryptoNet.send(socket, { message, "CraftingServer" })
             elseif message == "isMainCraftingServer" then
                 if settings.get("isMasterCraftingServer") then
-                    cryptoNet.send(socket, {message, true})
+                    cryptoNet.send(socket, { message, true })
                 else
-                    cryptoNet.send(socket, {message, false})
+                    cryptoNet.send(socket, { message, false })
                 end
             elseif message == "requireLogin" then
                 -- timeout no longer needed
@@ -2285,13 +2287,13 @@ local function onCryptoNetEvent(event)
             elseif message == "forceImport" then
                 os.queueEvent("forceImport")
             elseif message == "getRecipes" then
-                cryptoNet.sendUnencrypted(socket, {message, recipes})
+                cryptoNet.sendUnencrypted(socket, { message, recipes })
             elseif message == "getCraftingQueue" then
                 -- debugLog("getCraftingQueue")
-                cryptoNet.send(socket, {message, craftingQueue.dumpItems()})
+                cryptoNet.send(socket, { message, craftingQueue.dumpItems() })
             elseif message == "getCurrentlyCrafting" then
                 -- debugLog("getCurrentlyCrafting")
-                cryptoNet.send(socket, {message, currentlyCrafting})
+                cryptoNet.send(socket, { message, currentlyCrafting })
             elseif message == "craft" then
                 print(socket.username .. " requested: " .. tostring(message))
                 turtle.craft()
@@ -2324,10 +2326,10 @@ local function onCryptoNetEvent(event)
                 craftingQueue.pushright(craftingRequest)
             elseif message == "getAmount" then
                 local _, number = search(data, items, 1)
-                cryptoNet.send(socket, {message, number})
+                cryptoNet.send(socket, { message, number })
             elseif message == "getNumNeeded" then
                 local amount = math.ceil(data.amount / data.count)
-                cryptoNet.send(socket, {message, calculateNumberOfItems(data.recipe, amount)})
+                cryptoNet.send(socket, { message, calculateNumberOfItems(data.recipe, amount) })
             elseif message == "craftable" then
                 local item = data
 
@@ -2345,22 +2347,22 @@ local function onCryptoNetEvent(event)
                 if type(allRecipes) == "nil" then
                     print(item .. " is unknown to the system")
                     updateClient(socket, "logUpdate", "unknown item: " .. tostring(item):match(".+:(.+)"))
-                    cryptoNet.send(socket, {message, false})
+                    cryptoNet.send(socket, { message, false })
                 elseif #allRecipes < 1 then
                     print("no recipes found for: " .. item)
                     updateClient(socket, "logUpdate", "no recipes: " .. tostring(item):match(".+:(.+)"))
-                    cryptoNet.send(socket, {message, false})
+                    cryptoNet.send(socket, { message, false })
                 else
                     local craftableRecipes = haveCraftingMaterials(allRecipes, 1, socket)
 
                     if #craftableRecipes > 0 then
-                        cryptoNet.send(socket, {message, craftableRecipes})
+                        cryptoNet.send(socket, { message, craftableRecipes })
                     else
                         print("0 craftable recipes")
                         debugLog("0 craftable recipes")
                         local clean = cleanRecipe(allRecipes)
                         -- debugLog(textutils.serialize(clean, {false, true}))
-                        cryptoNet.send(socket, {message, clean})
+                        cryptoNet.send(socket, { message, clean })
                         -- cryptoNet.send(socket, { message, {allRecipes[1]} })
                     end
                 end
@@ -2409,9 +2411,9 @@ local function onCryptoNetEvent(event)
                     file.close()
                 end
                 debugLog("sending cert: " .. filePath)
-                cryptoNet.send(socket, {message, fileContents})
+                cryptoNet.send(socket, { message, fileContents })
             elseif message == "getPermissionLevel" then
-                cryptoNet.send(socket, {message, cryptoNet.getPermissionLevel(data, serverLAN)})
+                cryptoNet.send(socket, { message, cryptoNet.getPermissionLevel(data, serverLAN) })
             elseif message == "setPermissionLevel" then
                 print(socket.username .. " requested: " .. tostring(message))
                 local permissionLevel = cryptoNet.getPermissionLevel(socket.username, serverLAN)
@@ -2419,9 +2421,9 @@ local function onCryptoNetEvent(event)
                 if permissionLevel >= 2 and userExists and type(data.permissionLevel) == "number" then
                     cryptoNet.setPermissionLevel(data.username, data.permissionLevel, serverLAN)
                     cryptoNet.setPermissionLevel(data.username, data.permissionLevel, serverWireless)
-                    cryptoNet.send(socket, {message, true})
+                    cryptoNet.send(socket, { message, true })
                 else
-                    cryptoNet.send(socket, {message, false})
+                    cryptoNet.send(socket, { message, false })
                 end
             elseif message == "setPassword" then
                 print(socket.username .. " requested: " .. tostring(message))
@@ -2430,13 +2432,13 @@ local function onCryptoNetEvent(event)
                 if permissionLevel >= 2 and userExists and type(data.password) == "string" then
                     cryptoNet.setPassword(data.username, data.password, serverLAN)
                     cryptoNet.setPassword(data.username, data.password, serverWireless)
-                    cryptoNet.send(socket, {message, true})
+                    cryptoNet.send(socket, { message, true })
                 elseif userExists and data.username == socket.username then
                     cryptoNet.setPassword(data.username, data.password, serverLAN)
                     cryptoNet.setPassword(data.username, data.password, serverWireless)
-                    cryptoNet.send(socket, {message, true})
+                    cryptoNet.send(socket, { message, true })
                 else
-                    cryptoNet.send(socket, {message, false})
+                    cryptoNet.send(socket, { message, false })
                 end
             elseif message == "addUser" then
                 print(socket.username .. " requested: " .. tostring(message))
@@ -2445,9 +2447,9 @@ local function onCryptoNetEvent(event)
                 if permissionLevel >= 2 and not userExists and type(data.password) == "string" then
                     cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverLAN)
                     cryptoNet.addUser(data.username, data.password, data.permissionLevel, serverWireless)
-                    cryptoNet.send(socket, {message, true})
+                    cryptoNet.send(socket, { message, true })
                 else
-                    cryptoNet.send(socket, {message, false})
+                    cryptoNet.send(socket, { message, false })
                 end
             elseif message == "deleteUser" then
                 print(socket.username .. " requested: " .. tostring(message))
@@ -2456,9 +2458,9 @@ local function onCryptoNetEvent(event)
                 if permissionLevel >= 2 and userExists and type(data.password) == "string" then
                     cryptoNet.deleteUser(data.username, serverLAN)
                     cryptoNet.deleteUser(data.username, serverWireless)
-                    cryptoNet.send(socket, {message, true})
+                    cryptoNet.send(socket, { message, true })
                 else
-                    cryptoNet.send(socket, {message, false})
+                    cryptoNet.send(socket, { message, false })
                 end
             elseif message == "checkPasswordHashed" then
                 os.queueEvent("gotCheckPasswordHashed", data, event[2][3])
@@ -2493,7 +2495,7 @@ local function onCryptoNetEvent(event)
                 tmp.passwordHash = cryptoNet.hashPassword(data.username, data.password, data.servername)
                 tmp.servername = data.servername
                 data.password = nil
-                cryptoNet.send(storageServerSocket, {"checkPasswordHashed", tmp})
+                cryptoNet.send(storageServerSocket, { "checkPasswordHashed", tmp })
 
                 local event2
                 local loginStatus = false
@@ -2503,7 +2505,7 @@ local function onCryptoNetEvent(event)
                 until event2 == "gotCheckPasswordHashed"
                 -- debugLog("loginStatus:"..tostring(loginStatus))
                 if loginStatus == true then
-                    cryptoNet.send(socket, {"hashLogin", true, permissionLevel})
+                    cryptoNet.send(socket, { "hashLogin", true, permissionLevel })
                     socket.username = data.username
                     socket.permissionLevel = permissionLevel
 
@@ -2524,14 +2526,14 @@ local function onCryptoNetEvent(event)
                 else
                     print("User: " .. data.username .. " failed to login")
                     log("User: " .. data.username .. " failed to login")
-                    cryptoNet.send(socket, {"hashLogin", false})
+                    cryptoNet.send(socket, { "hashLogin", false })
                 end
             elseif message == "requireLogin" then
-                cryptoNet.send(socket, {message, settings.get("requireLogin")})
+                cryptoNet.send(socket, { message, settings.get("requireLogin") })
             else
                 debugLog("User is not logged in. Sender: " .. socket.sender .. " Target: " .. socket.target)
                 -- debugLog("socket.username: " .. tostring(socket.username))
-                cryptoNet.send(socket, {"requireLogin"})
+                cryptoNet.send(socket, { "requireLogin" })
                 cryptoNet.send(socket, "Sorry, I only talk to logged in users")
             end
         end
@@ -2561,7 +2563,7 @@ local function getMasterCraftingServerCert()
     local filePath = settings.get("MasterCraftingServer") .. ".crt"
     if not fs.exists(filePath) then
         log("Download the cert from the MasterCraftingServer")
-        cryptoNet.send(masterCraftingServerSocket, {"getCertificate"})
+        cryptoNet.send(masterCraftingServerSocket, { "getCertificate" })
         -- wait for reply from server
         log("wait for reply from MasterCraftingServer")
         local event, data
@@ -2582,7 +2584,7 @@ local function postStart()
     local filePath = settings.get("StorageServer") .. ".crt"
     if not fs.exists(filePath) then
         debugLog("Download the cert from the storageserver")
-        cryptoNet.send(storageServerSocket, {"getCertificate"})
+        cryptoNet.send(storageServerSocket, { "getCertificate" })
         -- wait for reply from server
         debugLog("wait for reply from server")
         local event, data
@@ -2596,7 +2598,7 @@ local function postStart()
         file.write(data)
         file.close()
     end
-    cryptoNet.send(storageServerSocket, {"storageServer"})
+    cryptoNet.send(storageServerSocket, { "storageServer" })
     getDatabaseFromServer()
     getDetailDBFromServer()
     if not settings.get("isMasterCraftingServer") then
@@ -2660,10 +2662,10 @@ local function onStart()
         settings.get("StorageServer") .. ".crt", wiredModem.side)
 
     debugLog("requireLogin: " .. tostring(settings.get("requireLogin")) .. " isMasterCraftingServer: " ..
-                 tostring(settings.get("isMasterCraftingServer")))
+        tostring(settings.get("isMasterCraftingServer")))
     if settings.get("requireLogin") then
         -- If we send a "ping" and server requires login, it will return "requireLogin" which will start the login process on this server
-        cryptoNet.send(storageServerSocket, {"ping"})
+        cryptoNet.send(storageServerSocket, { "ping" })
         local event
         -- Wait until login is complete
         repeat
