@@ -12,6 +12,9 @@ local currentlyCrafting = {}
 local craftingUpdateClients = {}
 local speakers = {}
 local serverBootTime = os.epoch("utc") / 1000
+local itemNameIndex = {}
+local itemTagIndex = {}
+local itemCacheDirty = true
 
 if not fs.exists("cryptoNet") then
     print("")
@@ -475,6 +478,43 @@ local function addTag(item)
     tags.countItems = countItems
 end
 
+local function rebuildItemCaches()
+    local nameIndex = {}
+    local tagIndex = {}
+    for _, entry in pairs(items or {}) do
+        if entry ~= nil and entry.name ~= nil then
+            local name = entry.name
+            local list = nameIndex[name]
+            if list == nil then
+                list = {}
+                nameIndex[name] = list
+            end
+            list[#list + 1] = entry
+
+            if entry.details ~= nil and entry.details.tags ~= nil then
+                for tag in pairs(entry.details.tags) do
+                    local tagList = tagIndex[tag]
+                    if tagList == nil then
+                        tagList = {}
+                        tagIndex[tag] = tagList
+                    end
+                    tagList[#tagList + 1] = entry
+                end
+            end
+        end
+    end
+
+    itemNameIndex = nameIndex
+    itemTagIndex = tagIndex
+    itemCacheDirty = false
+end
+
+local function ensureItemCaches()
+    if itemCacheDirty then
+        rebuildItemCaches()
+    end
+end
+
 local function getDatabaseFromServer()
     cryptoNet.send(storageServerSocket, { "getItems" })
     local event
@@ -671,23 +711,22 @@ local function getRecipes()
 end
 
 local function searchForTag(string, InputTable, count)
-    local find = string.find
+    ensureItemCaches()
     local match = string.match
     local stringTag = match(string, 'tag:%w+:(.+)')
     local number = 0
 
     local returnV = nil
     local returnK
-    for k, v in pairs(InputTable) do
-        if v.details then
-            if v.details.tags then
-                -- print(stringTag .. " == " .. tostring(find(dump(v.details.tags),stringTag)))
-                if v.details.tags[stringTag] then
-                    number = number + v.count
-                end
-                if v.details.tags[stringTag] and v.count >= count then
+    local matchingEntries = itemTagIndex[stringTag]
+    if matchingEntries ~= nil then
+        for k, v in ipairs(matchingEntries) do
+            if v ~= nil then
+                number = number + (v.count or 0)
+                if (v.count or 0) >= (count or 1) then
                     returnV = v
                     returnK = k
+                    break
                 end
             end
         end
@@ -697,23 +736,24 @@ end
 
 -- Returns matched item obj, total number in list and index of matched obj
 local function search(searchTerm, InputTable, count)
+    ensureItemCaches()
     if string.find(searchTerm, "tag:") then
         return searchForTag(searchTerm, InputTable, count)
     else
-        local stringSearch = string.match(searchTerm, 'item:(.+)')
-        local find = string.find
+        local stringSearch = string.match(searchTerm, 'item:(.+)') or searchTerm
         local number = 0
         local returnV = nil
         local returnK
-        -- print("need " .. tostring(count) .. " of " .. stringSearch)
-        for k, v in pairs(InputTable) do
-            if (v["name"]) == (stringSearch) then
-                number = number + v.count
-
-                if v.count >= count then
-                    -- print("Found: " .. tostring(v.count) .. " of " .. v.name)
-                    returnV = v
-                    returnK = k
+        local matchingEntries = itemNameIndex[stringSearch]
+        if matchingEntries ~= nil then
+            for k, v in ipairs(matchingEntries) do
+                if v ~= nil then
+                    number = number + (v.count or 0)
+                    if (v.count or 0) >= (count or 1) then
+                        returnV = v
+                        returnK = k
+                        break
+                    end
                 end
             end
         end
@@ -722,20 +762,20 @@ local function search(searchTerm, InputTable, count)
 end
 
 local function searchForItemWithTag(string, InputTable)
+    ensureItemCaches()
     local filteredTable = {}
-    local find = string.find
     local match = string.match
     local stringTag = match(string, 'tag:%w+:(.+)')
+    local matchingEntries = itemTagIndex[stringTag]
 
-    for k, v in pairs(InputTable) do
-        if v.details then
-            if v.details.tags then
-                if v.details.tags[stringTag] then
-                    filteredTable[#filteredTable + 1] = v
-                end
+    if matchingEntries ~= nil then
+        for _, v in ipairs(matchingEntries) do
+            if v ~= nil then
+                filteredTable[#filteredTable + 1] = v
             end
         end
     end
+
     if filteredTable == {} then
         return {}
     else
@@ -1151,8 +1191,12 @@ local function recipeContains(recipe, itemName)
 end
 
 -- returns score, input recipe, name of recipe item output, time-to-live, amount of item output recipe creates
-local function scoreBranch(recipe, itemName, ttl, amount, socket)
+local function scoreBranch(recipe, itemName, ttl, amount, socket, scoreCache)
     local score = 0
+    local cacheKey = tostring(itemName) .. "|" .. tostring(ttl) .. "|" .. tostring(amount)
+    if scoreCache ~= nil and scoreCache[cacheKey] ~= nil then
+        return scoreCache[cacheKey]
+    end
 
     if type(amount) == "nil" then
         amount = 1
@@ -1249,7 +1293,7 @@ local function scoreBranch(recipe, itemName, ttl, amount, socket)
                                         allRecipes[m].recipeName)
                                     ttl = ttl - 1
                                     local scoreTab = scoreBranch(allRecipes[m].recipe, allRecipes[m].name, ttl - 1,
-                                        allRecipes[m].count, socket)
+                                        allRecipes[m].count, socket, scoreCache)
                                     if scoreTab > 0 then
                                         score = score + scoreTab
                                         debugLog("score: " .. tostring(score))
@@ -1274,6 +1318,9 @@ local function scoreBranch(recipe, itemName, ttl, amount, socket)
     ttl = ttl - 1
     -- score = score + ttl
     debugLog("return score: " .. tostring(score))
+    if scoreCache ~= nil then
+        scoreCache[cacheKey] = score
+    end
     return score
 end
 
@@ -1282,8 +1329,9 @@ local function getBestRecipe(allRecipes, id)
     local bestRecipe
     local bestScore = 0
     local bestCount = 1
+    local scoreCache = {}
     for i = 1, #allRecipes, 1 do
-        local score = scoreBranch(allRecipes[i].recipe, allRecipes[i].name, 20, allRecipes[i].count, id)
+        local score = scoreBranch(allRecipes[i].recipe, allRecipes[i].name, 20, allRecipes[i].count, id, scoreCache)
         debugLog("recipe: " .. allRecipes[i].recipeName .. " score: " .. score)
         if score > bestScore then
             bestRecipe = allRecipes[i]
@@ -1407,10 +1455,16 @@ local function pullItems(craftingChest, chestName, slot, moveCount, itemName)
     return moved
 end
 
+local function refreshInventoryIfNeeded(force)
+    if force or items == nil or next(items) == nil or itemCacheDirty then
+        getDatabaseFromServer()
+    end
+end
+
 -- Get items and craft
 local function craftRecipe(recipeObj, timesToCraft, socket)
     local recipe = recipeObj.recipe
-    getDatabaseFromServer()
+    refreshInventoryIfNeeded()
     updateClient(socket, "itemUpdate", recipeObj.name)
     -- debugLog("craftRecipe")
     -- debugLog(recipeObj)
@@ -1883,7 +1937,7 @@ end
 
 -- Craft recipe assuming all materials are available
 local function craft(item, amount, socket)
-    getDatabaseFromServer()
+    refreshInventoryIfNeeded()
     debugLog("craft")
     if type(socket) == "nil" then
         socket = storageServerSocket
@@ -2167,6 +2221,7 @@ local function onCryptoNetEvent(event)
             if message == "getItems" then
                 if type(data) == "table" then
                     items = data
+                    itemCacheDirty = true
                     for k, v in pairs(data) do
                         if not (inTags(v.name)) then
                             if type(data[k]["details"]) == "nil" then
@@ -2369,6 +2424,7 @@ local function onCryptoNetEvent(event)
             elseif message == "getItems" then
                 if type(data) == "table" then
                     items = data
+                    itemCacheDirty = true
                     for k, v in pairs(data) do
                         if not (inTags(v.name)) then
                             if type(data[k]["details"]) == "nil" then

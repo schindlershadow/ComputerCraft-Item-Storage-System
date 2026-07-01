@@ -16,6 +16,8 @@ local craftingEnabled = false
 local currentlyCrafting = {}
 local craftingQueue = {}
 local serverBootTime = os.epoch("utc") / 1000
+local excludedChestLookup = {}
+local freeSlotRefreshCounter = 0
 
 if not fs.exists("cryptoNet") then
     print("")
@@ -104,6 +106,27 @@ end)}
 ]]--
 -- CC: tweaked changed wired modems to peripheral_hub
 local modems = peripheral.find("peripheral_hub")
+
+local function rebuildExcludedChestLookup()
+    local lookup = {}
+    local exportChests = settings.get("exportChests") or {}
+    local importChests = settings.get("importChests") or {}
+    local craftingChests = settings.get("craftingChests") or {}
+
+    for _, chest in pairs(exportChests) do
+        lookup[chest] = true
+    end
+    for _, chest in pairs(importChests) do
+        lookup[chest] = true
+    end
+    for _, chest in pairs(craftingChests) do
+        lookup[chest] = true
+    end
+
+    excludedChestLookup = lookup
+end
+
+rebuildExcludedChestLookup()
 
 if type(modems[1]) == "nil" then
     local tmpTable = {}
@@ -220,17 +243,13 @@ end
 -- Returns list of storage peripherals excluding import and export chests
 local function getStorage()
     local storage = {}
-    local peripherals = {}
     local wrap = peripheral.wrap
     for _, modem in pairs(modems) do
-        peripherals[#peripherals + 1] = modem.getNamesRemote()
         local remote = modem.getNamesRemote()
-        for i in pairs(remote) do
-            if modem.hasTypeRemote(remote[i], "inventory") then
-                if inExportChests(remote[i]) == false and inImportChests(remote[i]) == false and
-                    inCraftingChests(remote[i]) == false then
-                    storage[#storage + 1] = wrap(remote[i])
-                end
+        for i = 1, #remote, 1 do
+            local chestName = remote[i]
+            if modem.hasTypeRemote(chestName, "inventory") and not excludedChestLookup[chestName] then
+                storage[#storage + 1] = wrap(chestName)
             end
         end
     end
@@ -291,18 +310,18 @@ end
 local function calcFreeSlots()
     local freeSlots = 0
     for _, chest in pairs(storages) do
-        local numberOfSlots = 0
-        local list = chest.list()
-        if list == nil then
+        local chestList = chest.list()
+        if chestList == nil then
             print("chest.list() failed")
             storages = getStorage()
             return calcFreeSlots()
         end
 
-        for slot, item in pairs(chest.list()) do
+        local numberOfSlots = 0
+        for _ in pairs(chestList) do
             numberOfSlots = numberOfSlots + 1
         end
-        freeSlots = freeSlots + ((chest.size() - numberOfSlots))
+        freeSlots = freeSlots + (chest.size() - numberOfSlots)
     end
     return freeSlots
 end
@@ -317,13 +336,14 @@ local function getList(storage)
     local total = 0
 
     for _, chest in pairs(storage) do
-        -- local time = os.epoch("utc") / 1000
         local tmpList = {}
         local name = getName(chest)
+        local chestWrapper = wrap(name)
+        local chestList = chest.list()
         local numberOfSlots = 0
 
-        total = total + (chest.size())
-        for slot, item in pairs(chest.list()) do
+        total = total + chest.size()
+        for slot, item in pairs(chestList) do
             item["slot"] = slot
             item["chestName"] = name
             numberOfSlots = numberOfSlots + 1
@@ -332,7 +352,7 @@ local function getList(storage)
                 -- this is a massive time save
                 if not (inDetailsDB(item.name)) or item.nbt ~= nil then
                     if item.nbt == nil then
-                        item["details"] = wrap(name).getItemDetail(slot)
+                        item["details"] = chestWrapper.getItemDetail(slot)
                         -- print("addDetailsDB")
                         addDetailsDB(item)
                     end
@@ -343,18 +363,13 @@ local function getList(storage)
                 -- if we still dont have details, we must reach out to the chest
                 -- This causes major slowdowns if there is a large amount of items with nbt tags in system
                 -- if item.details == nil then
-                --    item["details"] = wrap(name).getItemDetail(slot)
+                --    item["details"] = chestWrapper.getItemDetail(slot)
                 -- end
             end
-            -- free = free + (item.details.maxCount - item.count)
             itemCount = itemCount + item.count
-            -- table.insert(list, item)
             list[#list + 1] = item
-            -- print(("%d x %s in slot %d"):format(item.count, item.name, slot))
         end
-        freeSlots = freeSlots + ((chest.size() - numberOfSlots))
-        -- local speed = (os.epoch("utc") / 1000) - time
-        -- debugLog("Chest " .. name .. " took " .. tostring(speed) .. " seconds")
+        freeSlots = freeSlots + (chest.size() - numberOfSlots)
     end
     return list, itemCount, freeSlots, total
 end
@@ -1210,7 +1225,12 @@ local function importHandler()
                 -- end
             end
             pingClients("databaseReload")
-            storageFreeSlots = calcFreeSlots()
+            if freeSlotRefreshCounter <= 0 then
+                storageFreeSlots = calcFreeSlots()
+                freeSlotRefreshCounter = 5
+            else
+                freeSlotRefreshCounter = freeSlotRefreshCounter - 1
+            end
             -- threadedStorageDatabaseReload()
             -- sleep(5)
         end
