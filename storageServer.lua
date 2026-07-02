@@ -331,45 +331,35 @@ local function getList(storage)
     local list = {}
     local itemCount = 0
     local getName = peripheral.getName
-    local wrap = peripheral.wrap
     local freeSlots = 0
     local total = 0
 
     for _, chest in pairs(storage) do
-        local tmpList = {}
         local name = getName(chest)
-        local chestWrapper = wrap(name)
         local chestList = chest.list()
         local numberOfSlots = 0
+        local chestSize = chest.size()
 
-        total = total + chest.size()
+        total = total + chestSize
         for slot, item in pairs(chestList) do
             item["slot"] = slot
             item["chestName"] = name
             numberOfSlots = numberOfSlots + 1
 
-            if item.details == nil then
-                -- this is a massive time save
-                if not (inDetailsDB(item.name)) or item.nbt ~= nil then
-                    if item.nbt == nil then
-                        item["details"] = chestWrapper.getItemDetail(slot)
-                        -- print("addDetailsDB")
-                        addDetailsDB(item)
-                    end
-                elseif item.nbt == nil then
-                    -- try to generate the details from db
-                    item["details"] = reconstructDetails(item.name)
+            if item.details == nil and item.nbt == nil then
+                local details = detailDB[item.name]
+                if details == nil then
+                    item["details"] = chest.getItemDetail(slot)
+                    addDetailsDB(item)
+                else
+                    item["details"] = details
                 end
-                -- if we still dont have details, we must reach out to the chest
-                -- This causes major slowdowns if there is a large amount of items with nbt tags in system
-                -- if item.details == nil then
-                --    item["details"] = chestWrapper.getItemDetail(slot)
-                -- end
             end
+
             itemCount = itemCount + item.count
             list[#list + 1] = item
         end
-        freeSlots = freeSlots + (chest.size() - numberOfSlots)
+        freeSlots = freeSlots + (chestSize - numberOfSlots)
     end
     return list, itemCount, freeSlots, total
 end
@@ -515,11 +505,11 @@ local function reloadStorageDatabase()
     debugLog("Getting item list took " .. tostring(speed) .. " seconds")
     local timeWrittingdb = os.epoch("utc") / 1000
 
-    print("Writing storage database....")
+    --print("Writing storage database....")
 
-    if fs.exists("storage.db") then
-        fs.delete("storage.db")
-    end
+    --if fs.exists("storage.db") then
+    --    fs.delete("storage.db")
+    --end
 
     local decoded = {}
     decoded.detailDB = detailDB
@@ -528,21 +518,21 @@ local function reloadStorageDatabase()
     decoded.storageFreeSlots = storageFreeSlots
     decoded.storageTotalSlots = storageTotalSlots
 
-    local storageFile = fs.open("storage.db", "w")
-    storageFile.write(textutils.serialise(decoded, {
-        allow_repetitions = true
-    }))
-    storageFile.close()
-    local speedWrittingdb = (os.epoch("utc") / 1000) - timeWrittingdb
+    --local storageFile = fs.open("storage.db", "w")
+    --storageFile.write(textutils.serialise(decoded, {
+    --    allow_repetitions = true
+    --}))
+    --storageFile.close()
+    --local speedWrittingdb = (os.epoch("utc") / 1000) - timeWrittingdb
     -- print("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
-    debugLog("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
+    --debugLog("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
 
     pingClients("databaseReload")
     os.queueEvent("databaseReloaded")
     print("Database reload complete")
     speed = (os.epoch("utc") / 1000) - time
     print("Database reload took " .. tostring(("%.3g"):format(speed) .. " seconds total"))
-    debugLog("Database reload took " .. tostring(speed) .. " seconds total")
+    log("Database reload took " .. tostring(speed) .. " seconds total")
 end
 
 local function threadedStorageDatabaseReload()
@@ -654,6 +644,7 @@ local function patchStorageDatabase(inputItem, count, chest, slot)
     end
 
     -- Patching failed, fallback to full reload
+    print("Patching database failed, reloading full database")
     reloadStorageDatabase()
     return false
 end
@@ -1686,7 +1677,7 @@ print("")
 print("Server is loading, please wait....")
 -- list of storage peripherals
 storages = getStorage()
-
+--[[
 if fs.exists("storage.db") then
     print("Reading storage database")
     local storageFile = fs.open("storage.db", "r")
@@ -1702,6 +1693,7 @@ if fs.exists("storage.db") then
         -- storageTotalSlots = decoded.storageTotalSlots
     end
 end
+]]--
 
 items, storageUsed, storageFreeSlots, storageTotalSlots = getList(storages)
 -- debugLog(dump(items))

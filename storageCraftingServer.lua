@@ -993,7 +993,7 @@ local function reloadServerDatabase()
 end
 
 -- Note: Large performance hit on larger systems
-local function reloadStorageDatabase()
+local function reloadStorageDatabase(skipTagPersist)
     debugLog("Reloading database..")
     -- storage = getStorage()
     -- write("..")
@@ -1012,19 +1012,21 @@ local function reloadStorageDatabase()
         event = os.pullEvent("itemsUpdated")
     until event == "itemsUpdated"
 
-    -- write("done\n")
-    -- write("Writing Tags Database....")
+    if not skipTagPersist then
+        -- write("done\n")
+        -- write("Writing Tags Database....")
 
-    if fs.exists("tags.db") then
-        fs.delete("tags.db")
+        if fs.exists("tags.db") then
+            fs.delete("tags.db")
+        end
+        local tagsFile = fs.open("tags.db", "w")
+        tagsFile.write(textutils.serialise(tags))
+        tagsFile.close()
+        -- write("done\n")
+        -- print("Items loaded: " .. tostring(storageUsed))
+        -- print("Tags loaded: " .. tostring(tags.count))
+        -- print("Tagged Items loaded: " .. tostring(tags.countItems))
     end
-    local tagsFile = fs.open("tags.db", "w")
-    tagsFile.write(textutils.serialise(tags))
-    tagsFile.close()
-    -- write("done\n")
-    -- print("Items loaded: " .. tostring(storageUsed))
-    -- print("Tags loaded: " .. tostring(tags.count))
-    -- print("Tagged Items loaded: " .. tostring(tags.countItems))
 end
 
 -- Returns the totals number of an item in turtle inventory
@@ -1463,6 +1465,7 @@ end
 
 -- Get items and craft
 local function craftRecipe(recipeObj, timesToCraft, socket)
+    local craftedItems = {}
     local recipe = recipeObj.recipe
     refreshInventoryIfNeeded()
     updateClient(socket, "itemUpdate", recipeObj.name)
@@ -1645,16 +1648,22 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             local itemsMoved = pullItems(craftingChest, searchResult["chestName"], searchResult["slot"],
                                 moveCount, searchResult.name)
                             -- debugLog("itemsMoved: " .. tostring(itemsMoved))
-                            while itemsMoved < moveCount do
-                                -- try again
+                            local maxRetryAttempts = 3
+                            local retryDelay = 0.25
+                            local retryAttempt = 0
+
+                            while itemsMoved < moveCount and retryAttempt < maxRetryAttempts do
+                                retryAttempt = retryAttempt + 1
                                 local itemsLeft = moveCount - itemsMoved
                                 debugLog("try again: itemsMoved:" .. tostring(itemsMoved) .. " < moveCount:" ..
-                                    tostring(moveCount) .. " Items left:" .. tostring(itemsLeft))
-                                reloadStorageDatabase()
-                                -- use same item as searchResult to avoid stacking issues
+                                    tostring(moveCount) .. " Items left:" .. tostring(itemsLeft) ..
+                                    " attempt:" .. tostring(retryAttempt))
+                                if itemsLeft <= 0 then
+                                    break
+                                end
+
                                 local newSearchResult = search("item:" .. searchResult.name, items, itemsLeft)
                                 if type(newSearchResult) == "nil" then
-                                    -- try to find just 1
                                     newSearchResult = search("item:" .. searchResult.name, items, 1)
                                     if type(newSearchResult) == "nil" then
                                         print("Failed to move item: " .. searchResult.name)
@@ -1667,12 +1676,49 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                         itemsLeft = 1
                                     end
                                 end
-                                -- local newItemsMoved = peripheral.wrap(craftingChest).pullItems(newSearchResult["chestName"], newSearchResult["slot"], itemsLeft)
+
                                 local newItemsMoved = pullItems(craftingChest, newSearchResult["chestName"],
                                     newSearchResult["slot"], itemsLeft, newSearchResult.name)
-                                -- Ask the server to reload database now that something has been changed
-                                -- reloadServerDatabase()
-                                itemsMoved = itemsMoved + newItemsMoved
+                                if newItemsMoved <= 0 then
+                                    if retryAttempt < maxRetryAttempts then
+                                        sleep(retryDelay)
+                                    end
+                                else
+                                    itemsMoved = itemsMoved + newItemsMoved
+                                    if itemsMoved < moveCount and retryAttempt < maxRetryAttempts then
+                                        sleep(retryDelay)
+                                    end
+                                end
+                            end
+
+                            if itemsMoved < moveCount then
+                                debugLog("partial transfer after " .. tostring(retryAttempt) .. " retries: " ..
+                                    tostring(itemsMoved) .. "/" .. tostring(moveCount))
+                                debugLog("attempting one last-ditch refresh")
+                                reloadStorageDatabase(true)
+
+                                local remaining = moveCount - itemsMoved
+                                if remaining > 0 then
+                                    local refreshedSearchResult = search("item:" .. searchResult.name, items, remaining)
+                                    if type(refreshedSearchResult) == "nil" then
+                                        refreshedSearchResult = search("item:" .. searchResult.name, items, 1)
+                                    end
+                                    if type(refreshedSearchResult) ~= "nil" then
+                                        local refreshedMoved = pullItems(craftingChest, refreshedSearchResult["chestName"],
+                                            refreshedSearchResult["slot"], remaining, refreshedSearchResult.name)
+                                        if refreshedMoved > 0 then
+                                            itemsMoved = itemsMoved + refreshedMoved
+                                        end
+                                    end
+                                end
+                            end
+
+                            if itemsMoved < moveCount then
+                                debugLog("partial transfer after last-ditch refresh: " .. tostring(itemsMoved) .. "/" ..
+                                    tostring(moveCount))
+                                updateClient(socket, "logUpdate",
+                                    "Partial move: " .. searchResult.name:match(".+:(.+)"))
+                                failed = true
                             end
                             -- Ask the server to reload database now that something has been changed
                             -- reloadServerDatabase()
@@ -1716,6 +1762,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                 -- crafted = crafted + craftedItem.count
                 -- debugLog("recipeObj.name: " .. recipeObj.name .. " numInTurtle(recipeObj.name): " .. tostring(numInTurtle(recipeObj.name)))
                 crafted = crafted + numInTurtle(recipeObj.name)
+                craftedItems[#craftedItems + 1] = tostring(craftedItem.name)
                 -- Wait on storage system to be ready
                 -- pingServer()
             end
@@ -1723,7 +1770,17 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
         end
 
         debugLog("crafted:" .. tostring(crafted))
+        
     end
+    print("Crafted items: ")
+    print(textutils.serialise(craftedItems))
+    print("Total " .. #craftedItems .. " items crafted")
+    updateClient(socket, "logUpdate", "")
+    for i = 1, #craftedItems, 1 do
+        updateClient(socket, "logUpdate", craftedItems[i])
+    end
+    updateClient(socket, "logUpdate", "Crafted items: ")
+    updateClient(socket, "logUpdate", "Total " .. #craftedItems .. " items crafted")
     return true
 end
 
