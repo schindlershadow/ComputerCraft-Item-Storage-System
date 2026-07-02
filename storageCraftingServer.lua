@@ -761,6 +761,16 @@ end
 
 local function searchForTag(string, InputTable, count)
     ensureItemCaches()
+    if type(string) == "table" then
+        for i = 1, #string do
+            local result, number, index = searchForTag(string[i], InputTable, count)
+            if number >= (count or 1) then
+                return result, number, index
+            end
+        end
+        return nil, 0, nil
+    end
+
     local match = string.match
     local stringTag = match(string, 'tag:%w+:(.+)')
     local number = 0
@@ -786,6 +796,16 @@ end
 -- Returns matched item obj, total number in list and index of matched obj
 local function search(searchTerm, InputTable, count)
     ensureItemCaches()
+    if type(searchTerm) == "table" then
+        for i = 1, #searchTerm do
+            local result, number, index = search(searchTerm[i], InputTable, count)
+            if number >= (count or 1) then
+                return result, number, index
+            end
+        end
+        return nil, 0, nil
+    end
+
     if string.find(searchTerm, "tag:") then
         return searchForTag(searchTerm, InputTable, count)
     else
