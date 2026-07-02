@@ -18,6 +18,7 @@ local craftingQueue = {}
 local serverBootTime = os.epoch("utc") / 1000
 local excludedChestLookup = {}
 local freeSlotRefreshCounter = 0
+local detailLookupCache = {}
 
 if not fs.exists("cryptoNet") then
     print("")
@@ -242,6 +243,7 @@ end
 
 -- Returns list of storage peripherals excluding import and export chests
 local function getStorage()
+    local time = os.epoch("utc") / 1000
     local storage = {}
     local wrap = peripheral.wrap
     for _, modem in pairs(modems) do
@@ -253,6 +255,9 @@ local function getStorage()
             end
         end
     end
+    local speed = (os.epoch("utc") / 1000) - time
+    print("Getting storages took " .. tostring(("%.3g"):format(speed) .. " seconds"))
+    debugLog("getStorage took " .. tostring(speed) .. " seconds")
     return storage
 end
 
@@ -295,7 +300,7 @@ local function addDetailsDB(item)
     end
 
     -- Add them to details db if they dont exist
-    if type(detailDB[item.name]) == "nil" then
+    if type(detailDB[item.name]) == "nil" and type(item.details) ~= "nil" then
         -- print("Found new item: " .. item.name)
         -- print("Found new detail: " .. item.details.displayName)
         detailDB[item.name] = item.details
@@ -305,6 +310,32 @@ local function addDetailsDB(item)
 
     detailDB.count = countDetails
     detailDB.countItems = countItems
+end
+
+local function getCachedItemDetails(chest, slot, itemName)
+    if type(itemName) == "nil" or itemName == "" then
+        return nil
+    end
+
+    local cachedState = detailLookupCache[itemName]
+    if cachedState == false then
+        return nil
+    end
+
+    local cachedDetails = detailDB[itemName]
+    if type(cachedDetails) ~= "nil" then
+        return cachedDetails
+    end
+
+    local details = chest.getItemDetail(slot)
+    if type(details) ~= "nil" then
+        detailLookupCache[itemName] = true
+        addDetailsDB({ name = itemName, details = details })
+        return details
+    end
+
+    detailLookupCache[itemName] = false
+    return nil
 end
 
 local function calcFreeSlots()
@@ -328,6 +359,7 @@ end
 
 -- gets the contents of a table of chests
 local function getList(storage)
+    local time = os.epoch("utc") / 1000
     local list = {}
     local itemCount = 0
     local getName = peripheral.getName
@@ -342,25 +374,27 @@ local function getList(storage)
 
         total = total + chestSize
         for slot, item in pairs(chestList) do
-            item["slot"] = slot
-            item["chestName"] = name
-            numberOfSlots = numberOfSlots + 1
+            if type(item) == "table" then
+                item["slot"] = slot
+                item["chestName"] = name
+                numberOfSlots = numberOfSlots + 1
 
-            if item.details == nil and item.nbt == nil then
-                local details = detailDB[item.name]
-                if details == nil then
-                    item["details"] = chest.getItemDetail(slot)
-                    addDetailsDB(item)
-                else
-                    item["details"] = details
+                if item.details == nil and item.nbt == nil then
+                    local details = getCachedItemDetails(chest, slot, item.name)
+                    if type(details) ~= "nil" then
+                        item["details"] = details
+                    end
                 end
-            end
 
-            itemCount = itemCount + item.count
-            list[#list + 1] = item
+                itemCount = itemCount + item.count
+                list[#list + 1] = item
+            end
         end
         freeSlots = freeSlots + (chestSize - numberOfSlots)
     end
+    local speed = (os.epoch("utc") / 1000) - time
+    print("Getting chest contents took " .. tostring(("%.3g"):format(speed) .. " seconds"))
+    debugLog("getList took " .. tostring(speed) .. " seconds")
     return list, itemCount, freeSlots, total
 end
 
@@ -1675,6 +1709,7 @@ print("craftingChests is set to: " .. dump(settings.get("craftingChests")))
 
 print("")
 print("Server is loading, please wait....")
+
 -- list of storage peripherals
 storages = getStorage()
 --[[
