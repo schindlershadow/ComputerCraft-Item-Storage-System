@@ -1315,8 +1315,10 @@ local function onCryptoNetEvent(event)
             elseif message == "ping" then
                 cryptoNet.send(socket, {"ping", "ack"})
             elseif message == "reloadStorageDatabase" then
-                cryptoNet.send(socket, {message})
+                print(socket.username .. " requested: " .. tostring(message))
+                log(socket.username .. " requested: " .. tostring(message))
                 reloadStorageDatabase()
+                cryptoNet.send(socket, {"databaseReloaded"})
                 -- threadedStorageDatabaseReload()
             elseif message == "getItems" then
                 cryptoNet.sendUnencrypted(socket, {"getItems", items})

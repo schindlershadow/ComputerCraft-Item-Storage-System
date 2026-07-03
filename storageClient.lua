@@ -284,6 +284,18 @@ local function getDetailDBFromServer()
     -- sleep(5)
 end
 
+local function reloadDatabase()
+    --Ask server to force reload database
+    cryptoNet.send(storageServerSocket, {"reloadStorageDatabase"})
+    local event
+    repeat
+        event = os.pullEvent("databaseReloaded")
+    until event == "databaseReloaded"
+    if craftingServerSocket ~= nil then
+        cryptoNet.send(craftingServerSocket, {"databaseReload"})
+    end
+end
+
 local function getItems()
     -- pingStorageServer()
     cryptoNet.send(storageServerSocket, {"getItems"})
@@ -2733,7 +2745,12 @@ local function inputHandler()
                     drawCraftingQueue()
                     drawList()
                 elseif key == keys.f5 then
+                    loadingScreen("Reloading Items")
+                    getItems()
+                    drawList()
+                elseif key == keys.f6 then
                     loadingScreen("Reloading Database")
+                    reloadDatabase()
                     getItems()
                     drawList()
                 elseif key == keys.backspace then
@@ -3067,6 +3084,8 @@ local function onCryptoNetEvent(event)
             os.queueEvent("gotNumNeeded", message)
         elseif messageType == "importAll" then
             os.queueEvent("importAllComplete")
+        elseif messageType == "databaseReloaded" then
+            os.queueEvent("databaseReloaded")
         elseif messageType == "databaseReload" then
             getItems()
             os.queueEvent("databaseReloaded")
