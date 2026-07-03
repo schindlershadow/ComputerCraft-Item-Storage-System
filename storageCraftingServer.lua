@@ -1651,9 +1651,8 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             searchResults[k], insystem[k], indexs[k] = search(recipe[row][slot][k], items, moveCount)
                             if debug then
                                 debugLog("searchResults[k]: " .. textutils.serialize(searchResults[k]))
-                                local itemToBeMoved =
-                                    peripheral.wrap(searchResults[k].chestName).list()[searchResults[k].slot]
-                                debugLog("itemToBeMoved: " .. textutils.serialize(itemToBeMoved))
+                                --local itemToBeMoved = peripheral.wrap(searchResults[k].chestName).list()[searchResults[k].slot]
+                                --debugLog("itemToBeMoved: " .. textutils.serialize(itemToBeMoved))
                             end
                             if type(searchResults[k]) ~= "nil" then
                                 found = true
@@ -1661,7 +1660,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             else
                                 foundIndexs[k] = false
                             end
-                            if insystem[k] > moveCount then
+                            if insystem[k] >= moveCount then
                                 found = true
                                 lastGoodIndex = k
                             end
@@ -1680,7 +1679,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                 else
                                     foundIndexs[k] = false
                                 end
-                                if insystem[k] > moveCount then
+                                if insystem[k] >= moveCount then
                                     found = true
                                     lastGoodIndex = k
                                 end
