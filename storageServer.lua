@@ -16,6 +16,9 @@ local craftingEnabled = false
 local currentlyCrafting = {}
 local craftingQueue = {}
 local serverBootTime = os.epoch("utc") / 1000
+local excludedChestLookup = {}
+local freeSlotRefreshCounter = 0
+local detailLookupCache = {}
 
 if not fs.exists("cryptoNet") then
     print("")
@@ -104,6 +107,27 @@ end)}
 ]]--
 -- CC: tweaked changed wired modems to peripheral_hub
 local modems = peripheral.find("peripheral_hub")
+
+local function rebuildExcludedChestLookup()
+    local lookup = {}
+    local exportChests = settings.get("exportChests") or {}
+    local importChests = settings.get("importChests") or {}
+    local craftingChests = settings.get("craftingChests") or {}
+
+    for _, chest in pairs(exportChests) do
+        lookup[chest] = true
+    end
+    for _, chest in pairs(importChests) do
+        lookup[chest] = true
+    end
+    for _, chest in pairs(craftingChests) do
+        lookup[chest] = true
+    end
+
+    excludedChestLookup = lookup
+end
+
+rebuildExcludedChestLookup()
 
 if type(modems[1]) == "nil" then
     local tmpTable = {}
@@ -219,21 +243,21 @@ end
 
 -- Returns list of storage peripherals excluding import and export chests
 local function getStorage()
+    local time = os.epoch("utc") / 1000
     local storage = {}
-    local peripherals = {}
     local wrap = peripheral.wrap
     for _, modem in pairs(modems) do
-        peripherals[#peripherals + 1] = modem.getNamesRemote()
         local remote = modem.getNamesRemote()
-        for i in pairs(remote) do
-            if modem.hasTypeRemote(remote[i], "inventory") then
-                if inExportChests(remote[i]) == false and inImportChests(remote[i]) == false and
-                    inCraftingChests(remote[i]) == false then
-                    storage[#storage + 1] = wrap(remote[i])
-                end
+        for i = 1, #remote, 1 do
+            local chestName = remote[i]
+            if modem.hasTypeRemote(chestName, "inventory") and not excludedChestLookup[chestName] then
+                storage[#storage + 1] = wrap(chestName)
             end
         end
     end
+    local speed = (os.epoch("utc") / 1000) - time
+    print("Getting storages took " .. tostring(("%.3g"):format(speed) .. " seconds"))
+    debugLog("getStorage took " .. tostring(speed) .. " seconds")
     return storage
 end
 
@@ -276,7 +300,7 @@ local function addDetailsDB(item)
     end
 
     -- Add them to details db if they dont exist
-    if type(detailDB[item.name]) == "nil" then
+    if type(detailDB[item.name]) == "nil" and type(item.details) ~= "nil" then
         -- print("Found new item: " .. item.name)
         -- print("Found new detail: " .. item.details.displayName)
         detailDB[item.name] = item.details
@@ -288,74 +312,89 @@ local function addDetailsDB(item)
     detailDB.countItems = countItems
 end
 
+local function getCachedItemDetails(chest, slot, itemName)
+    if type(itemName) == "nil" or itemName == "" then
+        return nil
+    end
+
+    local cachedState = detailLookupCache[itemName]
+    if cachedState == false then
+        return nil
+    end
+
+    local cachedDetails = detailDB[itemName]
+    if type(cachedDetails) ~= "nil" then
+        return cachedDetails
+    end
+
+    local details = chest.getItemDetail(slot)
+    if type(details) ~= "nil" then
+        detailLookupCache[itemName] = true
+        addDetailsDB({ name = itemName, details = details })
+        return details
+    end
+
+    detailLookupCache[itemName] = false
+    return nil
+end
+
 local function calcFreeSlots()
     local freeSlots = 0
     for _, chest in pairs(storages) do
-        local numberOfSlots = 0
-        local list = chest.list()
-        if list == nil then
+        local chestList = chest.list()
+        if chestList == nil then
             print("chest.list() failed")
             storages = getStorage()
             return calcFreeSlots()
         end
 
-        for slot, item in pairs(chest.list()) do
+        local numberOfSlots = 0
+        for _ in pairs(chestList) do
             numberOfSlots = numberOfSlots + 1
         end
-        freeSlots = freeSlots + ((chest.size() - numberOfSlots))
+        freeSlots = freeSlots + (chest.size() - numberOfSlots)
     end
     return freeSlots
 end
 
 -- gets the contents of a table of chests
 local function getList(storage)
+    local time = os.epoch("utc") / 1000
     local list = {}
     local itemCount = 0
     local getName = peripheral.getName
-    local wrap = peripheral.wrap
     local freeSlots = 0
     local total = 0
 
     for _, chest in pairs(storage) do
-        -- local time = os.epoch("utc") / 1000
-        local tmpList = {}
         local name = getName(chest)
+        local chestList = chest.list()
         local numberOfSlots = 0
+        local chestSize = chest.size()
 
-        total = total + (chest.size())
-        for slot, item in pairs(chest.list()) do
-            item["slot"] = slot
-            item["chestName"] = name
-            numberOfSlots = numberOfSlots + 1
+        total = total + chestSize
+        for slot, item in pairs(chestList) do
+            if type(item) == "table" then
+                item["slot"] = slot
+                item["chestName"] = name
+                numberOfSlots = numberOfSlots + 1
 
-            if item.details == nil then
-                -- this is a massive time save
-                if not (inDetailsDB(item.name)) or item.nbt ~= nil then
-                    if item.nbt == nil then
-                        item["details"] = wrap(name).getItemDetail(slot)
-                        -- print("addDetailsDB")
-                        addDetailsDB(item)
+                if item.details == nil and item.nbt == nil then
+                    local details = getCachedItemDetails(chest, slot, item.name)
+                    if type(details) ~= "nil" then
+                        item["details"] = details
                     end
-                elseif item.nbt == nil then
-                    -- try to generate the details from db
-                    item["details"] = reconstructDetails(item.name)
                 end
-                -- if we still dont have details, we must reach out to the chest
-                -- This causes major slowdowns if there is a large amount of items with nbt tags in system
-                -- if item.details == nil then
-                --    item["details"] = wrap(name).getItemDetail(slot)
-                -- end
+
+                itemCount = itemCount + item.count
+                list[#list + 1] = item
             end
-            -- free = free + (item.details.maxCount - item.count)
-            itemCount = itemCount + item.count
-            -- table.insert(list, item)
-            list[#list + 1] = item
-            -- print(("%d x %s in slot %d"):format(item.count, item.name, slot))
         end
-        freeSlots = freeSlots + ((chest.size() - numberOfSlots))
-        -- local speed = (os.epoch("utc") / 1000) - time
-        -- debugLog("Chest " .. name .. " took " .. tostring(speed) .. " seconds")
+        freeSlots = freeSlots + (chestSize - numberOfSlots)
     end
+    local speed = (os.epoch("utc") / 1000) - time
+    print("Getting chest contents took " .. tostring(("%.3g"):format(speed) .. " seconds"))
+    debugLog("getList took " .. tostring(speed) .. " seconds")
     return list, itemCount, freeSlots, total
 end
 
@@ -500,11 +539,11 @@ local function reloadStorageDatabase()
     debugLog("Getting item list took " .. tostring(speed) .. " seconds")
     local timeWrittingdb = os.epoch("utc") / 1000
 
-    print("Writing storage database....")
+    --print("Writing storage database....")
 
-    if fs.exists("storage.db") then
-        fs.delete("storage.db")
-    end
+    --if fs.exists("storage.db") then
+    --    fs.delete("storage.db")
+    --end
 
     local decoded = {}
     decoded.detailDB = detailDB
@@ -513,21 +552,21 @@ local function reloadStorageDatabase()
     decoded.storageFreeSlots = storageFreeSlots
     decoded.storageTotalSlots = storageTotalSlots
 
-    local storageFile = fs.open("storage.db", "w")
-    storageFile.write(textutils.serialise(decoded, {
-        allow_repetitions = true
-    }))
-    storageFile.close()
-    local speedWrittingdb = (os.epoch("utc") / 1000) - timeWrittingdb
+    --local storageFile = fs.open("storage.db", "w")
+    --storageFile.write(textutils.serialise(decoded, {
+    --    allow_repetitions = true
+    --}))
+    --storageFile.close()
+    --local speedWrittingdb = (os.epoch("utc") / 1000) - timeWrittingdb
     -- print("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
-    debugLog("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
+    --debugLog("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
 
     pingClients("databaseReload")
     os.queueEvent("databaseReloaded")
     print("Database reload complete")
     speed = (os.epoch("utc") / 1000) - time
     print("Database reload took " .. tostring(("%.3g"):format(speed) .. " seconds total"))
-    debugLog("Database reload took " .. tostring(speed) .. " seconds total")
+    log("Database reload took " .. tostring(speed) .. " seconds total")
 end
 
 local function threadedStorageDatabaseReload()
@@ -639,6 +678,7 @@ local function patchStorageDatabase(inputItem, count, chest, slot)
     end
 
     -- Patching failed, fallback to full reload
+    print("Patching database failed, reloading full database")
     reloadStorageDatabase()
     return false
 end
@@ -1210,7 +1250,12 @@ local function importHandler()
                 -- end
             end
             pingClients("databaseReload")
-            storageFreeSlots = calcFreeSlots()
+            if freeSlotRefreshCounter <= 0 then
+                storageFreeSlots = calcFreeSlots()
+                freeSlotRefreshCounter = 5
+            else
+                freeSlotRefreshCounter = freeSlotRefreshCounter - 1
+            end
             -- threadedStorageDatabaseReload()
             -- sleep(5)
         end
@@ -1270,8 +1315,10 @@ local function onCryptoNetEvent(event)
             elseif message == "ping" then
                 cryptoNet.send(socket, {"ping", "ack"})
             elseif message == "reloadStorageDatabase" then
-                cryptoNet.send(socket, {message})
+                print(socket.username .. " requested: " .. tostring(message))
+                log(socket.username .. " requested: " .. tostring(message))
                 reloadStorageDatabase()
+                cryptoNet.send(socket, {"databaseReloaded"})
                 -- threadedStorageDatabaseReload()
             elseif message == "getItems" then
                 cryptoNet.sendUnencrypted(socket, {"getItems", items})
@@ -1664,9 +1711,10 @@ print("craftingChests is set to: " .. dump(settings.get("craftingChests")))
 
 print("")
 print("Server is loading, please wait....")
+
 -- list of storage peripherals
 storages = getStorage()
-
+--[[
 if fs.exists("storage.db") then
     print("Reading storage database")
     local storageFile = fs.open("storage.db", "r")
@@ -1682,6 +1730,7 @@ if fs.exists("storage.db") then
         -- storageTotalSlots = decoded.storageTotalSlots
     end
 end
+]]--
 
 items, storageUsed, storageFreeSlots, storageTotalSlots = getList(storages)
 -- debugLog(dump(items))

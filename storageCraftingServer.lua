@@ -12,6 +12,9 @@ local currentlyCrafting = {}
 local craftingUpdateClients = {}
 local speakers = {}
 local serverBootTime = os.epoch("utc") / 1000
+local itemNameIndex = {}
+local itemTagIndex = {}
+local itemCacheDirty = true
 
 if not fs.exists("cryptoNet") then
     print("")
@@ -392,34 +395,50 @@ function table.contains(table, element)
     return false
 end
 
+local itemTagCache = {}
+local tagIndex = {}
+
+local function getItemTagCache(itemName)
+    local cached = itemTagCache[itemName]
+    if cached ~= nil then
+        return cached
+    end
+
+    local tagsForItem = {}
+    for tagName, nameTable in pairs(tags or {}) do
+        if type(nameTable) == "table" then
+            for _, name in pairs(nameTable) do
+                if name == itemName then
+                    tagsForItem[tagName] = true
+                    break
+                end
+            end
+        end
+    end
+
+    itemTagCache[itemName] = tagsForItem
+    return tagsForItem
+end
+
 -- Creates a tab table using the tabs db, use this to avoid costly peripheral lookups
 local function reconstructTags(itemName)
     local tab = {}
     tab.tags = {}
-    for tag, nameTable in pairs(tags) do
-        if type(nameTable) == "table" then
-            for _, name in pairs(nameTable) do
-                if name == itemName then
-                    tab.tags[tag] = true
-                end
-            end
-        end
+    local tagsForItem = getItemTagCache(itemName)
+    for tagName in pairs(tagsForItem) do
+        tab.tags[tagName] = true
     end
     return tab
 end
 
 -- Check if item name is in tag db
 local function inTags(itemName)
-    for _, nameTable in pairs(tags) do
-        if type(nameTable) == "table" then
-            for _, name in pairs(nameTable) do
-                if name == itemName then
-                    return true
-                end
-            end
-        end
+    if type(itemName) == "nil" then
+        return false
     end
-    return false
+
+    local tagsForItem = getItemTagCache(itemName)
+    return next(tagsForItem) ~= nil
 end
 
 -- Mantain tags lookup
@@ -442,37 +461,107 @@ local function addTag(item)
         countItems = tags.countItems
     end
 
+    local initCountTags = countTags
+    local initCountItems = countItems
+
+    local itemName = item.name
+    local itemTags = itemTagCache[itemName]
+    if itemTags == nil then
+        itemTags = {}
+        itemTagCache[itemName] = itemTags
+    end
+
     -- Get the tags which are keys in table item.details.tags
-    local keyset = {}
-    local n = 0
     if type(item.details) == "nil" then
         item.details = peripheral.wrap(item.chestName).getItemDetail(item.slot)
     end
-    if type(item.details) ~= "nil" then
-        for k, v in pairs(item.details.tags) do
-            n = n + 1
-            keyset[n] = k
-        end
-    end
-    -- print(dump(keyset))
 
-    -- Add them to tags table if they dont exist, if they exist add the item name to the list
-    for i = 1, #keyset, 1 do
-        if type(tags[keyset[i]]) == "nil" then
-            print("Found new tag: " .. keyset[i])
-            print("Found new item: " .. item.name)
-            tags[keyset[i]] = { item.name }
-            countTags = countTags + 1
-            countItems = countItems + 1
-        elseif table.contains(tags[keyset[i]], item.name) == false then
-            print("Found new item: " .. item.name)
-            table.insert(tags[keyset[i]], item.name)
-            countItems = countItems + 1
+    if type(item.details) ~= "nil" and type(item.details.tags) == "table" then
+        for tagName in pairs(item.details.tags) do
+            if not itemTags[tagName] then
+                itemTags[tagName] = true
+
+                local tagMembers = tagIndex[tagName]
+                if tagMembers == nil then
+                    tagMembers = {}
+                    tagIndex[tagName] = tagMembers
+                    local existingTagItems = tags[tagName]
+                    if type(existingTagItems) == "table" then
+                        for _, existingItemName in pairs(existingTagItems) do
+                            tagMembers[existingItemName] = true
+                        end
+                    end
+                end
+
+                if not tagMembers[itemName] then
+                    tagMembers[itemName] = true
+                    local tagItems = tags[tagName]
+                    if type(tagItems) == "nil" then
+                        print("Found new tag: " .. tagName)
+                        print("Found new item: " .. itemName)
+                        tags[tagName] = { itemName }
+                        countTags = countTags + 1
+                        countItems = countItems + 1
+                    else
+                        print("Found new item: " .. itemName)
+                        tagItems[#tagItems + 1] = itemName
+                        countItems = countItems + 1
+                    end
+                end
+            end
         end
     end
 
     tags.count = countTags
     tags.countItems = countItems
+
+    if initCountTags ~= countTags or initCountItems ~= countItems then
+        print("Updated tags.db: " .. tostring(countTags) .. " tags, " .. tostring(countItems) .. " items")
+        if fs.exists("tags.db") then
+            fs.delete("tags.db")
+        end
+        local tagsFile = fs.open("tags.db", "w")
+        tagsFile.write(textutils.serialise(tags))
+        tagsFile.close()
+    end
+    
+end
+
+local function rebuildItemCaches()
+    local nameIndex = {}
+    local tagIndex = {}
+    for _, entry in pairs(items or {}) do
+        if entry ~= nil and entry.name ~= nil then
+            local name = entry.name
+            local list = nameIndex[name]
+            if list == nil then
+                list = {}
+                nameIndex[name] = list
+            end
+            list[#list + 1] = entry
+
+            if entry.details ~= nil and entry.details.tags ~= nil then
+                for tag in pairs(entry.details.tags) do
+                    local tagList = tagIndex[tag]
+                    if tagList == nil then
+                        tagList = {}
+                        tagIndex[tag] = tagList
+                    end
+                    tagList[#tagList + 1] = entry
+                end
+            end
+        end
+    end
+
+    itemNameIndex = nameIndex
+    itemTagIndex = tagIndex
+    itemCacheDirty = false
+end
+
+local function ensureItemCaches()
+    if itemCacheDirty then
+        rebuildItemCaches()
+    end
 end
 
 local function getDatabaseFromServer()
@@ -671,23 +760,32 @@ local function getRecipes()
 end
 
 local function searchForTag(string, InputTable, count)
-    local find = string.find
+    ensureItemCaches()
+    if type(string) == "table" then
+        for i = 1, #string do
+            local result, number, index = searchForTag(string[i], InputTable, count)
+            if number >= (count or 1) then
+                return result, number, index
+            end
+        end
+        return nil, 0, nil
+    end
+
     local match = string.match
     local stringTag = match(string, 'tag:%w+:(.+)')
     local number = 0
 
     local returnV = nil
     local returnK
-    for k, v in pairs(InputTable) do
-        if v.details then
-            if v.details.tags then
-                -- print(stringTag .. " == " .. tostring(find(dump(v.details.tags),stringTag)))
-                if v.details.tags[stringTag] then
-                    number = number + v.count
-                end
-                if v.details.tags[stringTag] and v.count >= count then
+    local matchingEntries = itemTagIndex[stringTag]
+    if matchingEntries ~= nil then
+        for k, v in ipairs(matchingEntries) do
+            if v ~= nil then
+                number = number + (v.count or 0)
+                if (v.count or 0) >= (count or 1) then
                     returnV = v
                     returnK = k
+                    break
                 end
             end
         end
@@ -697,23 +795,34 @@ end
 
 -- Returns matched item obj, total number in list and index of matched obj
 local function search(searchTerm, InputTable, count)
+    ensureItemCaches()
+    if type(searchTerm) == "table" then
+        for i = 1, #searchTerm do
+            local result, number, index = search(searchTerm[i], InputTable, count)
+            if number >= (count or 1) then
+                return result, number, index
+            end
+        end
+        return nil, 0, nil
+    end
+
     if string.find(searchTerm, "tag:") then
         return searchForTag(searchTerm, InputTable, count)
     else
-        local stringSearch = string.match(searchTerm, 'item:(.+)')
-        local find = string.find
+        local stringSearch = string.match(searchTerm, 'item:(.+)') or searchTerm
         local number = 0
         local returnV = nil
         local returnK
-        -- print("need " .. tostring(count) .. " of " .. stringSearch)
-        for k, v in pairs(InputTable) do
-            if (v["name"]) == (stringSearch) then
-                number = number + v.count
-
-                if v.count >= count then
-                    -- print("Found: " .. tostring(v.count) .. " of " .. v.name)
-                    returnV = v
-                    returnK = k
+        local matchingEntries = itemNameIndex[stringSearch]
+        if matchingEntries ~= nil then
+            for k, v in ipairs(matchingEntries) do
+                if v ~= nil then
+                    number = number + (v.count or 0)
+                    if (v.count or 0) >= (count or 1) then
+                        returnV = v
+                        returnK = k
+                        break
+                    end
                 end
             end
         end
@@ -722,20 +831,20 @@ local function search(searchTerm, InputTable, count)
 end
 
 local function searchForItemWithTag(string, InputTable)
+    ensureItemCaches()
     local filteredTable = {}
-    local find = string.find
     local match = string.match
     local stringTag = match(string, 'tag:%w+:(.+)')
+    local matchingEntries = itemTagIndex[stringTag]
 
-    for k, v in pairs(InputTable) do
-        if v.details then
-            if v.details.tags then
-                if v.details.tags[stringTag] then
-                    filteredTable[#filteredTable + 1] = v
-                end
+    if matchingEntries ~= nil then
+        for _, v in ipairs(matchingEntries) do
+            if v ~= nil then
+                filteredTable[#filteredTable + 1] = v
             end
         end
     end
+
     if filteredTable == {} then
         return {}
     else
@@ -769,7 +878,9 @@ local function updateClient(socket, message, messageToSend)
     elseif type(message) == "boolean" then
         currentlyCrafting = {}
     end
-    cryptoNet.send(socket, { "craftingUpdate", table })
+    if socket ~= nil then
+        cryptoNet.send(socket, { "craftingUpdate", table })
+    end
     if message == "itemUpdate" or type(message) == "boolean" then
         -- Update any clients subscribed to crafting updates
         for k, v in pairs(craftingUpdateClients) do
@@ -953,7 +1064,7 @@ local function reloadServerDatabase()
 end
 
 -- Note: Large performance hit on larger systems
-local function reloadStorageDatabase()
+local function reloadStorageDatabase(skipTagPersist)
     debugLog("Reloading database..")
     -- storage = getStorage()
     -- write("..")
@@ -972,19 +1083,21 @@ local function reloadStorageDatabase()
         event = os.pullEvent("itemsUpdated")
     until event == "itemsUpdated"
 
-    -- write("done\n")
-    -- write("Writing Tags Database....")
+    if not skipTagPersist then
+        -- write("done\n")
+        -- write("Writing Tags Database....")
 
-    if fs.exists("tags.db") then
-        fs.delete("tags.db")
+        if fs.exists("tags.db") then
+            fs.delete("tags.db")
+        end
+        local tagsFile = fs.open("tags.db", "w")
+        tagsFile.write(textutils.serialise(tags))
+        tagsFile.close()
+        -- write("done\n")
+        -- print("Items loaded: " .. tostring(storageUsed))
+        -- print("Tags loaded: " .. tostring(tags.count))
+        -- print("Tagged Items loaded: " .. tostring(tags.countItems))
     end
-    local tagsFile = fs.open("tags.db", "w")
-    tagsFile.write(textutils.serialise(tags))
-    tagsFile.close()
-    -- write("done\n")
-    -- print("Items loaded: " .. tostring(storageUsed))
-    -- print("Tags loaded: " .. tostring(tags.count))
-    -- print("Tagged Items loaded: " .. tostring(tags.countItems))
 end
 
 -- Returns the totals number of an item in turtle inventory
@@ -1002,7 +1115,7 @@ local function numInTurtle(itemName)
 end
 
 -- dumps turtle inventory to system
-local function dumpAll(skipReload)
+local function dumpAll(skipReload, socket)
     if skipReload == nil then
         skipReload = false
     end
@@ -1023,11 +1136,21 @@ local function dumpAll(skipReload)
         -- repeat
         --    event = os.pullEvent()
         -- until event == "forceImport"
-
+        print("Waiting for update event from storage server...")
+        if socket ~= nil then
+            updateClient(socket, "logUpdate", "Waiting on server...")
+        end
+        local time = os.epoch("utc") / 1000
         local event
         repeat
             event = os.pullEvent("itemsUpdated")
         until event == "itemsUpdated"
+        local speed = (os.epoch("utc") / 1000) - time
+        print("Waited " .. tostring(("%.3g"):format(speed) .. " seconds total"))
+        debugLog("itemsUpdated took " .. tostring(speed) .. " seconds total")
+        if socket ~= nil then
+            updateClient(socket, "logUpdate", "Waited " .. tostring(("%.3g"):format(speed) .. " seconds"))
+        end
     end
 end
 
@@ -1151,8 +1274,12 @@ local function recipeContains(recipe, itemName)
 end
 
 -- returns score, input recipe, name of recipe item output, time-to-live, amount of item output recipe creates
-local function scoreBranch(recipe, itemName, ttl, amount, socket)
+local function scoreBranch(recipe, itemName, ttl, amount, socket, scoreCache)
     local score = 0
+    local cacheKey = tostring(itemName) .. "|" .. tostring(ttl) .. "|" .. tostring(amount)
+    if scoreCache ~= nil and scoreCache[cacheKey] ~= nil then
+        return scoreCache[cacheKey]
+    end
 
     if type(amount) == "nil" then
         amount = 1
@@ -1249,7 +1376,7 @@ local function scoreBranch(recipe, itemName, ttl, amount, socket)
                                         allRecipes[m].recipeName)
                                     ttl = ttl - 1
                                     local scoreTab = scoreBranch(allRecipes[m].recipe, allRecipes[m].name, ttl - 1,
-                                        allRecipes[m].count, socket)
+                                        allRecipes[m].count, socket, scoreCache)
                                     if scoreTab > 0 then
                                         score = score + scoreTab
                                         debugLog("score: " .. tostring(score))
@@ -1274,6 +1401,9 @@ local function scoreBranch(recipe, itemName, ttl, amount, socket)
     ttl = ttl - 1
     -- score = score + ttl
     debugLog("return score: " .. tostring(score))
+    if scoreCache ~= nil then
+        scoreCache[cacheKey] = score
+    end
     return score
 end
 
@@ -1282,8 +1412,9 @@ local function getBestRecipe(allRecipes, id)
     local bestRecipe
     local bestScore = 0
     local bestCount = 1
+    local scoreCache = {}
     for i = 1, #allRecipes, 1 do
-        local score = scoreBranch(allRecipes[i].recipe, allRecipes[i].name, 20, allRecipes[i].count, id)
+        local score = scoreBranch(allRecipes[i].recipe, allRecipes[i].name, 20, allRecipes[i].count, id, scoreCache)
         debugLog("recipe: " .. allRecipes[i].recipeName .. " score: " .. score)
         if score > bestScore then
             bestRecipe = allRecipes[i]
@@ -1407,10 +1538,18 @@ local function pullItems(craftingChest, chestName, slot, moveCount, itemName)
     return moved
 end
 
+local function refreshInventoryIfNeeded(force)
+    if force or items == nil or next(items) == nil or itemCacheDirty then
+        getDatabaseFromServer()
+    end
+end
+
 -- Get items and craft
 local function craftRecipe(recipeObj, timesToCraft, socket)
+    local time = os.epoch("utc") / 1000
+    local craftedItems = {}
     local recipe = recipeObj.recipe
-    getDatabaseFromServer()
+    refreshInventoryIfNeeded()
     updateClient(socket, "itemUpdate", recipeObj.name)
     -- debugLog("craftRecipe")
     -- debugLog(recipeObj)
@@ -1474,7 +1613,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
     -- debugLog("moveCount:" .. tostring(moveCount))
 
     -- In case of garbage in the turtle's inventory
-    dumpAll(true)
+    dumpAll(true, socket)
 
     -- Moving materials to crafting grid
     local crafted = 0
@@ -1512,9 +1651,8 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             searchResults[k], insystem[k], indexs[k] = search(recipe[row][slot][k], items, moveCount)
                             if debug then
                                 debugLog("searchResults[k]: " .. textutils.serialize(searchResults[k]))
-                                local itemToBeMoved =
-                                    peripheral.wrap(searchResults[k].chestName).list()[searchResults[k].slot]
-                                debugLog("itemToBeMoved: " .. textutils.serialize(itemToBeMoved))
+                                --local itemToBeMoved = peripheral.wrap(searchResults[k].chestName).list()[searchResults[k].slot]
+                                --debugLog("itemToBeMoved: " .. textutils.serialize(itemToBeMoved))
                             end
                             if type(searchResults[k]) ~= "nil" then
                                 found = true
@@ -1522,7 +1660,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             else
                                 foundIndexs[k] = false
                             end
-                            if insystem[k] > moveCount then
+                            if insystem[k] >= moveCount then
                                 found = true
                                 lastGoodIndex = k
                             end
@@ -1541,7 +1679,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                 else
                                     foundIndexs[k] = false
                                 end
-                                if insystem[k] > moveCount then
+                                if insystem[k] >= moveCount then
                                     found = true
                                     lastGoodIndex = k
                                 end
@@ -1560,7 +1698,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                         "Not enough " .. recipe[row][slot][j]:match(".+:(.+)") .. " in system")
                                 end
                             end
-                            dumpAll(true)
+                            dumpAll(true, socket)
                             failed = true
                         else
                             -- item was found in system
@@ -1591,16 +1729,22 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             local itemsMoved = pullItems(craftingChest, searchResult["chestName"], searchResult["slot"],
                                 moveCount, searchResult.name)
                             -- debugLog("itemsMoved: " .. tostring(itemsMoved))
-                            while itemsMoved < moveCount do
-                                -- try again
+                            local maxRetryAttempts = 3
+                            local retryDelay = 0.25
+                            local retryAttempt = 0
+
+                            while itemsMoved < moveCount and retryAttempt < maxRetryAttempts do
+                                retryAttempt = retryAttempt + 1
                                 local itemsLeft = moveCount - itemsMoved
                                 debugLog("try again: itemsMoved:" .. tostring(itemsMoved) .. " < moveCount:" ..
-                                    tostring(moveCount) .. " Items left:" .. tostring(itemsLeft))
-                                reloadStorageDatabase()
-                                -- use same item as searchResult to avoid stacking issues
+                                    tostring(moveCount) .. " Items left:" .. tostring(itemsLeft) ..
+                                    " attempt:" .. tostring(retryAttempt))
+                                if itemsLeft <= 0 then
+                                    break
+                                end
+
                                 local newSearchResult = search("item:" .. searchResult.name, items, itemsLeft)
                                 if type(newSearchResult) == "nil" then
-                                    -- try to find just 1
                                     newSearchResult = search("item:" .. searchResult.name, items, 1)
                                     if type(newSearchResult) == "nil" then
                                         print("Failed to move item: " .. searchResult.name)
@@ -1613,12 +1757,49 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                         itemsLeft = 1
                                     end
                                 end
-                                -- local newItemsMoved = peripheral.wrap(craftingChest).pullItems(newSearchResult["chestName"], newSearchResult["slot"], itemsLeft)
+
                                 local newItemsMoved = pullItems(craftingChest, newSearchResult["chestName"],
                                     newSearchResult["slot"], itemsLeft, newSearchResult.name)
-                                -- Ask the server to reload database now that something has been changed
-                                -- reloadServerDatabase()
-                                itemsMoved = itemsMoved + newItemsMoved
+                                if newItemsMoved <= 0 then
+                                    if retryAttempt < maxRetryAttempts then
+                                        sleep(retryDelay)
+                                    end
+                                else
+                                    itemsMoved = itemsMoved + newItemsMoved
+                                    if itemsMoved < moveCount and retryAttempt < maxRetryAttempts then
+                                        sleep(retryDelay)
+                                    end
+                                end
+                            end
+
+                            if itemsMoved < moveCount then
+                                debugLog("partial transfer after " .. tostring(retryAttempt) .. " retries: " ..
+                                    tostring(itemsMoved) .. "/" .. tostring(moveCount))
+                                debugLog("attempting one last-ditch refresh")
+                                reloadStorageDatabase(true)
+
+                                local remaining = moveCount - itemsMoved
+                                if remaining > 0 then
+                                    local refreshedSearchResult = search("item:" .. searchResult.name, items, remaining)
+                                    if type(refreshedSearchResult) == "nil" then
+                                        refreshedSearchResult = search("item:" .. searchResult.name, items, 1)
+                                    end
+                                    if type(refreshedSearchResult) ~= "nil" then
+                                        local refreshedMoved = pullItems(craftingChest, refreshedSearchResult["chestName"],
+                                            refreshedSearchResult["slot"], remaining, refreshedSearchResult.name)
+                                        if refreshedMoved > 0 then
+                                            itemsMoved = itemsMoved + refreshedMoved
+                                        end
+                                    end
+                                end
+                            end
+
+                            if itemsMoved < moveCount then
+                                debugLog("partial transfer after last-ditch refresh: " .. tostring(itemsMoved) .. "/" ..
+                                    tostring(moveCount))
+                                updateClient(socket, "logUpdate",
+                                    "Partial move: " .. searchResult.name:match(".+:(.+)"))
+                                failed = true
                             end
                             -- Ask the server to reload database now that something has been changed
                             -- reloadServerDatabase()
@@ -1630,7 +1811,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                                 print("failed to get item: " .. searchResult.name)
                                 updateClient(socket, "logUpdate",
                                     "Failed getting: " .. searchResult.name:match(".+:(.+)"))
-                                dumpAll(true)
+                                dumpAll(true, socket)
                                 failed = true
                                 debugLog(searchResult)
                                 break
@@ -1650,7 +1831,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
         end
 
         if failed then
-            dumpAll(true)
+            dumpAll(true, socket)
             return false
         else
             turtle.craft()
@@ -1662,14 +1843,26 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                 -- crafted = crafted + craftedItem.count
                 -- debugLog("recipeObj.name: " .. recipeObj.name .. " numInTurtle(recipeObj.name): " .. tostring(numInTurtle(recipeObj.name)))
                 crafted = crafted + numInTurtle(recipeObj.name)
+                craftedItems[#craftedItems + 1] = tostring(craftedItem.name)
                 -- Wait on storage system to be ready
                 -- pingServer()
             end
-            dumpAll()
+            dumpAll(false, socket)
         end
 
         debugLog("crafted:" .. tostring(crafted))
+        
     end
+
+    local speed = (os.epoch("utc") / 1000) - time
+    
+    print("Crafted item: " .. craftedItems[1] .. " in " .. tostring(("%.3g"):format(speed)) .. " seconds")
+    debugLog("craftRecipe took " .. tostring(speed) .. " seconds total")
+    updateClient(socket, "logUpdate", "")
+    updateClient(socket, "logUpdate", "in " .. tostring(("%.3g"):format(speed)) .. " secs")
+    updateClient(socket, "logUpdate", "Crafted item: " .. craftedItems[1])
+    updateClient(socket, "logUpdate", "")
+
     return true
 end
 
@@ -1687,6 +1880,8 @@ local function craftBranch(recipeObj, ttl, amount, socket)
     if type(socket) == "nil" then
         socket = storageServerSocket
     end
+
+    local time = os.epoch("utc") / 1000
 
     -- Send item status update to client
     updateClient(socket, "craftingUpdate", itemName)
@@ -1879,11 +2074,14 @@ local function craftBranch(recipeObj, ttl, amount, socket)
         debugLog("Craft parent item: " .. tostring(status))
         return status
     end
+    local speed = (os.epoch("utc") / 1000) - time
+    print("craftBranch took " .. tostring(("%.3g"):format(speed) .. " seconds total"))
+    debugLog("craftBranch took " .. tostring(speed) .. " seconds total")
 end
 
 -- Craft recipe assuming all materials are available
 local function craft(item, amount, socket)
-    getDatabaseFromServer()
+    refreshInventoryIfNeeded()
     debugLog("craft")
     if type(socket) == "nil" then
         socket = storageServerSocket
@@ -2020,6 +2218,9 @@ local function craftingManager()
                 local speed = (os.epoch("utc") / 1000) - time
                 print("Craft took " .. tostring(("%.3g"):format(speed) .. " seconds total"))
                 debugLog("Craft took " .. tostring(speed) .. " seconds total")
+                updateClient(socket, "logUpdate", "")
+                updateClient(socket, "logUpdate", "Crafted in " .. tostring(("%.3g"):format(speed)) .. " secs total")
+                updateClient(socket, "logUpdate", "")
             end
         end
         sleep(0.5)
@@ -2166,18 +2367,34 @@ local function onCryptoNetEvent(event)
             socket.target == settings.get("StorageServer") then
             if message == "getItems" then
                 if type(data) == "table" then
+                    local time = os.epoch("utc") / 1000
                     items = data
-                    for k, v in pairs(data) do
-                        if not (inTags(v.name)) then
-                            if type(data[k]["details"]) == "nil" then
-                                data[k]["details"] = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+                    itemCacheDirty = true
+                        local processedNames = {}
+                        for k, v in pairs(data) do
+                            local entry = data[k]
+                            if processedNames[entry.name] then
+                                -- avoid reprocessing duplicate stacks of the same item name
+                                if entry.details == nil then
+                                    entry.details = reconstructTags(entry.name)
+                                else
+                                    entry.details = reconstructTags(entry.name)
+                                end
+                            else
+                                processedNames[entry.name] = true
+                                if not inTags(entry.name) then
+                                    if type(entry.details) == "nil" then
+                                        entry.details = peripheral.wrap(entry.chestName).getItemDetail(entry.slot)
+                                    end
+                                    addTag(entry)
+                                else
+                                    entry.details = reconstructTags(entry.name)
+                                end
                             end
-                            addTag(data[k])
-                        else
-                            data[k]["details"] = reconstructTags(v.name)
                         end
-                    end
-
+                    local speed = (os.epoch("utc") / 1000) - time
+                    --print("getItems took " .. tostring(("%.3g"):format(speed) .. " seconds total"))
+                    debugLog("getItems took " .. tostring(speed) .. " seconds total")
                     os.queueEvent("itemsUpdated")
                 else
                     sleep(math.random() % 0.2)
@@ -2369,14 +2586,16 @@ local function onCryptoNetEvent(event)
             elseif message == "getItems" then
                 if type(data) == "table" then
                     items = data
+                    itemCacheDirty = true
                     for k, v in pairs(data) do
-                        if not (inTags(v.name)) then
-                            if type(data[k]["details"]) == "nil" then
-                                data[k]["details"] = peripheral.wrap(v.chestName).getItemDetail(v.slot)
+                        local entry = data[k]
+                        if not inTags(entry.name) then
+                            if type(entry.details) == "nil" then
+                                entry.details = peripheral.wrap(entry.chestName).getItemDetail(entry.slot)
                             end
-                            addTag(data[k])
+                            addTag(entry)
                         else
-                            data[k]["details"] = reconstructTags(v.name)
+                            entry.details = reconstructTags(entry.name)
                         end
                     end
 
@@ -2620,7 +2839,7 @@ local function onStart()
     local wirelessModem = nil
     local wiredModem = nil
 
-    dumpAll(true)
+    dumpAll(true, nil)
 
     print("Looking for connected modems...")
 
@@ -2706,6 +2925,27 @@ if fs.exists("tags.db") then
     if type(tags) == "nil" then
         tags = {}
     end
+    -- Normalize tags loaded from disk: remove duplicate item entries and rebuild counts
+    local totalTags = 0
+    local totalItems = 0
+    for tagName, tagItems in pairs(tags) do
+        if type(tagItems) == "table" then
+            -- build unique list
+            local seen = {}
+            local unique = {}
+            for _, itemName in pairs(tagItems) do
+                if not seen[itemName] then
+                    seen[itemName] = true
+                    unique[#unique + 1] = itemName
+                end
+            end
+            tags[tagName] = unique
+            totalTags = totalTags + 1
+            totalItems = totalItems + #unique
+        end
+    end
+    tags.count = totalTags
+    tags.countItems = totalItems
     print("Tags read: " .. tostring(tags.count))
 end
 
