@@ -1120,13 +1120,19 @@ local function dumpAll(skipReload, socket)
         skipReload = false
     end
     local reload = false
-    for i = 1, 16, 1 do
-        local item = turtle.getItemDetail(i)
-        if type(item) ~= "nil" then
-            turtle.select(i)
-            turtle.dropDown()
-            reload = true
+    local getItemDetail = turtle.getItemDetail
+    local select = turtle.select
+    local dropDown = turtle.dropDown
+
+    while true do
+        for i = 1, 16 do
+            if getItemDetail(i) then
+                select(i)
+                dropDown()
+                reload = true
+            end
         end
+        --sleep(0)
     end
     if reload and storageServerSocket ~= nil and not skipReload then
         -- reloadStorageDatabase()
@@ -1507,13 +1513,13 @@ local function pullItems(craftingChest, chestName, slot, moveCount, itemName)
     -- cryptoNet.send(storageServerSocket, { "getItems" })
     if peripheral.find("rs_bridge") ~= nil then
         -- If the chest is connected to a redstone bridge, we can use pullItems directly
-        --local moved = peripheral.wrap(craftingChest).pullItems(chestName, slot, moveCount)
+        -- local moved = peripheral.wrap(craftingChest).pullItems(chestName, slot, moveCount)
         moved = peripheral.find("rs_bridge").exportItem({
             name = itemName,
             count = moveCount
         }, craftingChest)
         tmp.count = -1 * moved
-        
+
     else
         local itemToBeMoved = peripheral.wrap(chestName).list()[slot]
 
