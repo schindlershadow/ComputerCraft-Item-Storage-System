@@ -614,8 +614,12 @@ local function pingClients(message)
 end
 
 -- Note: Large performance hit on larger systems
-local function reloadStorageDatabase()
+local function reloadStorageDatabase(reason)
     print("Reloading database..")
+    if reason ~= nil then
+        print("Reason: " .. reason)
+        debugLog("Reloading database due to: " .. reason)
+    end
     local time = os.epoch("utc") / 1000
     if peripheral.find("rs_bridge") == nil then
 
@@ -655,6 +659,16 @@ local function reloadStorageDatabase()
         items = peripheral.find("rs_bridge").getItems()
         -- Ensure each item has a `details` key expected by clients
         items = normalizeRSItems(items)
+
+        -- Remove the duplicate tags table to avoid serialization issues
+        for i, item in ipairs(items) do
+            if item.details then
+                item.tags = nil
+            end
+            item.maxCount = item.maxStackSize
+            item.maxStackSize = nil
+        end
+
         storageUsed = peripheral.find("rs_bridge").getUsedItemStorage()
         storageTotalSlots = peripheral.find("rs_bridge").getTotalItemStorage()
         storageFreeSlots = storageTotalSlots - storageUsed
@@ -682,9 +696,9 @@ local function reloadStorageDatabase()
     log("Database reload took " .. tostring(speed) .. " seconds total")
 end
 
-local function threadedStorageDatabaseReload()
+local function threadedStorageDatabaseReload(reason)
     -- os.startThread(reloadStorageDatabase
-    reloadStorageDatabase()
+    reloadStorageDatabase(reason)
     -- local event
     -- repeat
     --    event = os.pullEvent("databaseReloaded")
@@ -694,8 +708,8 @@ end
 -- Avoid costly database reload by patching database in memory
 local function patchStorageDatabase(inputItem, count, chest, slot)
     if peripheral.find("rs_bridge") ~= nil then
-        reloadStorageDatabase()
-        return true
+        --reloadStorageDatabase("patchStorageDatabase called, but RS is present, so doing full reload instead")
+        --return true
     end
     if count == 0 or inputItem == nil or chest == nil or slot == nil then
         return false
@@ -796,7 +810,7 @@ local function patchStorageDatabase(inputItem, count, chest, slot)
 
     -- Patching failed, fallback to full reload
     print("Patching database failed, reloading full database")
-    reloadStorageDatabase()
+    reloadStorageDatabase("patchStorageDatabase failed")
     return false
 end
 
@@ -1104,7 +1118,7 @@ local function get()
 
         peripheral.wrap(settings.get("exportChests")[1]).pullItems(filteredTable[1]["chestName"],
             filteredTable[1]["slot"])
-        reloadStorageDatabase()
+        reloadStorageDatabase("get() called")
     end
 end
 
@@ -1358,17 +1372,8 @@ local function importHandler()
                         name = item.name,
                         count = item.count
                     }, item.chestName)
-                    if moved > 0 then
-                        local patchstatus = patchStorageDatabase(item, moved, nil, nil)
-                        if not patchstatus then
-                            reload = true
-                        end
-                        print("Import: " .. item.name .. " #" .. tostring(moved))
-                        debugLog("importHandler: " .. item.name .. " #" .. tostring(moved) .. " chest:" ..
-                                     item.chestName .. " slot:" .. tostring(item.slot))
-                    else
-                        reload = false
-                    end
+                    reloadStorageDatabase("importHandler: Refined Storage importItem called for " .. item.name .. " #" .. tostring(item.count))
+                    reload = false
                 else
                     -- Refined Storage is not present, use the old method to import the item
                     local chest, slot = findFreeSpace(item, storages)
@@ -1376,7 +1381,7 @@ local function importHandler()
                     if chest == nil then
                         -- TODO: implement space full alert
                         print("No free space found!")
-                        reloadStorageDatabase()
+                        reloadStorageDatabase("No free space found!")
                         reload = false
                         -- sleep(5)
                         -- return
@@ -1469,7 +1474,7 @@ local function onCryptoNetEvent(event)
             elseif message == "reloadStorageDatabase" then
                 print(socket.username .. " requested: " .. tostring(message))
                 log(socket.username .. " requested: " .. tostring(message))
-                reloadStorageDatabase()
+                reloadStorageDatabase("reloadStorageDatabase requested by " .. socket.username)
                 cryptoNet.send(socket, {"databaseReloaded"})
                 -- threadedStorageDatabaseReload()
             elseif message == "getItems" then
@@ -1505,7 +1510,7 @@ local function onCryptoNetEvent(event)
                         if chest == nil then
                             -- TODO: implement space full alert
                             print("No free space found!")
-                            reloadStorageDatabase()
+                            reloadStorageDatabase("No free space found!")
                             reload = false
                         else
                             -- send to found slot
@@ -1537,7 +1542,7 @@ local function onCryptoNetEvent(event)
                         if chest == nil then
                             -- TODO: implement space full alert
                             print("No free space found!")
-                            reloadStorageDatabase()
+                            reloadStorageDatabase("No free space found!")
                             -- sleep(5)
                         else
                             -- send to found slot
@@ -1546,7 +1551,7 @@ local function onCryptoNetEvent(event)
                         end
                     end
                 end
-                reloadStorageDatabase()
+                reloadStorageDatabase("import requested by " .. socket.username)
                 -- threadedStorageDatabaseReload()
             elseif message == "importAll" then
                 print(socket.username .. " requested: " .. tostring(message))
@@ -1564,7 +1569,7 @@ local function onCryptoNetEvent(event)
                         print("Import: " .. item.name .. " #" .. tostring(moved))
                     end
                 end
-                reloadStorageDatabase()
+                reloadStorageDatabase("importAll requested by " .. socket.username)
                 -- threadedStorageDatabaseReload()
                 cryptoNet.send(socket, {message})
             elseif message == "export" then
@@ -1850,7 +1855,7 @@ local function onStart()
     debugLog("Boot time: " .. tostring(("%.3g"):format(speed) .. " seconds"))
     if next(monitors) then
         os.startThread(monitorHandler)
-        --monitorHandler()
+        -- monitorHandler()
     end
     importHandler()
 end
@@ -1886,7 +1891,7 @@ end
 
 items, storageUsed, storageFreeSlots, storageTotalSlots = getList(storages)
 if peripheral.find("rs_bridge") ~= nil then
-    reloadStorageDatabase()
+    reloadStorageDatabase("rs_bridge found, initializing database")
 end
 -- debugLog(dump(items))
 -- for k,v in pairs(items) do

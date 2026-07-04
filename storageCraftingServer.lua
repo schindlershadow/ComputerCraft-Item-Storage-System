@@ -1059,7 +1059,13 @@ local function isCraftable(searchTerm)
     end
 end
 
-local function reloadServerDatabase()
+local function reloadServerDatabase(reason)
+    if reason ~= nil then
+        print("Reloading database due to: " .. reason)
+        debugLog("Reloading database due to: " .. reason)
+    else
+        print("Asking server to database...")
+    end
     cryptoNet.send(storageServerSocket, {"reloadStorageDatabase"})
 end
 
@@ -1072,7 +1078,7 @@ local function reloadStorageDatabase(skipTagPersist)
     -- items, storageUsed = getList(storage)
 
     -- pingServer()
-    reloadServerDatabase()
+    reloadServerDatabase("reloadStorageDatabase() called")
     -- cryptoNet.send(storageServerSocket, { "reloadStorageDatabase" })
     -- pingServer()
 
@@ -1124,16 +1130,15 @@ local function dumpAll(skipReload, socket)
     local select = turtle.select
     local dropDown = turtle.dropDown
 
-    while true do
-        for i = 1, 16 do
-            if getItemDetail(i) then
-                select(i)
-                dropDown()
-                reload = true
-            end
+    for i = 1, 16 do
+        if getItemDetail(i) ~= nil then
+            select(i)
+            dropDown()
+            reload = true
         end
-        --sleep(0)
     end
+    -- sleep(0)
+
     if reload and storageServerSocket ~= nil and not skipReload then
         -- reloadStorageDatabase()
         -- cryptoNet.send(storageServerSocket, { "forceImport", settings.get("craftingImportChest") })
@@ -1444,6 +1449,11 @@ local function patchStorageDatabase(itemName, count, chest, slot)
     if count == 0 or itemName == nil or chest == nil or slot == nil then
         return false
     end
+    if peripheral.find("rs_bridge") ~= nil then
+        -- no need to patch database if using redstone bridge, just reload from server
+        getDatabaseFromServer()
+        return true
+    end
     -- print("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
     debugLog("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" ..
                  tostring(slot))
@@ -1549,14 +1559,37 @@ local function pullItems(craftingChest, chestName, slot, moveCount, itemName)
     --]]
         -- Patch db on both servers at the same time
     end
-    cryptoNet.send(storageServerSocket, {"patchStorageDatabase", tmp})
-    local patchstatus = patchStorageDatabase(itemName, -1 * moved, chestName, slot)
+    
+   cryptoNet.send(storageServerSocket, {"patchStorageDatabase", tmp})
+        patchStorageDatabase(itemName, -1 * moved, chestName, slot)
     return moved
 end
 
 local function refreshInventoryIfNeeded(force)
     if force or items == nil or next(items) == nil or itemCacheDirty then
         getDatabaseFromServer()
+    end
+end
+
+local function findRepeated(tbl, seen, path)
+    if type(tbl) ~= "table" then return end
+
+    seen = seen or {}
+    path = path or "root"
+
+    if seen[tbl] then
+        debugLog("Repeated table!")
+        debugLog("Current : " .. path)
+        debugLog("Original: " .. seen[tbl])
+        return
+    end
+
+    seen[tbl] = path
+
+    for k, v in pairs(tbl) do
+        if type(v) == "table" then
+            findRepeated(v, seen, path .. "." .. tostring(k))
+        end
     end
 end
 
@@ -1598,10 +1631,20 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                         if detailDB[searchResult[k].name] ~= nil then
                             itemDetail = detailDB[searchResult[k]]
                         else
-                            itemDetail = peripheral.wrap(searchResult[k].chestName).getItemDetail(searchResult[k].slot)
+                            if peripheral.find("rs_bridge") ~= nil then
+                                itemDetail = peripheral.find("rs_bridge").getItem({
+                                    name = searchResult[k].name
+                                })
+                            else
+                                itemDetail = peripheral.wrap(searchResult[k].chestName).getItemDetail(searchResult[k]
+                                                                                                          .slot)
+                            end
                         end
                         if type(itemDetail) ~= "nil" then
                             local maxCount = itemDetail.maxCount
+                            if type(maxCount) == "nil" then
+                                maxCount = 64
+                            end
                             if maxCount < 64 then
                                 stackLimited = true
                                 -- Update new stack limit
@@ -1666,7 +1709,15 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                         for k = 1, #recipe[row][slot], 1 do
                             searchResults[k], insystem[k], indexs[k] = search(recipe[row][slot][k], items, moveCount)
                             if debug then
-                                debugLog("searchResults[k]: " .. textutils.serialize(searchResults[k]))
+                                -- debugLog("searchResults[k]: " .. textutils.serialize(searchResults[k]))
+                                if searchResults[k] then
+                                    debugLog(
+                                        searchResults[k].name .. " chest=" .. tostring(searchResults[k].chestName) ..
+                                            " slot=" .. tostring(searchResults[k].slot) .. " count=" ..
+                                            tostring(searchResults[k].count))
+                                else
+                                    debugLog("searchResults[k]=nil")
+                                end
                                 -- local itemToBeMoved = peripheral.wrap(searchResults[k].chestName).list()[searchResults[k].slot]
                                 -- debugLog("itemToBeMoved: " .. textutils.serialize(itemToBeMoved))
                             end
@@ -1737,6 +1788,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
 
                             -- Move the items from the system to crafting chest
                             debugLog("Move the items from the system to crafting chest")
+                            --findRepeated(searchResult)
                             debugLog(textutils.serialize(searchResult))
                             print("Getting: " .. searchResult.name:match(".+:(.+)"))
                             debugLog("Getting: " .. searchResult.name)
