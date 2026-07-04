@@ -104,7 +104,7 @@ local modems = {peripheral.find("modem", function(name, modem)
         return true
     end
 end)}
-]]--
+]] --
 -- CC: tweaked changed wired modems to peripheral_hub
 local modems = peripheral.find("peripheral_hub")
 
@@ -269,14 +269,62 @@ local function reconstructDetails(itemName)
     return nil
 end
 
--- Check if item name is in tag db
-local function inDetailsDB(itemName)
-    if type(detailDB) ~= "nil" then
-        if type(detailDB[itemName]) ~= "nil" then
-            return true
+-- Convert integer to a Roman numeral for enchantment display
+local function intToRoman(num)
+    local romans = {"I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV",
+                    "XVI", "XVII", "XVIII", "XIX", "XX"}
+    return romans[num] or tostring(num)
+end
+
+local function titleCase(s)
+    local parts = {}
+    for part in string.gmatch(s, "[^_%s]+") do
+        parts[#parts + 1] = string.upper(string.sub(part, 1, 1)) .. string.sub(part, 2)
+    end
+    return table.concat(parts, " ")
+end
+
+local function formatEnchantmentDisplay(name, level)
+    local short = string.match(name, ":(.+)$") or name
+    short = titleCase(short)
+    return short .. " " .. intToRoman(level)
+end
+
+local function buildDetailsFromRS(item)
+    -- Try to reconstruct previously saved details first
+    local saved = reconstructDetails(item.name)
+    if saved then
+        return saved
+    end
+
+    local details = {}
+    details.name = item.name
+    details.displayName = item.displayName or item.name
+    details.nbt = item.nbt or item.fingerprint
+    details.itemGroups = item.itemGroups or {}
+    details.tags = item.tags or {}
+    details.maxCount = item.maxStackSize or item.maxCount
+    details.count = item.count or 0
+    details.damage = item.damage
+    details.maxDamage = item.maxDamage
+
+    -- Map components -> enchantments if present
+    details.enchantments = nil
+    if type(item.components) == "table" and type(item.components["minecraft:enchantments"]) == "table" then
+        local levels = item.components["minecraft:enchantments"].levels
+        if type(levels) == "table" then
+            details.enchantments = {}
+            for ename, lvl in pairs(levels) do
+                details.enchantments[#details.enchantments + 1] = {
+                    level = lvl,
+                    name = ename,
+                    displayName = formatEnchantmentDisplay(ename, lvl)
+                }
+            end
         end
     end
-    return false
+
+    return details
 end
 
 -- Mantain details lookup
@@ -312,6 +360,42 @@ local function addDetailsDB(item)
     detailDB.countItems = countItems
 end
 
+local function normalizeRSItems(list)
+    if type(list) ~= "table" then
+        return list
+    end
+    local out = {}
+    for k, v in pairs(list) do
+        if type(v) == "table" then
+            if v.details == nil then
+                local d = buildDetailsFromRS(v)
+                if d then
+                    v.details = d
+                    if v.nbt == nil and d.nbt ~= nil then
+                        v.nbt = d.nbt
+                    end
+                    addDetailsDB({
+                        name = v.name,
+                        details = d
+                    })
+                end
+            end
+        end
+        out[#out + 1] = v
+    end
+    return out
+end
+
+-- Check if item name is in tag db
+local function inDetailsDB(itemName)
+    if type(detailDB) ~= "nil" then
+        if type(detailDB[itemName]) ~= "nil" then
+            return true
+        end
+    end
+    return false
+end
+
 local function getCachedItemDetails(chest, slot, itemName)
     if type(itemName) == "nil" or itemName == "" then
         return nil
@@ -330,7 +414,10 @@ local function getCachedItemDetails(chest, slot, itemName)
     local details = chest.getItemDetail(slot)
     if type(details) ~= "nil" then
         detailLookupCache[itemName] = true
-        addDetailsDB({ name = itemName, details = details })
+        addDetailsDB({
+            name = itemName,
+            details = details
+        })
         return details
     end
 
@@ -530,36 +617,62 @@ end
 local function reloadStorageDatabase()
     print("Reloading database..")
     local time = os.epoch("utc") / 1000
-    storages = getStorage()
-    -- This part is slow
-    items, storageUsed, storageFreeSlots, storageTotalSlots = getList(storages)
-    -- log("storageFreeSlots:" .. tostring(storageFreeSlots) .. " storageTotalSlots:" .. tostring(storageTotalSlots))
-    local speed = (os.epoch("utc") / 1000) - time
-    -- print("Getting item list took " .. tostring(speed) .. " seconds")
-    debugLog("Getting item list took " .. tostring(speed) .. " seconds")
-    local timeWrittingdb = os.epoch("utc") / 1000
+    if peripheral.find("rs_bridge") == nil then
 
-    --print("Writing storage database....")
+        storages = getStorage()
+        -- This part is slow
+        items, storageUsed, storageFreeSlots, storageTotalSlots = getList(storages)
+        -- log("storageFreeSlots:" .. tostring(storageFreeSlots) .. " storageTotalSlots:" .. tostring(storageTotalSlots))
+        local speed = (os.epoch("utc") / 1000) - time
+        -- print("Getting item list took " .. tostring(speed) .. " seconds")
+        debugLog("Getting item list took " .. tostring(speed) .. " seconds")
+        local timeWrittingdb = os.epoch("utc") / 1000
 
-    --if fs.exists("storage.db") then
-    --    fs.delete("storage.db")
-    --end
+        -- print("Writing storage database....")
 
-    local decoded = {}
-    decoded.detailDB = detailDB
-    decoded.storageMaxSize = storageMaxSize
-    decoded.storageSize = storageSize
-    decoded.storageFreeSlots = storageFreeSlots
-    decoded.storageTotalSlots = storageTotalSlots
+        -- if fs.exists("storage.db") then
+        --    fs.delete("storage.db")
+        -- end
 
-    --local storageFile = fs.open("storage.db", "w")
-    --storageFile.write(textutils.serialise(decoded, {
-    --    allow_repetitions = true
-    --}))
-    --storageFile.close()
-    --local speedWrittingdb = (os.epoch("utc") / 1000) - timeWrittingdb
-    -- print("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
-    --debugLog("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
+        local decoded = {}
+        decoded.detailDB = detailDB
+        decoded.storageMaxSize = storageMaxSize
+        decoded.storageSize = storageSize
+        decoded.storageFreeSlots = storageFreeSlots
+        decoded.storageTotalSlots = storageTotalSlots
+
+        -- local storageFile = fs.open("storage.db", "w")
+        -- storageFile.write(textutils.serialise(decoded, {
+        --    allow_repetitions = true
+        -- }))
+        -- storageFile.close()
+        -- local speedWrittingdb = (os.epoch("utc") / 1000) - timeWrittingdb
+        -- print("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
+        -- debugLog("Writting storage database took " .. tostring(speedWrittingdb) .. " seconds")
+
+    else
+        -- Refined Storage is present, use it to get the item list
+        items = peripheral.find("rs_bridge").getItems()
+        -- Ensure each item has a `details` key expected by clients
+        items = normalizeRSItems(items)
+        storageUsed = peripheral.find("rs_bridge").getUsedItemStorage()
+        storageTotalSlots = peripheral.find("rs_bridge").getTotalItemStorage()
+        storageFreeSlots = storageTotalSlots - storageUsed
+        storageMaxSize = storageTotalSlots
+
+        debugLog("storageUsed:" .. tostring(storageUsed) .. " storageTotalSlots:" .. tostring(storageTotalSlots) ..
+                     " storageFreeSlots:" .. tostring(storageFreeSlots))
+        if settings.get("debug") then
+            local file = fs.open("items_dump.txt", "w")
+            for key, value in pairs(items) do
+                file.writeLine(key .. " (" .. type(value) .. ")")
+            end
+            for key, value in pairs(items) do
+                -- file.writeLine(key .. " = " .. textutils.serialize(value))
+            end
+            file.close()
+        end
+    end
 
     pingClients("databaseReload")
     os.queueEvent("databaseReloaded")
@@ -570,7 +683,7 @@ local function reloadStorageDatabase()
 end
 
 local function threadedStorageDatabaseReload()
-    -- os.startThread(reloadStorageDatabase)
+    -- os.startThread(reloadStorageDatabase
     reloadStorageDatabase()
     -- local event
     -- repeat
@@ -580,6 +693,10 @@ end
 
 -- Avoid costly database reload by patching database in memory
 local function patchStorageDatabase(inputItem, count, chest, slot)
+    if peripheral.find("rs_bridge") ~= nil then
+        reloadStorageDatabase()
+        return true
+    end
     if count == 0 or inputItem == nil or chest == nil or slot == nil then
         return false
     end
@@ -891,34 +1008,18 @@ local function getItem(requestItem, chest)
         print("ERROR: invaild export chest set on client")
         return
     end
-    -- print(tostring(inExportChests(chest)))
-    local amount = requestItem.count
-    local filteredTable = search(requestItem.name, items)
-    local wrap = peripheral.wrap
-    if filteredTable ~= nil then
-        for i, item in pairs(filteredTable) do
-            local chestP = wrap(chest)
-            if chestP ~= nil and
-                not (item.slot == 1 and (string.find(chest, "techreborn:") and string.find(chest, "storage_unit"))) then
-                -- dont export from the first slot of a techreborn storage_unit
-                if requestItem.nbt == nil and item.nbt == nil then
-                    if item.count >= amount then
-                        -- print("Export: " .. requestItem.name .. " #" .. tostring(amount))
-                        debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" ..
-                                     item.chestName .. " slot:" .. item.slot))
-                        local moved = chestP.pullItems(item["chestName"], item["slot"], amount)
-                        local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
-                        return
-                    else
-                        -- print("Export: " .. requestItem.name .. " #" .. tostring(amount))
-                        debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" ..
-                                     item.chestName .. " slot:" .. item.slot))
-                        local moved = chestP.pullItems(item["chestName"], item["slot"])
-                        amount = amount - item.count
-                        local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
-                    end
-                else
-                    if item.nbt == requestItem.nbt then
+    if peripheral.find("rs_bridge") == nil then
+        -- print(tostring(inExportChests(chest)))
+        local amount = requestItem.count
+        local filteredTable = search(requestItem.name, items)
+        local wrap = peripheral.wrap
+        if filteredTable ~= nil then
+            for i, item in pairs(filteredTable) do
+                local chestP = wrap(chest)
+                if chestP ~= nil and
+                    not (item.slot == 1 and (string.find(chest, "techreborn:") and string.find(chest, "storage_unit"))) then
+                    -- dont export from the first slot of a techreborn storage_unit
+                    if requestItem.nbt == nil and item.nbt == nil then
                         if item.count >= amount then
                             -- print("Export: " .. requestItem.name .. " #" .. tostring(amount))
                             debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" ..
@@ -934,9 +1035,38 @@ local function getItem(requestItem, chest)
                             amount = amount - item.count
                             local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
                         end
+                    else
+                        if item.nbt == requestItem.nbt then
+                            if item.count >= amount then
+                                -- print("Export: " .. requestItem.name .. " #" .. tostring(amount))
+                                debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" ..
+                                             item.chestName .. " slot:" .. item.slot))
+                                local moved = chestP.pullItems(item["chestName"], item["slot"], amount)
+                                local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
+                                return
+                            else
+                                -- print("Export: " .. requestItem.name .. " #" .. tostring(amount))
+                                debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" ..
+                                             item.chestName .. " slot:" .. item.slot))
+                                local moved = chestP.pullItems(item["chestName"], item["slot"])
+                                amount = amount - item.count
+                                local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
+                            end
+                        end
                     end
                 end
             end
+        end
+    else
+        -- Refined Storage is present, use it to get the item 
+        debugLog(("Export: " .. requestItem.name .. " #" .. tostring(requestItem.count) .. " chest:" .. chest))
+        local moved = peripheral.find("rs_bridge").exportItem({
+            name = requestItem.name,
+            count = requestItem.count
+        }, chest)
+
+        if moved > 0 then
+            local patchstatus = patchStorageDatabase(requestItem, -1 * moved, nil, nil)
         end
     end
     -- reloadStorageDatabase()
@@ -1060,6 +1190,7 @@ local function monitorHandler()
                 centerText(monitor, name)
                 monitor.setCursorPos(1, 3)
                 monitor.write("Space:")
+                debugLog("storageUsed:" .. tostring(storageUsed) .. " storageMaxSize:" .. tostring(storageMaxSize))
                 local storageBar
                 if storageUsed == storageMaxSize then
                     storageBar = width - 2
@@ -1220,34 +1351,55 @@ local function importHandler()
                 -- local currentItemDetail = peripheral.wrap(item.chestName).getItemDetail(item.slot)
                 -- if currentItemDetail ~= nil then
                 -- print("finding free space....")
-                local chest, slot = findFreeSpace(item, storages)
-                -- print("chest: " .. tostring(chest) .. " slot: " .. tostring(slot))
-                if chest == nil then
-                    -- TODO: implement space full alert
-                    print("No free space found!")
-                    reloadStorageDatabase()
-                    reload = false
-                    -- sleep(5)
-                    -- return
-                else
-                    -- send to found slot
-                    local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
+                if peripheral.find("rs_bridge") ~= nil then
+                    -- Refined Storage is present, use it to import the item
+                    -- local moved = peripheral.find("rs_bridge").importItem(item.chestName, item.slot, item.count)
+                    local moved = peripheral.find("rs_bridge").importItem({
+                        name = item.name,
+                        count = item.count
+                    }, item.chestName)
                     if moved > 0 then
-                        local patchstatus = patchStorageDatabase(item, moved, chest, slot)
+                        local patchstatus = patchStorageDatabase(item, moved, nil, nil)
                         if not patchstatus then
                             reload = true
                         end
                         print("Import: " .. item.name .. " #" .. tostring(moved))
-                        debugLog("importHandler: " .. item.name .. " #" .. tostring(moved) .. " chest:" .. chest ..
-                                     " slot:" .. tostring(slot))
+                        debugLog("importHandler: " .. item.name .. " #" .. tostring(moved) .. " chest:" ..
+                                     item.chestName .. " slot:" .. tostring(item.slot))
                     else
-                        -- local test = peripheral.wrap(chest).getItemDetail(item["slot"])
-                        -- debugLog("moved is 0: " .. textutils.serialize(test))
-                        -- reloadStorageDatabase()
                         reload = false
                     end
+                else
+                    -- Refined Storage is not present, use the old method to import the item
+                    local chest, slot = findFreeSpace(item, storages)
+                    -- print("chest: " .. tostring(chest) .. " slot: " .. tostring(slot))
+                    if chest == nil then
+                        -- TODO: implement space full alert
+                        print("No free space found!")
+                        reloadStorageDatabase()
+                        reload = false
+                        -- sleep(5)
+                        -- return
+                    else
+                        -- send to found slot
+                        local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
+                        if moved > 0 then
+                            local patchstatus = patchStorageDatabase(item, moved, chest, slot)
+                            if not patchstatus then
+                                reload = true
+                            end
+                            print("Import: " .. item.name .. " #" .. tostring(moved))
+                            debugLog("importHandler: " .. item.name .. " #" .. tostring(moved) .. " chest:" .. chest ..
+                                         " slot:" .. tostring(slot))
+                        else
+                            -- local test = peripheral.wrap(chest).getItemDetail(item["slot"])
+                            -- debugLog("moved is 0: " .. textutils.serialize(test))
+                            -- reloadStorageDatabase()
+                            reload = false
+                        end
+                    end
+                    -- end
                 end
-                -- end
             end
             pingClients("databaseReload")
             if freeSlotRefreshCounter <= 0 then
@@ -1698,7 +1850,7 @@ local function onStart()
     debugLog("Boot time: " .. tostring(("%.3g"):format(speed) .. " seconds"))
     if next(monitors) then
         os.startThread(monitorHandler)
-        -- monitorHandler()
+        --monitorHandler()
     end
     importHandler()
 end
@@ -1730,18 +1882,23 @@ if fs.exists("storage.db") then
         -- storageTotalSlots = decoded.storageTotalSlots
     end
 end
-]]--
+]] --
 
 items, storageUsed, storageFreeSlots, storageTotalSlots = getList(storages)
+if peripheral.find("rs_bridge") ~= nil then
+    reloadStorageDatabase()
+end
 -- debugLog(dump(items))
 -- for k,v in pairs(items) do
 --    debugLog("k: " .. tostring(k) .. " v: " .. textutils.serialize(v))
 -- end
 
 if settings.get("debug") == false then
-    write("\nGetting storage size")
-    storageSize, storageMaxSize = getStorageSize(storages)
-    write("\ndone\n\n")
+    if peripheral.find("rs_bridge") == nil then
+        write("\nGetting storage size")
+        storageSize, storageMaxSize = getStorageSize(storages)
+        write("\ndone\n\n")
+    end
     print("Storage size is: " .. tostring(storageSize) .. " slots")
     print("Items in the system: " .. tostring(storageUsed) .. "/" .. tostring(storageMaxSize) .. " " ..
               tostring(("%.3g"):format((storageUsed / storageMaxSize) * 100)) .. "% items")
