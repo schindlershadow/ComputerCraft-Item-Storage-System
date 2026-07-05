@@ -713,7 +713,7 @@ local function patchStorageDatabase(inputItem, count, chest, slot, reason)
     local itemName = inputItem.name
 
     -- print("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
-    debugLog("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" ..
+    debugLog("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. tostring(chest) .. " slot:" ..
                  tostring(slot))
     local stringSearch
     -- Strip out the item: from the front of the item name
@@ -734,7 +734,7 @@ local function patchStorageDatabase(inputItem, count, chest, slot, reason)
                 if v.slot == slot then
                     if v.nbt == inputItem.nbt then
                         -- handler for techreborn storage_units
-                        if (string.find(chest, "techreborn:") and string.find(chest, "storage_unit")) then
+                        if (string.find(chest, "techreborn:") and string.find(tostring(chest), "storage_unit")) then
                             local slotDetails = peripheral.wrap(chest).getItemDetail(slot)
                             if slotDetails ~= nil then
                                 items[k].count = slotDetails.count
@@ -778,7 +778,7 @@ local function patchStorageDatabase(inputItem, count, chest, slot, reason)
         -- if all else fails, reach out to chest to get details
         if chest ~= nil and slot ~= nil then
             print("chest: " .. tostring(chest) .. " slot: " .. tostring(slot))
-            debugLog("chest: " .. chest .. " slot: " .. slot)
+            debugLog("chest: " .. tostring(chest) .. " slot: " .. tostring(slot))
             local chestP = peripheral.wrap(chest)
             if chestP ~= nil then
                 local chestSize = chestP.size()
