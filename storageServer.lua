@@ -622,7 +622,7 @@ local function reloadStorageDatabase(reason)
     end
     local time = os.epoch("utc") / 1000
     if peripheral.find("rs_bridge") == nil then
-
+        -- Refined Storage is not present, use the normal method to get the item list
         storages = getStorage()
         -- This part is slow
         items, storageUsed, storageFreeSlots, storageTotalSlots = getList(storages)
@@ -676,16 +676,7 @@ local function reloadStorageDatabase(reason)
 
         debugLog("storageUsed:" .. tostring(storageUsed) .. " storageTotalSlots:" .. tostring(storageTotalSlots) ..
                      " storageFreeSlots:" .. tostring(storageFreeSlots))
-        if settings.get("debug") then
-            local file = fs.open("items_dump.txt", "w")
-            for key, value in pairs(items) do
-                file.writeLine(key .. " (" .. type(value) .. ")")
-            end
-            for key, value in pairs(items) do
-                -- file.writeLine(key .. " = " .. textutils.serialize(value))
-            end
-            file.close()
-        end
+        
     end
 
     pingClients("databaseReload")
@@ -706,9 +697,14 @@ local function threadedStorageDatabaseReload(reason)
 end
 
 -- Avoid costly database reload by patching database in memory
-local function patchStorageDatabase(inputItem, count, chest, slot)
+local function patchStorageDatabase(inputItem, count, chest, slot, reason)
+    if reason == nil then
+        reason = "unknown"
+    end
+    print("patchStorageDatabase called for " .. tostring(reason))
+    debugLog("patchStorageDatabase called for " .. tostring(reason))
     if peripheral.find("rs_bridge") ~= nil then
-        reloadStorageDatabase("patchStorageDatabase called, but RS is present, so doing full reload instead")
+        reloadStorageDatabase(tostring(reason) ..", but RS is present, so doing full reload instead")
         return true
     end
     if count == 0 or inputItem == nil or chest == nil or slot == nil then
@@ -810,7 +806,7 @@ local function patchStorageDatabase(inputItem, count, chest, slot)
 
     -- Patching failed, fallback to full reload
     print("Patching database failed, reloading full database")
-    reloadStorageDatabase("patchStorageDatabase failed")
+    reloadStorageDatabase(tostring(reason) .. ", patchStorageDatabase failed")
     return false
 end
 
@@ -1039,7 +1035,7 @@ local function getItem(requestItem, chest)
                             debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" ..
                                          item.chestName .. " slot:" .. item.slot))
                             local moved = chestP.pullItems(item["chestName"], item["slot"], amount)
-                            local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
+                            local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot, "getItem(), item.count >= amount")
                             return
                         else
                             -- print("Export: " .. requestItem.name .. " #" .. tostring(amount))
@@ -1047,7 +1043,7 @@ local function getItem(requestItem, chest)
                                          item.chestName .. " slot:" .. item.slot))
                             local moved = chestP.pullItems(item["chestName"], item["slot"])
                             amount = amount - item.count
-                            local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
+                            local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot, "getItem(), item.count < amount")
                         end
                     else
                         if item.nbt == requestItem.nbt then
@@ -1056,7 +1052,7 @@ local function getItem(requestItem, chest)
                                 debugLog(("Export: " .. requestItem.name .. " #" .. tostring(amount) .. " chest:" ..
                                              item.chestName .. " slot:" .. item.slot))
                                 local moved = chestP.pullItems(item["chestName"], item["slot"], amount)
-                                local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
+                                local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot, "getItem(), item.count >= amount")
                                 return
                             else
                                 -- print("Export: " .. requestItem.name .. " #" .. tostring(amount))
@@ -1064,7 +1060,7 @@ local function getItem(requestItem, chest)
                                              item.chestName .. " slot:" .. item.slot))
                                 local moved = chestP.pullItems(item["chestName"], item["slot"])
                                 amount = amount - item.count
-                                local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot)
+                                local patchstatus = patchStorageDatabase(item, -1 * moved, item.chestName, item.slot, "getItem(), item.count < amount")
                             end
                         end
                     end
@@ -1080,7 +1076,7 @@ local function getItem(requestItem, chest)
         }, chest)
         print("getItem: Exported " .. tostring(moved) .. " items from RS system")
         if moved > 0 then
-            local patchstatus = patchStorageDatabase(requestItem, -1 * moved, nil, nil)
+            local patchstatus = patchStorageDatabase(requestItem, -1 * moved, nil, nil, "getItem(), RS system used")
         end
     end
     -- reloadStorageDatabase()
@@ -1172,7 +1168,27 @@ local function mergeCraftingQueue()
     for i = 1, #craftingQueue, 1 do
         table.insert(queue, craftingQueue[i].recipe)
     end
-    -- log("queue: " .. textutils.serialise(queue))
+    -- Add refined storage queue if rs_bridge is present
+    local rsBridge = peripheral.find("rs_bridge")
+    if rsBridge ~= nil then
+        local craftingTasks = rsBridge.getCraftingTasks()
+        if type(craftingTasks) == "table" then
+            for _, task in pairs(craftingTasks) do
+                local rsItem = {}
+                rsItem.name = task.resource.name
+                rsItem.displayName = task.resource.displayName or task.resource.name
+                rsItem.amount = task.quantity
+                rsItem.count = task.quantity
+                rsItem.recipeType = "rs_crafting"
+                rsItem.recipeInput = "rs"
+                rsItem.recipe = {}
+                rsItem.recipeName = "RS_" .. task.resource.name
+                
+                table.insert(queue, rsItem)
+            end
+        end
+    end
+   debugLog("queue: " .. textutils.serialise(queue))
     return queue
 end
 
@@ -1389,7 +1405,7 @@ local function importHandler()
                         -- send to found slot
                         local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
                         if moved > 0 then
-                            local patchstatus = patchStorageDatabase(item, moved, chest, slot)
+                            local patchstatus = patchStorageDatabase(item, moved, chest, slot, "importHandler: item moved from " .. item.chestName .. " slot " .. tostring(item.slot) .. " to " .. chest .. " slot " .. tostring(slot))
                             if not patchstatus then
                                 reload = true
                             end
@@ -1516,7 +1532,7 @@ local function onCryptoNetEvent(event)
                             -- send to found slot
                             local moved = peripheral.wrap(item.chestName).pushItems(chest, item.slot, item.count, slot)
                             if moved > 0 then
-                                local patchstatus = patchStorageDatabase(item, moved, chest, item.slot)
+                                local patchstatus = patchStorageDatabase(item, moved, chest, item.slot, "forceImport: item moved from " .. item.chestName .. " slot " .. tostring(item.slot) .. " to " .. chest .. " slot " .. tostring(slot))
                                 if not patchstatus then
                                     reload = true
                                 end
@@ -1716,10 +1732,13 @@ local function onCryptoNetEvent(event)
                 os.queueEvent("gotCurrentlyCrafting", data)
             elseif message == "getCraftingQueue" then
                 os.queueEvent("gotCraftingQueue", data)
+                debugLog("gotCraftingQueue: " .. dump(data))
+                craftingQueue = data
             elseif message == "pushCurrentlyCrafting" then
-                debugLog("gotCurrentlyCrafting: " .. dump(data))
+                debugLog("pushCurrentlyCrafting: " .. dump(data))
                 currentlyCrafting = data
             elseif message == "pushCraftingQueue" then
+                debugLog("pushCraftingQueue: " .. dump(data))
                 craftingQueue = data
             elseif message == "getFreeSlots" then
                 local tmp = {}
@@ -1731,9 +1750,9 @@ local function onCryptoNetEvent(event)
                 local itemsMoved = peripheral.wrap(data.craftingChest).pullItems(data.chestName, data.slot,
                     data.moveCount)
                 cryptoNet.send(socket, {message, itemsMoved})
-                local patchstatus = patchStorageDatabase(data, -1 * itemsMoved, data.chestName, data.slot)
+                local patchstatus = patchStorageDatabase(data, -1 * itemsMoved, data.chestName, data.slot, "pullItems: item moved from " .. data.chestName .. " slot " .. tostring(data.slot) .. " to " .. data.craftingChest .. " slot " .. tostring(data.slot))
             elseif message == "patchStorageDatabase" then
-                local patchstatus = patchStorageDatabase(data, data.count, data.chestName, data.slot)
+                local patchstatus = patchStorageDatabase(data, data.count, data.chestName, data.slot, "patchStorageDatabase: message from " .. socket.username)
             end
         elseif event[2] ~= nil then
             -- User is not logged in

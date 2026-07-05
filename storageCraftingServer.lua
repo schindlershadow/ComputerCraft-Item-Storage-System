@@ -52,6 +52,11 @@ settings.define("debug", {
     default = "false",
     type = "boolean"
 })
+settings.define("isMainCraftingServer", {
+    description = "sets if this server is the main craftingTable server",
+    default = "true",
+    type = "boolean"
+})
 -- Oneliner bash to extract recipes from craft tweaker output:
 -- grep craftingTable crafttweaker.log > recipes
 settings.define("recipeURL", {
@@ -102,6 +107,7 @@ if settings.load() == false then
     settings.set("serverName", "CraftingServer" .. tostring(os.getComputerID()))
     settings.set("StorageServer", "StorageServer")
     settings.set("debug", false)
+    settings.set("isMainCraftingServer", true)
     settings.set("isMasterCraftingServer", true)
     settings.set("masterCraftingServer", "CraftingServer")
     settings.set("requireLogin", false)
@@ -349,21 +355,23 @@ function craftingQueue.dumpItems()
     local tab = {}
     -- debugLog("craftingQueue.dump()")
     if craftingQueue.first > last then
-        return tab
-    end
-    for i = first, last, 1 do
-        local tmp = {}
-        tmp.name = craftingQueue[i].name
-        tmp.displayName = craftingQueue[i].displayName
-        tmp.amount = craftingQueue[i].amount
-        tmp.count = craftingQueue[i].count
-        tmp.recipeType = craftingQueue[i].recipeType
-        tmp.recipeInput = craftingQueue[i].recipeInput
-        tmp.recipe = craftingQueue[i].recipe
-        tmp.recipeName = craftingQueue[i].recipeName
+        -- Still check for RS queue even if crafting queue is empty
+    else
+        for i = first, last, 1 do
+            local tmp = {}
+            tmp.name = craftingQueue[i].name
+            tmp.displayName = craftingQueue[i].displayName
+            tmp.amount = craftingQueue[i].amount
+            tmp.count = craftingQueue[i].count
+            tmp.recipeType = craftingQueue[i].recipeType
+            tmp.recipeInput = craftingQueue[i].recipeInput
+            tmp.recipe = craftingQueue[i].recipe
+            tmp.recipeName = craftingQueue[i].recipeName
 
-        table.insert(tab, tmp)
+            table.insert(tab, tmp)
+        end
     end
+
     debugLog(dump(tab))
     return tab
 end
@@ -544,7 +552,7 @@ end
 local function rebuildItemCaches()
     local nameIndex = {}
     local tagIndex = {}
-    
+
     -- Ensure we filter unique slots right from the core items payload
     local uniqueSlots = {}
     local sanitizedItems = {}
@@ -553,7 +561,7 @@ local function rebuildItemCaches()
         if entry ~= nil and entry.name ~= nil then
             -- Create a true physical tracking signature (using slot/count or name/slot combination)
             local physicalKey = entry.name .. "_slot_" .. tostring(entry.slot or 0)
-            
+
             -- Prevent tracking identical overlapping items across messy storage updates
             if not uniqueSlots[physicalKey] then
                 uniqueSlots[physicalKey] = true
@@ -575,7 +583,7 @@ local function rebuildItemCaches()
                     for tagKey, tagVal in pairs(entry.details.tags) do
                         local tag = (type(tagKey) == "string") and tagKey or tagVal
                         tag = string.gsub(tag, "^minecraft:%w+/", "")
-                        
+
                         local tagList = tagIndex[tag]
                         if tagList == nil then
                             tagList = {}
@@ -609,9 +617,11 @@ end
 -- dispatch anything we don't want straight to the real handler ourselves, so normal
 -- messages (watchCrafting, getItems responses, etc.) still get processed properly.
 local function waitForEvent(name)
+    debugLog("waitForEvent: " .. tostring(name))
     while true do
         local event = {os.pullEvent()}
         if event[1] == name then
+            debugLog("waitForEvent: got " .. tostring(name))
             return event[1]
         elseif type(onCryptoNetEvent) == "function" then
             onCryptoNetEvent(event)
@@ -623,9 +633,11 @@ end
 -- os.pullEvent(name) would normally return (e.g. os.pullEvent("hashLogin") also
 -- returns loginStatus and permissionLevel), not just the event name.
 local function waitForEventFull(name)
+    debugLog("waitForEventFull: " .. tostring(name))
     while true do
         local event = {os.pullEvent()}
         if event[1] == name then
+            debugLog("waitForEventFull: got " .. tostring(name))
             return table.unpack(event)
         elseif type(onCryptoNetEvent) == "function" then
             onCryptoNetEvent(event)
@@ -958,6 +970,17 @@ local function searchForItemWithTag(string, InputTable)
     end
 end
 
+local function updateWatchingClients()
+    local dump = craftingQueue.dumpItems()
+    debugLog("updateWatchingClients: craftingQueue: " .. textutils.serialise(dump))
+    --debugLog("craftingUpdateClients: " .. textutils.serialise(craftingUpdateClients))
+    for k, v in pairs(craftingUpdateClients) do
+        debugLog("updateWatchingClients: sending craftingUpdate to client: " .. tostring(v))
+        cryptoNet.send(v, {"pushCurrentlyCrafting", currentlyCrafting})
+        cryptoNet.send(v, {"pushCraftingQueue", dump})
+    end
+end
+
 local function updateClient(socket, message, messageToSend)
     local table = {}
     table.type = "craftingUpdate"
@@ -989,10 +1012,11 @@ local function updateClient(socket, message, messageToSend)
     end
     if message == "itemUpdate" or type(message) == "boolean" then
         -- Update any clients subscribed to crafting updates
+        local dump = craftingQueue.dumpItems()
         for k, v in pairs(craftingUpdateClients) do
             cryptoNet.send(v, {"craftingUpdate", table})
             cryptoNet.send(v, {"pushCurrentlyCrafting", currentlyCrafting})
-            cryptoNet.send(v, {"pushCraftingQueue", craftingQueue.dumpItems()})
+            cryptoNet.send(v, {"pushCraftingQueue", dump})
         end
     end
 end
@@ -1510,7 +1534,8 @@ local function scoreBranch(recipe, itemName, ttl, amount, socket, scoreCache)
 
     ttl = ttl - 1
     -- score = score + ttl
-    debugLog("return score: " .. tostring(score) .. " for " .. itemName .. " with ttl: " .. tostring(ttl) .. " and amount: " .. tostring(amount))
+    debugLog("return score: " .. tostring(score) .. " for " .. itemName .. " with ttl: " .. tostring(ttl) ..
+                 " and amount: " .. tostring(amount))
     if scoreCache ~= nil then
         scoreCache[cacheKey] = score
     end
@@ -1707,6 +1732,7 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
     local recipe = recipeObj.recipe
     refreshInventoryIfNeeded()
     updateClient(socket, "itemUpdate", recipeObj.name)
+    updateWatchingClients()
     -- debugLog("craftRecipe")
     -- debugLog(recipeObj)
     -- debugLog("timesToCraft:" .. tostring(timesToCraft) .. " id:" .. tostring(socket))
@@ -2062,6 +2088,7 @@ local function craftBranch(recipeObj, ttl, amount, socket)
 
     -- Send item status update to client
     updateClient(socket, "craftingUpdate", itemName)
+    updateWatchingClients()
     debugLog("craftBranch: " .. textutils.serialise(itemName) .. " id:" .. tostring(socket))
     -- print("craftBranch: " .. textutils.serialise(itemName))
     -- log(textutils.serialise(recipe))
@@ -2155,7 +2182,8 @@ local function craftBranch(recipeObj, ttl, amount, socket)
                             if #craftableRecipes > 1 then
                                 -- print("More than one craftable recipe, Searching for best recipe")
                                 debugLog("More than one craftable recipe, Searching for best recipe")
-                                updateClient(socket, "logUpdate", "Searching for best recipe for: " .. item:match(".+:(.+)"))
+                                updateClient(socket, "logUpdate",
+                                    "Searching for best recipe for: " .. item:match(".+:(.+)"))
                                 recipeToCraft, outputAmount = getBestRecipe(craftableRecipes, socket)
                             else
                                 recipeToCraft = craftableRecipes[1]
@@ -2260,7 +2288,7 @@ end
 -- Craft recipe assuming all materials are available
 local function craft(item, amount, socket)
     refreshInventoryIfNeeded()
-    debugLog("craft")
+    debugLog("craft function called")
     if type(socket) == "nil" then
         socket = storageServerSocket
     end
@@ -2688,7 +2716,7 @@ function onCryptoNetEvent(event)
             elseif message == "getRecipes" then
                 cryptoNet.sendUnencrypted(socket, {message, recipes})
             elseif message == "getCraftingQueue" then
-                -- debugLog("getCraftingQueue")
+                debugLog("getCraftingQueue requested by " .. socket.username)
                 cryptoNet.send(socket, {message, craftingQueue.dumpItems()})
             elseif message == "getCurrentlyCrafting" then
                 -- debugLog("getCurrentlyCrafting")
@@ -2866,7 +2894,7 @@ function onCryptoNetEvent(event)
                 end
             elseif message == "checkPasswordHashed" then
                 os.queueEvent("gotCheckPasswordHashed", data, event[2][3])
-            elseif message == "watchCrafting" and not settings.get("isMasterCraftingServer") then
+            elseif message == "watchCrafting" then
                 local uniq = true
                 for i in pairs(craftingUpdateClients) do
                     if craftingUpdateClients[i] == socket then
