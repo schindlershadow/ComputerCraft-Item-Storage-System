@@ -703,11 +703,11 @@ local function patchStorageDatabase(inputItem, count, chest, slot, reason)
     end
     print("patchStorageDatabase called for " .. tostring(reason))
     debugLog("patchStorageDatabase called for " .. tostring(reason))
-    if peripheral.find("rs_bridge") ~= nil then
-        reloadStorageDatabase(tostring(reason) ..", but RS is present, so doing full reload instead")
-        return true
-    end
-    if count == 0 or inputItem == nil or chest == nil or slot == nil then
+    --if peripheral.find("rs_bridge") ~= nil then
+        --reloadStorageDatabase(tostring(reason) ..", but RS is present, so doing full reload instead")
+        --return true
+    --end
+    if count == 0 or inputItem == nil or ((chest == nil or slot == nil) and peripheral.find("rs_bridge") == nil ) then
         return false
     end
     local itemName = inputItem.name

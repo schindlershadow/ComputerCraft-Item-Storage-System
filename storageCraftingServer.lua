@@ -983,7 +983,7 @@ end
 local function updateWatchingClients()
     local dump = craftingQueue.dumpItems()
     debugLog("updateWatchingClients: craftingQueue: " .. textutils.serialise(dump))
-    --debugLog("craftingUpdateClients: " .. textutils.serialise(craftingUpdateClients))
+    -- debugLog("craftingUpdateClients: " .. textutils.serialise(craftingUpdateClients))
     for k, v in pairs(craftingUpdateClients) do
         debugLog("updateWatchingClients: sending craftingUpdate to client: " .. tostring(v))
         cryptoNet.send(v, {"pushCurrentlyCrafting", currentlyCrafting})
@@ -1775,9 +1775,11 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             itemDetail = detailDB[searchResult[k]]
                         else
                             if peripheral.find("rs_bridge") ~= nil then
+                                debugLog("before getItem: " .. searchResult[k].name)
                                 itemDetail = peripheral.find("rs_bridge").getItem({
                                     name = searchResult[k].name
                                 })
+                                debugLog("after getItem: " .. searchResult[k].name)
                             else
                                 itemDetail = peripheral.wrap(searchResult[k].chestName).getItemDetail(searchResult[k]
                                                                                                           .slot)
@@ -2047,7 +2049,9 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
             return false
         else
             updateClient(socket, "logUpdate", "Crafting...")
-            turtle.craft()
+            debugLog("before turtle.craft")
+            local ok = turtle.craft()
+            debugLog("after turtle.craft "..tostring(ok))
             local craftedItem = turtle.getItemDetail()
 
             if type(craftedItem) == "nil" then
@@ -2204,7 +2208,19 @@ local function craftBranch(recipeObj, ttl, amount, socket)
                             debugLog("outputAmount: " .. tostring(outputAmount))
                             -- Send status update to client
                             updateClient(socket, "itemUpdate", item)
+                            debugLog("before craftRecipe")
                             local status = craftRecipe(recipeToCraft, numNeeded[item], socket)
+                            debugLog("after craftRecipe")
+                            -- debug
+                            reloadStorageDatabase(true)
+
+                            local _, newCount = search(item, items, numNeeded[item], false)
+                            debugLog("After crafting, have " .. tostring(newCount) .. " " .. item)
+
+                            if newCount < numNeeded[item] then
+                                debugLog("Craft completed but inventory not updated yet!")
+                            end
+                            -- end debug
                             if status == false then
                                 print("crafting failed")
                                 debugLog("crafting failed")
@@ -2224,8 +2240,10 @@ local function craftBranch(recipeObj, ttl, amount, socket)
                                 if recipeContains(allRecipes[m], itemName) == false and
                                     recipeContains(allRecipes[m], item) == false then
                                     -- local result = craftBranch(allRecipes[m], ttl, numNeeded[item], id)
+                                    debuglog("before craftBranch")
                                     local result = craftBranch(allRecipes[m], ttl,
                                         math.ceil(numNeeded[item] / allRecipes[m].count), socket)
+                                    debuglog("after craftBranch")
                                     if result then
                                         failed = false
                                         craftedAnything = true
@@ -2257,7 +2275,9 @@ local function craftBranch(recipeObj, ttl, amount, socket)
         tab.recipe = recipe
         local craftable = haveCraftingMaterials({tab}, amount, socket)
         if #craftable < 1 then
+            debugLog("before craftBranch")
             local status = craftBranch(recipeObj, ttl - 1, amount, socket)
+            debugLog("after craftBranch")
             if status == false then
                 print("failed")
                 debugLog("failed")
@@ -2279,7 +2299,9 @@ local function craftBranch(recipeObj, ttl, amount, socket)
         -- Send status update to client
         updateClient(socket, "itemUpdate", itemName)
         local status
+        debugLog("before craftRecipe")
         status = craftRecipe(recipeObj, amount, socket)
+        debugLog("after craftRecipe")
         -- status = craftRecipe(recipeObj, math.ceil(amount / recipeObj.count), id)
         if status == false then
             print("crafting parent recipe failed")
@@ -2373,6 +2395,7 @@ local function craft(item, amount, socket)
     -- print(recipeToCraftInput .. " " .. recipeToCraftType .. " crafting recipe")
 
     debugLog("Craft: " .. tostring(item) .. ", " .. tostring(ttl) .. ", " .. tostring(amount))
+    debugLog("before craftBranch with return")
     return craftBranch(recipeToCraft, ttl, math.ceil(amount / outputAmount), socket)
     -- return craftBranch(recipeToCraft, ttl, amount, id)
 end
@@ -2420,8 +2443,10 @@ local function craftingManager()
                     end
                     --]]
                 else
+                    debugLog("before craftRecipe")
                     ableToCraft = craftRecipe(craftingRequest.recipe, craftingRequest.timesToCraft,
                         craftingRequest.socket)
+                    debugLog("after craftRecipe")
                 end
 
                 -- Report to client
