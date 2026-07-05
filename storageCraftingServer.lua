@@ -616,13 +616,18 @@ end
 -- loop ever gets a turn, spamming the same handful of messages forever. Instead, we
 -- dispatch anything we don't want straight to the real handler ourselves, so normal
 -- messages (watchCrafting, getItems responses, etc.) still get processed properly.
-local function waitForEvent(name)
+local function waitForEvent(name, timeout)
+    timeout = timeout or 10
     debugLog("waitForEvent: " .. tostring(name))
+    local timerId = os.startTimer(timeout)
     while true do
         local event = {os.pullEvent()}
         if event[1] == name then
             debugLog("waitForEvent: got " .. tostring(name))
             return event[1]
+        elseif event[1] == "timer" and event[2] == timerId then
+            debugLog("waitForEvent: timeout waiting for " .. tostring(name))
+            return nil
         elseif type(onCryptoNetEvent) == "function" then
             onCryptoNetEvent(event)
         end
@@ -632,13 +637,18 @@ end
 -- Same as waitForEvent, but for callers that need the extra payload values a raw
 -- os.pullEvent(name) would normally return (e.g. os.pullEvent("hashLogin") also
 -- returns loginStatus and permissionLevel), not just the event name.
-local function waitForEventFull(name)
+local function waitForEventFull(name, timeout)
+    timeout = timeout or 10
     debugLog("waitForEventFull: " .. tostring(name))
+    local timerId = os.startTimer(timeout)
     while true do
         local event = {os.pullEvent()}
         if event[1] == name then
             debugLog("waitForEventFull: got " .. tostring(name))
             return table.unpack(event)
+        elseif event[1] == "timer" and event[2] == timerId then
+            debugLog("waitForEventFull: timeout waiting for " .. tostring(name))
+            return nil
         elseif type(onCryptoNetEvent) == "function" then
             onCryptoNetEvent(event)
         end
@@ -3070,10 +3080,10 @@ local function onStart()
         serverWireless = cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
     end
 
-    timeoutConnect = os.startTimer(10)
+    timeoutConnect = os.startTimer(60)
     -- Connect to the server
     print("Connecting to server: " .. settings.get("StorageServer"))
-    storageServerSocket = cryptoNet.connect(settings.get("StorageServer"), 5, 1,
+    storageServerSocket = cryptoNet.connect(settings.get("StorageServer"), 15, 3,
         settings.get("StorageServer") .. ".crt", wiredModem.side)
 
     debugLog("requireLogin: " .. tostring(settings.get("requireLogin")) .. " isMasterCraftingServer: " ..

@@ -2877,7 +2877,7 @@ local function onStart()
     log("Connecting to server: " .. settings.get("StorageServer"))
 
     timeoutConnect = os.startTimer(25)
-    storageServerSocket = cryptoNet.connect(settings.get("StorageServer"))
+    storageServerSocket = cryptoNet.connect(settings.get("StorageServer"), 15, 3)
 
     -- check if server requires a login
     cryptoNet.send(storageServerSocket, {"requireLogin"})
@@ -2902,7 +2902,7 @@ local function onStart()
         if settings.get("crafting") then
             print("Connecting to server: " .. settings.get("CraftingServer"))
             log("Connecting to server: " .. settings.get("CraftingServer"))
-            craftingServerSocket = cryptoNet.connect(settings.get("CraftingServer"))
+            craftingServerSocket = cryptoNet.connect(settings.get("CraftingServer"), 15, 3)
             getCraftingServerCert()
             -- timeout no longer needed
             timeoutConnect = nil
@@ -2967,7 +2967,7 @@ local function onCryptoNetEvent(event)
             if settings.get("crafting") then
                 print("Connecting to server: " .. settings.get("CraftingServer"))
                 log("Connecting to server: " .. settings.get("CraftingServer"))
-                craftingServerSocket = cryptoNet.connect(settings.get("CraftingServer"))
+                craftingServerSocket = cryptoNet.connect(settings.get("CraftingServer"), 15, 3)
                 -- Log in with a username and password
                 print("Logging into server:" .. settings.get("CraftingServer"))
                 log("Logging into server:" .. settings.get("CraftingServer"))

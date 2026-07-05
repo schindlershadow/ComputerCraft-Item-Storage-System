@@ -1188,7 +1188,7 @@ local function mergeCraftingQueue()
             end
         end
     end
-   debugLog("queue: " .. textutils.serialise(queue))
+   --debugLog("queue: " .. textutils.serialise(queue))
     return queue
 end
 
