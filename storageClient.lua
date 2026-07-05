@@ -155,15 +155,45 @@ local function dump(o)
     end
 end
 
-local function getRecipes()
-    cryptoNet.send(craftingServerSocket, {"getRecipes"})
-    local event
-    repeat
-        event = os.pullEvent("gotRecipes")
-    until event == "gotRecipes"
-    if not next(recipes) then
-        getRecipes()
+local function getRecipes(maxRetries)
+    maxRetries = maxRetries or 3
+    local attempts = 0
+    local timeoutSecs = 5
+    
+    while attempts < maxRetries do
+        if not craftingServerSocket then
+            log("Warning: craftingServerSocket is nil, cannot request recipes")
+            print("Warning: craftingServerSocket is nil, cannot request recipes")
+            sleep(1)
+            return
+        end
+        
+        cryptoNet.send(craftingServerSocket, {"getRecipes"})
+        local timer = os.startTimer(timeoutSecs)
+        local event, eventData
+        
+        repeat
+            event, eventData = os.pullEvent()
+        until event == "gotRecipes" or (event == "timer" and eventData == timer)
+        
+        if event == "gotRecipes" then
+            if next(recipes) then
+                return  -- Successfully got recipes
+            end
+        end
+        
+        -- Either timed out or got empty recipes, retry
+        attempts = attempts + 1
+        if attempts < maxRetries then
+            log("getRecipes attempt " .. attempts .. " failed, retrying...")
+            print("getRecipes attempt " .. attempts .. " failed, retrying...")
+            sleep(0.5)
+        end
     end
+    
+    log("Warning: Failed to get recipes after " .. maxRetries .. " attempts")
+    print("Warning: Failed to get recipes after " .. maxRetries .. " attempts")
+    sleep(1)
 end
 
 local function pingStorageServer()
