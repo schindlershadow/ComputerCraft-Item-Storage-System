@@ -6,6 +6,7 @@ local clients = {}
 local slaves = {}
 local recipes = {}
 local storageServerSocket, masterCraftingServerSocket
+local onCryptoNetEvent
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
 local detailDB
 local currentlyCrafting = {}
@@ -543,29 +544,45 @@ end
 local function rebuildItemCaches()
     local nameIndex = {}
     local tagIndex = {}
+    
+    -- Ensure we filter unique slots right from the core items payload
+    local uniqueSlots = {}
+    local sanitizedItems = {}
+
     for _, entry in pairs(items or {}) do
         if entry ~= nil and entry.name ~= nil then
-            local name = entry.name
-            local list = nameIndex[name]
-            if list == nil then
-                list = {}
-                nameIndex[name] = list
-            end
-            list[#list + 1] = entry
+            -- Create a true physical tracking signature (using slot/count or name/slot combination)
+            local physicalKey = entry.name .. "_slot_" .. tostring(entry.slot or 0)
+            
+            -- Prevent tracking identical overlapping items across messy storage updates
+            if not uniqueSlots[physicalKey] then
+                uniqueSlots[physicalKey] = true
+                sanitizedItems[#sanitizedItems + 1] = entry
 
-            -- Ensure entry has details before indexing by tags
-            if entry.details == nil then
-                entry.details = reconstructTags(name)
-            end
+                local name = entry.name
+                local list = nameIndex[name]
+                if list == nil then
+                    list = {}
+                    nameIndex[name] = list
+                end
+                list[#list + 1] = entry
 
-            if entry.details ~= nil and entry.details.tags ~= nil then
-                for tag in pairs(entry.details.tags) do
-                    local tagList = tagIndex[tag]
-                    if tagList == nil then
-                        tagList = {}
-                        tagIndex[tag] = tagList
+                if entry.details == nil then
+                    entry.details = reconstructTags(name)
+                end
+
+                if entry.details ~= nil and entry.details.tags ~= nil then
+                    for tagKey, tagVal in pairs(entry.details.tags) do
+                        local tag = (type(tagKey) == "string") and tagKey or tagVal
+                        tag = string.gsub(tag, "^minecraft:%w+/", "")
+                        
+                        local tagList = tagIndex[tag]
+                        if tagList == nil then
+                            tagList = {}
+                            tagIndex[tag] = tagList
+                        end
+                        tagList[#tagList + 1] = entry
                     end
-                    tagList[#tagList + 1] = entry
                 end
             end
         end
@@ -582,20 +599,76 @@ local function ensureItemCaches()
     end
 end
 
+-- Waits for a specific named event without dropping any other events that arrive in the
+-- meantime. This whole program runs inside cryptoNet's single event loop, so a plain
+-- filtered os.pullEvent(name) would discard raw network replies it doesn't care about -
+-- including the exact one needed to eventually produce the event we're waiting for,
+-- causing a permanent freeze. Re-queuing unmatched events doesn't work either: this
+-- inner loop would just grab its own re-queued event again before cryptoNet's outer
+-- loop ever gets a turn, spamming the same handful of messages forever. Instead, we
+-- dispatch anything we don't want straight to the real handler ourselves, so normal
+-- messages (watchCrafting, getItems responses, etc.) still get processed properly.
+local function waitForEvent(name)
+    while true do
+        local event = {os.pullEvent()}
+        if event[1] == name then
+            return event[1]
+        elseif type(onCryptoNetEvent) == "function" then
+            onCryptoNetEvent(event)
+        end
+    end
+end
+
+-- Same as waitForEvent, but for callers that need the extra payload values a raw
+-- os.pullEvent(name) would normally return (e.g. os.pullEvent("hashLogin") also
+-- returns loginStatus and permissionLevel), not just the event name.
+local function waitForEventFull(name)
+    while true do
+        local event = {os.pullEvent()}
+        if event[1] == name then
+            return table.unpack(event)
+        elseif type(onCryptoNetEvent) == "function" then
+            onCryptoNetEvent(event)
+        end
+    end
+end
+
+local itemsUpdateWaiting = false
+local getItemsRequestSent = false
+
+-- Blocks until "itemsUpdated" fires - but only if nobody else is already blocked on it.
+-- Earlier attempts had reentrant/piggybacking callers also call os.pullEvent themselves
+-- (directly or via a generation-counter loop), which just moved the "two listeners
+-- competing for the same untagged event" bug one level deeper instead of removing it.
+-- The only safe rule: exactly one call frame, ever, is allowed to actually pull events
+-- for this. Anyone called re-entrantly (e.g. a databaseReload broadcast forwarded to us
+-- while we're already nested inside another wait) just returns immediately - the outer
+-- frame that's genuinely blocked will see the eventual itemsUpdated event and refresh
+-- `items` before IT returns, which is all any nested caller actually needed.
+-- Returns true if this call was the one that actually performed the wait.
+local function blockForItemsUpdated()
+    if itemsUpdateWaiting then
+        return false
+    end
+    itemsUpdateWaiting = true
+    waitForEvent("itemsUpdated")
+    itemsUpdateWaiting = false
+    getItemsRequestSent = false
+    return true
+end
+
 local function getDatabaseFromServer()
-    cryptoNet.send(storageServerSocket, {"getItems"})
-    local event
-    repeat
-        event = os.pullEvent("itemsUpdated")
-    until event == "itemsUpdated"
+    if not getItemsRequestSent then
+        -- Only actually send the request if nobody else currently has one in flight.
+        getItemsRequestSent = true
+        cryptoNet.send(storageServerSocket, {"getItems"})
+    end
+    blockForItemsUpdated()
 end
 
 local function getDetailDBFromServer()
     cryptoNet.send(storageServerSocket, {"getDetailDB"})
-    local event
-    repeat
-        event = os.pullEvent("detailDBUpdated")
-    until event == "detailDBUpdated"
+    waitForEvent("detailDBUpdated")
 
     local count = 0
     for _ in pairs(detailDB) do
@@ -608,11 +681,7 @@ end
 
 local function pingServer()
     cryptoNet.send(storageServerSocket, {"ping"})
-
-    local event
-    repeat
-        event = os.pullEvent("storageServerAck")
-    until event == "storageServerAck"
+    waitForEvent("storageServerAck")
 end
 
 local function Split(s, delimiter)
@@ -779,7 +848,6 @@ end
 
 local function searchForTag(searchString, InputTable, count, quick)
     ensureItemCaches()
-    --debugLog("searchForTag called for: " .. tostring(searchString) .. " count: " .. tostring(count))
     if type(searchString) == "table" then
         for i = 1, #searchString do
             local result, number, index = searchForTag(searchString[i], InputTable, count, quick)
@@ -790,69 +858,40 @@ local function searchForTag(searchString, InputTable, count, quick)
         return nil, 0, nil
     end
 
-    local match = searchString.match
-    -- 1. Remove "tag:" from the front
     local stringTag = string.gsub(searchString, "^tag:", "")
-    -- 2. Clean up "item:" or "block:" if it's still hanging around
     stringTag = string.gsub(stringTag, "^%w+:", "")
-    --debugLog("searching for tag: " .. tostring(stringTag))
     local number = 0
 
-
     local returnV = nil
     local returnK
 
-    local returnV = nil
-    local returnK
-    -- 1. Loop through the outer array of item lists
-    for i = 1, #itemTagIndex do
-        -- YIELD REFRESH: Every 10 pools, take a micro-nap to reset the timeout timer
-        if i % 10 == 0 then 
-            os.queueEvent("instant_yield")
-            os.pullEvent("instant_yield")
-        end
-        local itemPool = itemTagIndex[i]
-        
-        if itemPool ~= nil then
-            -- 2. Loop through the individual items in this pool
-            for k, v in ipairs(itemPool) do
-                if v ~= nil and type(v.details) == "table" and type(v.details.tags) == "table" then
-                    
-                    -- 3. Check if our stringTag exists in this item's tags
-                    -- (Handles both array-style and map-style tag tables)
-                    local hasTag = false
-                    for tagKey, tagVal in pairs(v.details.tags) do
-                        local actualTag = (type(tagKey) == "string") and tagKey or tagVal
-                        
-                        -- Clean the tag just like we did for the search string
-                        actualTag = string.gsub(actualTag, "^minecraft:%w+/", "")
-                        
-                        if actualTag == stringTag then
-                            hasTag = true
-                            break
-                        end
+    local yieldCounter = 0
+
+    -- Only scan the bucket for the tag we actually want. Each physical item entry
+    -- appears in exactly one list per tag it has, so itemTagIndex[stringTag] already
+    -- contains each matching stack exactly once - no cross-bucket dedup needed.
+    local itemPool = itemTagIndex[stringTag]
+    if itemPool ~= nil then
+        for k, v in ipairs(itemPool) do
+            yieldCounter = yieldCounter + 1
+            if yieldCounter % 10 == 0 then
+                os.queueEvent("instant_yield")
+                os.pullEvent("instant_yield")
+            end
+
+            if v ~= nil then
+                number = number + (v.count or 0)
+
+                if (v.count or 0) >= (count or 1) and not returnV then
+                    returnV = v
+                    returnK = k
+                    if quick then
+                        break
                     end
-                    
-                    -- If this item has the tag we want, accumulate the count!
-                    if hasTag then
-                        number = number + (v.count or 0)
-                        if (v.count or 0) >= (count or 1) and not returnV then
-                            returnV = v
-                            returnK = k
-                            -- We don't break yet because we want to accumulate 
-                            -- the total 'number' across all matching items!
-                            if quick then
-                                break  -- If quick is true, we can stop after finding the first match
-                            end
-                        end
-                    end
-                    
                 end
             end
         end
     end
-    --debugLog("searchForTag returning: " .. tostring(returnV) .. " number: " .. tostring(number) .. " index: " ..
-    --             tostring(returnK))
     return returnV, number, returnK
 end
 
@@ -1126,6 +1165,8 @@ local function isCraftable(searchTerm)
     end
 end
 
+local reloadRequestSent = false
+
 local function reloadServerDatabase(reason)
     if reason ~= nil then
         print("Reloading database due to: " .. reason)
@@ -1139,24 +1180,18 @@ end
 -- Note: Large performance hit on larger systems
 local function reloadStorageDatabase(skipTagPersist)
     debugLog("Reloading database..")
-    -- storage = getStorage()
-    -- write("..")
+    if not reloadRequestSent then
+        reloadRequestSent = true
+        reloadServerDatabase("reloadStorageDatabase() called")
+    end
 
-    -- items, storageUsed = getList(storage)
-
-    -- pingServer()
-    reloadServerDatabase("reloadStorageDatabase() called")
-    -- cryptoNet.send(storageServerSocket, { "reloadStorageDatabase" })
-    -- pingServer()
-
-    -- getDatabaseFromServer()
     debugLog("wait for itemsUpdated")
-    local event
-    repeat
-        event = os.pullEvent("itemsUpdated")
-    until event == "itemsUpdated"
+    local didWait = blockForItemsUpdated()
+    if didWait then
+        reloadRequestSent = false
+    end
 
-    if not skipTagPersist then
+    if didWait and not skipTagPersist then
         -- write("done\n")
         -- write("Writing Tags Database....")
 
@@ -1219,10 +1254,7 @@ local function dumpAll(skipReload, socket)
             updateClient(socket, "logUpdate", "Waiting on server...")
         end
         local time = os.epoch("utc") / 1000
-        local event
-        repeat
-            event = os.pullEvent("itemsUpdated")
-        until event == "itemsUpdated"
+        blockForItemsUpdated()
         local speed = (os.epoch("utc") / 1000) - time
         print("Waited " .. tostring(("%.3g"):format(speed) .. " seconds total"))
         debugLog("itemsUpdated took " .. tostring(speed) .. " seconds total")
@@ -2457,12 +2489,7 @@ local function login(socket, user, pass, servername)
     cryptoNet.send(socket, {"hashLogin", tmp})
     -- mark for garbage collection
     tmp = nil
-    local event
-    local loginStatus = false
-    local permissionLevel = 0
-    repeat
-        event, loginStatus, permissionLevel = os.pullEvent("hashLogin")
-    until event == "hashLogin"
+    local _, loginStatus, permissionLevel = waitForEventFull("hashLogin")
     log("loginStatus:" .. tostring(loginStatus))
     if loginStatus == true then
         socket.username = user
@@ -2481,7 +2508,7 @@ local function login(socket, user, pass, servername)
 end
 
 -- Cryptonet event handler
-local function onCryptoNetEvent(event)
+function onCryptoNetEvent(event)
     -- When a crafting server logs in to storage server
     if event[1] == "login" and not next(recipes) then
         local username = event[2]
@@ -2673,7 +2700,7 @@ local function onCryptoNetEvent(event)
                 print(socket.username .. " requested: " .. tostring(message))
                 print("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
                 debugLog("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
-                -- reloadStorageDatabase()
+                reloadStorageDatabase()
                 debugLog("data: " .. textutils.serialize(data))
 
                 local craftingRequest = {}
@@ -2872,12 +2899,7 @@ local function onCryptoNetEvent(event)
                 data.password = nil
                 cryptoNet.send(storageServerSocket, {"checkPasswordHashed", tmp})
 
-                local event2
-                local loginStatus = false
-                local permissionLevel = 0
-                repeat
-                    event2, loginStatus, permissionLevel = os.pullEvent("gotCheckPasswordHashed")
-                until event2 == "gotCheckPasswordHashed"
+                local _, loginStatus, permissionLevel = waitForEventFull("gotCheckPasswordHashed")
                 -- debugLog("loginStatus:"..tostring(loginStatus))
                 if loginStatus == true then
                     cryptoNet.send(socket, {"hashLogin", true, permissionLevel})
@@ -2941,12 +2963,7 @@ local function getMasterCraftingServerCert()
         cryptoNet.send(masterCraftingServerSocket, {"getCertificate"})
         -- wait for reply from server
         log("wait for reply from MasterCraftingServer")
-        local event, data
-        repeat
-            event, data = os.pullEvent("gotCertificate")
-        until event == "gotCertificate"
-
-        log("write the cert file")
+        local _, data = waitForEventFull("gotCertificate")
         -- write the file
         local file = fs.open(filePath, "w")
         file.write(data)
@@ -2962,12 +2979,7 @@ local function postStart()
         cryptoNet.send(storageServerSocket, {"getCertificate"})
         -- wait for reply from server
         debugLog("wait for reply from server")
-        local event, data
-        repeat
-            event, data = os.pullEvent("gotCertificate")
-        until event == "gotCertificate"
-
-        debugLog("write the cert file")
+        local _, data = waitForEventFull("gotCertificate")
         -- write the file
         local file = fs.open(filePath, "w")
         file.write(data)
@@ -3041,11 +3053,7 @@ local function onStart()
     if settings.get("requireLogin") then
         -- If we send a "ping" and server requires login, it will return "requireLogin" which will start the login process on this server
         cryptoNet.send(storageServerSocket, {"ping"})
-        local event
-        -- Wait until login is complete
-        repeat
-            event = os.pullEvent("storageServerLogin")
-        until event == "storageServerLogin"
+        waitForEvent("storageServerLogin")
     elseif not settings.get("isMasterCraftingServer") then
         print("Connecting to master server: " .. settings.get("MasterCraftingServer"))
         log("Connecting to master server: " .. settings.get("MasterCraftingServer"))

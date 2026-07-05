@@ -708,8 +708,8 @@ end
 -- Avoid costly database reload by patching database in memory
 local function patchStorageDatabase(inputItem, count, chest, slot)
     if peripheral.find("rs_bridge") ~= nil then
-        --reloadStorageDatabase("patchStorageDatabase called, but RS is present, so doing full reload instead")
-        --return true
+        reloadStorageDatabase("patchStorageDatabase called, but RS is present, so doing full reload instead")
+        return true
     end
     if count == 0 or inputItem == nil or chest == nil or slot == nil then
         return false
@@ -1078,7 +1078,7 @@ local function getItem(requestItem, chest)
             name = requestItem.name,
             count = requestItem.count
         }, chest)
-
+        print("getItem: Exported " .. tostring(moved) .. " items from RS system")
         if moved > 0 then
             local patchstatus = patchStorageDatabase(requestItem, -1 * moved, nil, nil)
         end
