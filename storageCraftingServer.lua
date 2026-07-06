@@ -868,6 +868,33 @@ local function getRecipes()
     print(tostring(#recipes) .. " recipes loaded!")
 end
 
+local function getTableSize(t)
+    local count = 0
+    for _ in pairs(t) do
+        count = count + 1
+    end
+    return count
+end
+
+local function getItemNameFromTag(tag)
+    debugLog("getItemNameFromTag called for: " .. tostring(tag))
+    -- Extract the tag name (remove "tag:" and "item:" prefixes)
+    local stringTag = string.gsub(tag, "^tag:", "")
+    stringTag = string.gsub(stringTag, "^item:", "")
+    debugLog("stringTag: " .. stringTag)
+    debugLog("#tags: " .. getTableSize(tags))
+
+    -- Look up in the tags table loaded from tags.db
+    if type(tags[stringTag]) == "table" and #tags[stringTag] > 0 then
+        local itemName = tags[stringTag][1]
+        debugLog("Found item " .. itemName .. " for tag: " .. stringTag)
+        return itemName
+    end
+
+    debugLog("No items found for tag: " .. tag)
+    return nil
+end
+
 local function searchForTag(searchString, InputTable, count, quick)
     ensureItemCaches()
     if type(searchString) == "table" then
@@ -879,11 +906,14 @@ local function searchForTag(searchString, InputTable, count, quick)
         end
         return nil, 0, nil
     end
+    debugLog("searchForTag called for: " .. tostring(searchString) .. " count: " .. tostring(count))
 
     local stringTag = string.gsub(searchString, "^tag:", "")
     stringTag = string.gsub(stringTag, "^%w+:", "")
-    local number = 0
 
+    debugLog("stringTag: " .. tostring(stringTag))
+
+    local number = 0
     local returnV = nil
     local returnK
 
@@ -1590,9 +1620,25 @@ local function patchStorageDatabase(itemName, count, chest, slot)
         return false
     end
     if peripheral.find("rs_bridge") ~= nil then
-        -- no need to patch database if using redstone bridge, just reload from server
-        getDatabaseFromServer()
-        return true
+        -- The item to find and the new count
+        local targetName = inputItem.name
+        local newCount = count
+
+        -- Loop through the table to find and edit the count
+        for index, item in ipairs(items) do
+            if item.name == targetName then
+                item.count = item.count + newCount
+
+                print("Updated " .. item.displayName .. " count to #" .. item.count)
+                debugLog("Updated " .. item.displayName .. " count to #" .. item.count)
+                if item.count < 1 then
+                    -- If there is 0 items, delete from list
+                    table.remove(items, index)
+                end
+                return true
+            end
+        end
+        return false
     end
     -- print("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
     debugLog("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" ..
@@ -2083,6 +2129,171 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
     return true
 end
 
+-- Attempt to craft using RS Bridge if available
+-- Returns true if crafting was successful, false otherwise
+local function craftWithRSBridge(itemName, amount, socket)
+    local rsBridge = peripheral.find("rs_bridge")
+
+    if not rsBridge then
+        debugLog("RS Bridge not found, skipping rs_bridge crafting")
+        return false
+    end
+
+    debugLog("craftWithRSBridge: " .. tostring(itemName) .. " x" .. tostring(amount))
+
+    -- Extract readable item name for logging
+    local displayName = type(itemName) == "string" and string.match(itemName, ".+:(.+)") or tostring(itemName)
+
+    debugLog("RS Bridge found, attempting to craft: " .. tostring(itemName) .. " x" .. tostring(amount))
+    updateClient(socket, "logUpdate", "Checking RS Bridge for: " .. displayName)
+
+    -- Get all craftable items from rs_bridge
+    debugLog("Fetching craftable items from RS Bridge...")
+    local craftableItems = rsBridge.getCraftableItems()
+    if not craftableItems or #craftableItems == 0 then
+        debugLog("RS Bridge has no craftable items")
+        updateClient(socket, "logUpdate", "RS Bridge has no craftable items available")
+        return false
+    end
+
+    debugLog("RS Bridge has " .. tostring(#craftableItems) .. " craftable items")
+
+    -- Determine items to check based on tag or specific item
+    local itemsToCheck = {}
+    if string.find(itemName, "^tag:") then
+        debugLog("Tag-based request, looking up items for tag: " .. tostring(itemName))
+        -- Extract tag name using the same logic as getAllTagRecipes
+        local stringSearch = string.match(itemName, 'tag:%w+:(.+)')
+        if type(tags[stringSearch]) ~= "nil" then
+            -- Get all items in this tag from the tags database
+            for i, itemInTag in pairs(tags[stringSearch]) do
+                itemsToCheck[#itemsToCheck + 1] = itemInTag
+            end
+        else
+            debugLog("Tag not found in database: " .. stringSearch)
+            return false
+        end
+    else
+        -- Format item name for rs_bridge query
+        local queryItemName = itemName
+        if string.find(itemName, "^item:") then
+            queryItemName = string.match(itemName, "^item:(.+)")
+        end
+        itemsToCheck[1] = queryItemName
+    end
+
+    -- Check if any of the items can be crafted by RS Bridge
+    local foundRecipe = nil
+    local foundItemName = nil
+    for _, queryItem in ipairs(itemsToCheck) do
+        for _, recipe in ipairs(craftableItems) do
+            if recipe.name == queryItem then
+                foundRecipe = recipe
+                foundItemName = queryItem
+                debugLog("Found matching recipe in RS Bridge: " .. queryItem)
+                break
+            end
+        end
+        if foundRecipe then
+            break
+        end
+    end
+
+    if not foundRecipe then
+        debugLog("RS Bridge cannot craft: " .. tostring(itemName))
+        updateClient(socket, "logUpdate", "RS Bridge cannot craft: " .. displayName)
+        return false
+    end
+
+    debugLog("RS Bridge found recipe for: " .. foundItemName .. ", attempting to craft " .. tostring(amount) .. " units")
+    updateClient(socket, "logUpdate", "RS Bridge crafting: " .. displayName .. " x" .. tostring(amount))
+
+    -- 1. Get the INITIAL count using your filter lookup
+    local initialItem = rsBridge.getItem({
+        name = foundItemName
+    })
+    local initialAmount = initialItem and initialItem.count or 0
+    local targetAmount = initialAmount + amount
+
+    debugLog("Initial stock: " .. tostring(initialAmount) .. ". Target stock: " .. tostring(targetAmount))
+    -- 2. Start crafting via RS Bridge
+    debugLog("Calling rsBridge.craftItem with name: " .. foundItemName .. " amount: " .. tostring(amount))
+    local craftingJob = rsBridge.craftItem({
+        name = foundItemName,
+        count = amount
+    })
+
+    -- local craftingTasks = rsBridge.getCraftingTasks()
+    -- debugLog("Current RS Bridge crafting tasks: " .. textutils.serialize(craftingTasks))
+
+    local jobId = craftingJob.getId()
+    debugLog("craftingJob ID: " .. tostring(jobId))
+
+    if not jobId then
+        debugLog("ERROR: RS Bridge returned a crafting job but with no ID!")
+        updateClient(socket, "logUpdate", "RS Bridge returned invalid job")
+        return false
+    end
+
+    debugLog("Crafting job started with ID: " .. tostring(jobId) .. " for item: " .. foundItemName)
+    updateClient(socket, "logUpdate", "RS Bridge crafting job started (ID: " .. tostring(jobId) .. ")")
+
+    -- 3. Monitor the crafting job for calculation updates
+    while true do
+        local event, error, id, message = os.pullEvent("rs_crafting")
+        debugLog("A crafting update occurred for Job #" .. id)
+        if error then
+            debugLog("There was an error while calculating or crafting the resource with the message " .. message)
+        else
+            debugLog("The new state of the task is " .. message)
+            if message == "CALCULATION_STARTED" then
+                updateClient(socket, "logUpdate", "RS Bridge crafting calculation started")
+            elseif message == "CRAFTING_STARTED" then
+                updateClient(socket, "logUpdate", "RS Bridge crafting started")
+                break
+            end
+        end
+    end
+
+    -- 4. Loop and monitor the ACTUAL inventory, ignoring the broken craftingJob state
+    local counter = 0
+    while true do
+        if counter > 300 then
+            debugLog("ERROR: RS Bridge crafting timed out based on inventory check.")
+            updateClient(socket, "logUpdate", "RS Bridge crafting timed out")
+            return false
+        end
+
+        -- Fetch current item count using the exact same filter
+        local currentItem = rsBridge.getItem({
+            name = foundItemName
+        })
+        local currentAmount = currentItem and currentItem.count or 0
+        debugLog("Current stock: " .. tostring(currentAmount) .. " / Target: " .. tostring(targetAmount))
+
+        -- Check if the items have successfully arrived in storage
+        if currentAmount >= targetAmount then
+            debugLog("RS Bridge crafting completed successfully!")
+            updateClient(socket, "logUpdate",
+                "RS Bridge crafting completed: " .. displayName .. " x" .. tostring(amount))
+            reloadStorageDatabase(true)
+            return true
+        end
+
+        -- Update client with progress
+        local itemsCraftedSoFar = currentAmount - initialAmount
+        if itemsCraftedSoFar > 0 then
+            local percent = math.min(100, math.floor((itemsCraftedSoFar / amount) * 100))
+            updateClient(socket, "logUpdate", "Crafting Progress: " .. tostring(percent) .. "%")
+        else
+            updateClient(socket, "logUpdate", "Crafting started...")
+        end
+
+        sleep(1)
+        counter = counter + 1
+    end
+end
+
 -- Brute-force recersive crafting
 local function craftBranch(recipeObj, ttl, amount, socket)
     if type(recipeObj) ~= "table" then
@@ -2155,6 +2366,42 @@ local function craftBranch(recipeObj, ttl, amount, socket)
                     else
                         debugLog("have: " .. tostring(have) .. " Need: " .. tostring(numNeeded[item]) .. " of " .. item)
 
+                        -- Try RS Bridge first for missing items before checking local recipes
+                        local missing = numNeeded[item] - have
+                        if missing > 0 then
+                            debugLog("Attempting RS Bridge for missing item: " .. item .. " x" .. tostring(missing))
+                            local itemNameForRS = nil
+                            local displayNameForRS = item
+
+                            -- Handle tags by finding an actual item name from the tag
+                            if string.find(item, "^tag:") then
+                                local taggedItem = getItemNameFromTag(item)
+                                if taggedItem then
+                                    itemNameForRS = taggedItem
+                                    debugLog("Found item " .. itemNameForRS .. " for tag: " .. item)
+                                else
+                                    debugLog("No items found for tag: " .. item)
+                                end
+                            else
+                                -- Regular item name
+                                itemNameForRS = item
+                                if string.find(item, "^item:") then
+                                    itemNameForRS = string.match(item, "^item:(.+)")
+                                end
+                            end
+
+                            if itemNameForRS then
+                                local rsBridgeSuccess = craftWithRSBridge(itemNameForRS, missing, socket)
+                                if rsBridgeSuccess then
+                                    debugLog("RS Bridge crafting succeeded for: " .. item)
+                                    skip = true
+                                    craftedAnything = true
+                                    break
+                                end
+                            end
+                            debugLog("RS Bridge not available for: " .. item .. ", falling back to local recipes")
+                        end
+
                         local allRecipes
                         ---need to check for tags
                         if string.find(item, 'tag:%w+:(.+)') then
@@ -2165,7 +2412,6 @@ local function craftBranch(recipeObj, ttl, amount, socket)
                             allRecipes = getAllRecipes(item)
                         end
 
-                        local missing = numNeeded[item] - have
                         if #allRecipes < 1 then
                             print("Cannot craft " .. itemName .. ": no recipes found for: " .. item)
                             updateClient(socket, "logUpdate", "Cannot craft " .. itemName:match(".+:(.+)"))
@@ -2240,10 +2486,10 @@ local function craftBranch(recipeObj, ttl, amount, socket)
                                 if recipeContains(allRecipes[m], itemName) == false and
                                     recipeContains(allRecipes[m], item) == false then
                                     -- local result = craftBranch(allRecipes[m], ttl, numNeeded[item], id)
-                                    debuglog("before craftBranch")
+                                    debugLog("before craftBranch")
                                     local result = craftBranch(allRecipes[m], ttl,
                                         math.ceil(numNeeded[item] / allRecipes[m].count), socket)
-                                    debuglog("after craftBranch")
+                                    debugLog("after craftBranch")
                                     if result then
                                         failed = false
                                         craftedAnything = true
@@ -2254,6 +2500,36 @@ local function craftBranch(recipeObj, ttl, amount, socket)
                             if failed then
                                 -- print("got nothing for " .. item)
                                 debugLog("got nothing for " .. item)
+                                -- All recursive crafting attempts failed, try RS Bridge before giving up
+                                debugLog("All recursive crafting attempts failed for: " .. item ..
+                                             ", attempting RS Bridge")
+                                local itemNameForRS = nil
+
+                                -- Handle tags by finding an actual item name from the tag
+                                if string.find(item, "^tag:") then
+                                    local taggedItem = searchForTag(item, items, numNeeded[item])
+                                    if taggedItem then
+                                        itemNameForRS = taggedItem.name
+                                        debugLog("Found item " .. itemNameForRS .. " for tag: " .. item)
+                                    end
+                                else
+                                    -- Regular item name
+                                    itemNameForRS = item
+                                    if string.find(item, "^item:") then
+                                        itemNameForRS = string.match(item, "^item:(.+)")
+                                    end
+                                end
+
+                                if itemNameForRS then
+                                    local rsBridgeSuccess = craftWithRSBridge(itemNameForRS, numNeeded[item], socket)
+                                    if rsBridgeSuccess then
+                                        debugLog("RS Bridge crafting succeeded for: " .. item)
+                                        skip = true
+                                        craftedAnything = true
+                                        break
+                                    end
+                                end
+
                                 if k >= #slot then
                                     return false
                                 end
@@ -2317,168 +2593,6 @@ local function craftBranch(recipeObj, ttl, amount, socket)
     debugLog("craftBranch took " .. tostring(speed) .. " seconds total")
 end
 
--- Attempt to craft using RS Bridge if available
--- Returns true if crafting was successful, false otherwise
-local function craftWithRSBridge(itemName, amount, socket)
-    local rsBridge = peripheral.find("rs_bridge")
-
-    if not rsBridge then
-        debugLog("RS Bridge not found, skipping rs_bridge crafting")
-        return false
-    end
-
-    -- Extract readable item name for logging
-    local displayName = itemName:match(".+:(.+)") or itemName
-
-    debugLog("RS Bridge found, attempting to craft: " .. tostring(itemName) .. " x" .. tostring(amount))
-    updateClient(socket, "logUpdate", "Checking RS Bridge for: " .. displayName)
-
-    -- Get all craftable items from rs_bridge
-    debugLog("Fetching craftable items from RS Bridge...")
-    local craftableItems = rsBridge.getCraftableItems()
-    if not craftableItems or #craftableItems == 0 then
-        debugLog("RS Bridge has no craftable items")
-        updateClient(socket, "logUpdate", "RS Bridge has no craftable items available")
-        return false
-    end
-
-    debugLog("RS Bridge has " .. tostring(#craftableItems) .. " craftable items")
-
-    -- Determine items to check based on tag or specific item
-    local itemsToCheck = {}
-    if string.find(itemName, "^tag:") then
-        debugLog("Tag-based request, looking up items for tag: " .. tostring(itemName))
-        -- Extract tag name using the same logic as getAllTagRecipes
-        local stringSearch = string.match(itemName, 'tag:%w+:(.+)')
-        if type(tags[stringSearch]) ~= "nil" then
-            -- Get all items in this tag from the tags database
-            for i, itemInTag in pairs(tags[stringSearch]) do
-                itemsToCheck[#itemsToCheck + 1] = itemInTag
-            end
-        else
-            debugLog("Tag not found in database: " .. stringSearch)
-            return false
-        end
-    else
-        -- Format item name for rs_bridge query
-        local queryItemName = itemName
-        if string.find(itemName, "^item:") then
-            queryItemName = string.match(itemName, "^item:(.+)")
-        end
-        itemsToCheck[1] = queryItemName
-    end
-
-    -- Check if any of the items can be crafted by RS Bridge
-    local foundRecipe = nil
-    local foundItemName = nil
-    for _, queryItem in ipairs(itemsToCheck) do
-        for _, recipe in ipairs(craftableItems) do
-            if recipe.name == queryItem then
-                foundRecipe = recipe
-                foundItemName = queryItem
-                debugLog("Found matching recipe in RS Bridge: " .. queryItem)
-                break
-            end
-        end
-        if foundRecipe then
-            break
-        end
-    end
-
-    if not foundRecipe then
-        debugLog("RS Bridge cannot craft: " .. tostring(itemName))
-        updateClient(socket, "logUpdate", "RS Bridge cannot craft: " .. displayName)
-        return false
-    end
-
-    debugLog("RS Bridge found recipe for: " .. foundItemName .. ", attempting to craft " .. tostring(amount) .. " units")
-    updateClient(socket, "logUpdate", "RS Bridge crafting: " .. displayName .. " x" .. tostring(amount))
-
-    -- 1. Get the INITIAL count using your filter lookup
-    local initialItem = rsBridge.getItem({
-        name = foundItemName
-    })
-    local initialAmount = initialItem and initialItem.amount or 0
-    local targetAmount = initialAmount + amount
-
-    debugLog("Initial stock: " .. tostring(initialAmount) .. ". Target stock: " .. tostring(targetAmount))
-    -- 2. Start crafting via RS Bridge
-    debugLog("Calling rsBridge.craftItem with name: " .. foundItemName .. " amount: " .. tostring(amount))
-    local craftingJob = rsBridge.craftItem({
-        name = foundItemName
-    }, amount)
-
-    -- local craftingTasks = rsBridge.getCraftingTasks()
-    -- debugLog("Current RS Bridge crafting tasks: " .. textutils.serialize(craftingTasks))
-
-    local jobId = craftingJob.getId()
-    debugLog("craftingJob ID: " .. tostring(jobId))
-
-    if not jobId then
-        debugLog("ERROR: RS Bridge returned a crafting job but with no ID!")
-        updateClient(socket, "logUpdate", "RS Bridge returned invalid job")
-        return false
-    end
-
-    debugLog("Crafting job started with ID: " .. tostring(jobId) .. " for item: " .. foundItemName)
-    updateClient(socket, "logUpdate", "RS Bridge crafting job started (ID: " .. tostring(jobId) .. ")")
-
-    -- 3. Monitor the crafting job for calculation updates
-    while true do
-        local event, error, id, message = os.pullEvent("rs_crafting")
-        debugLog("A crafting update occurred for Job #" .. id)
-        if error then
-            debugLog("There was an error while calculating or crafting the resource with the message " .. message)
-        else
-            debugLog("The new state of the task is " .. message)
-            if message == "CALCULATION_STARTED" then
-                updateClient(socket, "logUpdate", "RS Bridge crafting calculation started")
-            elseif message == "CRAFTING_STARTED" then
-                updateClient(socket, "logUpdate", "RS Bridge crafting started")
-                break
-            end
-        end
-    end
-
-    -- 4. Loop and monitor the ACTUAL inventory, ignoring the broken craftingJob state
-    local counter = 0
-    while true do
-        if counter > 300 then
-            debugLog("ERROR: RS Bridge crafting timed out based on inventory check.")
-            updateClient(socket, "logUpdate", "RS Bridge crafting timed out")
-            return false
-        end
-
-        -- Fetch current item count using the exact same filter
-        local currentItem = rsBridge.getItem({
-            name = foundItemName
-        })
-        local currentAmount = currentItem and currentItem.amount or 0
-        debugLog("Current stock: " .. tostring(currentAmount) .. " / Target: " .. tostring(targetAmount))
-
-        -- Check if the items have successfully arrived in storage
-        if currentAmount >= targetAmount then
-            debugLog("RS Bridge crafting completed successfully!")
-            updateClient(socket, "logUpdate",
-                "RS Bridge crafting completed: " .. displayName .. " x" .. tostring(amount))
-            reloadStorageDatabase(true)
-            return true
-        end
-
-        -- Update client with progress
-        local itemsCraftedSoFar = currentAmount - initialAmount
-        if itemsCraftedSoFar > 0 then
-            local percent = math.min(100, math.floor((itemsCraftedSoFar / amount) * 100))
-            updateClient(socket, "logUpdate", "Crafting Progress: " .. tostring(percent) .. "%")
-        else
-            updateClient(socket, "logUpdate", "Crafting started...")
-        end
-
-        sleep(1)
-        counter = counter + 1
-    end
-end
-
 -- Craft recipe assuming all materials are available
 local function craft(item, amount, socket)
     refreshInventoryIfNeeded()
@@ -2504,6 +2618,8 @@ local function craft(item, amount, socket)
             elseif string.find(item, "^tag:%w+:(.+)") then
                 itemNameForRS = string.match(item, "^tag:%w+:(.+)")
             end
+        elseif type(item) == "table" then
+            itemNameForRS = item.name
         end
 
         debugLog("Attempting RS Bridge crafting for: " .. tostring(itemNameForRS))
@@ -2548,16 +2664,19 @@ local function craft(item, amount, socket)
     if #craftableRecipes == 0 then
         -- print("No currently craftable recipes, Searching for best recipe")
         debugLog("No currently craftable recipes for " .. tostring(item) .. ", Searching for best recipe")
-        updateClient(socket, "logUpdate", "Searching for best recipe for: " .. tostring(item.name:match(".+:(.+)")))
+        local displayItem = type(item) == "table" and item.name or item
+        updateClient(socket, "logUpdate", "Searching for best recipe for: " .. tostring(displayItem:match(".+:(.+)")))
         recipeToCraft, outputAmount = getBestRecipe(allRecipes, socket)
     elseif #craftableRecipes > 1 then
         -- print("More than one craftable recipe, Searching for best recipe")
         debugLog("More than one craftable recipe for " .. tostring(item) .. ", Searching for best recipe")
-        updateClient(socket, "logUpdate", "Searching for best recipe for: " .. tostring(item.name:match(".+:(.+)")))
+        local displayItem = type(item) == "table" and item.name or item
+        updateClient(socket, "logUpdate", "Searching for best recipe for: " .. tostring(displayItem:match(".+:(.+)")))
         recipeToCraft, outputAmount = getBestRecipe(craftableRecipes, socket)
     else
         debugLog("Only one craftable recipe found for " .. tostring(item) .. ", using it")
-        updateClient(socket, "logUpdate", "Recipe found for: " .. tostring(item.name:match(".+:(.+)")))
+        local displayItem = type(item) == "table" and item.name or item
+        updateClient(socket, "logUpdate", "Recipe found for: " .. tostring(displayItem:match(".+:(.+)")))
         recipeToCraft = craftableRecipes[1]
         outputAmount = craftableRecipes[1].count
     end
@@ -3305,7 +3424,7 @@ local function onStart()
         serverWireless = cryptoNet.host(settings.get("serverName") .. "_Wireless", true, false, wirelessModem.side)
     end
 
-    timeoutConnect = os.startTimer(60)
+    timeoutConnect = os.startTimer(20)
     -- Connect to the server
     print("Connecting to server: " .. settings.get("StorageServer"))
     storageServerSocket = cryptoNet.connect(settings.get("StorageServer"), 15, 3,
