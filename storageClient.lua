@@ -78,6 +78,9 @@ settings.define("exportChestName", {
 local logging = true
 local debug = false
 
+-- FIFO queues to match getAmount requests with responses in order
+local pendingGetAmountResponses = {}
+
 -- Settings fails to load
 if settings.load() == false then
     print("No settings have been found! Default values will be used!")
@@ -1879,12 +1882,15 @@ end
 local function getAmount(itemName)
     cryptoNet.send(craftingServerSocket, {"getAmount", itemName})
 
-    local event, data
-    repeat
-        event, data = os.pullEvent("gotAmount")
-    until event == "gotAmount"
-
-    return data
+    -- Wait for response for this specific item
+    while pendingGetAmountResponses[itemName] == nil do
+        os.pullEvent()  -- Wait for any event; handler will populate pendingGetAmountResponses[itemName]
+    end
+    
+    -- Get the response and clear it from the table
+    local result = pendingGetAmountResponses[itemName]
+    pendingGetAmountResponses[itemName] = nil
+    return result
 end
 
 local function getCraftingServerCert()
@@ -3060,6 +3066,7 @@ local function onCryptoNetEvent(event)
         -- log("Server said: " .. dump(event[2]))
         local messageType = event[2][1]
         local message = event[2][2]
+        local extraData = event[2][3]  -- For getAmount: the item name; for other messages: nil
         if messageType == "getItems" then
             if type(message) == "table" then
                 local tab = removeDuplicates(message)
@@ -3107,7 +3114,10 @@ local function onCryptoNetEvent(event)
         elseif messageType == "getServerType" then
             os.queueEvent("gotServerType", message)
         elseif messageType == "getAmount" then
-            os.queueEvent("gotAmount", message)
+            -- Store response with item name for matching to pending requests
+            if extraData ~= nil then
+                pendingGetAmountResponses[extraData] = message
+            end
         elseif messageType == "craftable" then
             os.queueEvent("gotCraftable", message)
         elseif messageType == "getNumNeeded" then

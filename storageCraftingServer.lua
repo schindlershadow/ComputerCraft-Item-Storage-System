@@ -1,5 +1,6 @@
 math.randomseed(os.time() + (6 * os.getComputerID()))
-local storage, items
+local storage
+items = {}  -- GLOBAL: crafting thread needs to read this
 local serverLAN, serverWireless
 local tags = {}
 local clients = {}
@@ -9,7 +10,7 @@ local storageServerSocket, masterCraftingServerSocket
 local onCryptoNetEvent
 local cryptoNetURL = "https://raw.githubusercontent.com/SiliconSloth/CryptoNet/master/cryptoNet.lua"
 local detailDB
-local currentlyCrafting = {}
+currentlyCrafting = {}  -- GLOBAL: crafting thread modifies this, main thread reads it
 local craftingUpdateClients = {}
 local speakers = {}
 local serverBootTime = os.epoch("utc") / 1000
@@ -98,6 +99,11 @@ settings.define("masterCraftingServer", {
     description = "The hostname of the master crafting server",
     "CraftingServer",
     type = "string"
+})
+settings.define("enableRSBridgeCrafting", {
+    description = "Enable crafting via RS Bridge (disable if it causes freezes)",
+    default = "false",
+    type = "boolean"
 })
 
 -- Settings fails to load
@@ -310,7 +316,9 @@ IIngredientEmpty = {
     getInstance = getInstance
 }
 
-local craftingQueue = {}
+-- MUST be GLOBAL so that threads can see updates
+-- Using a local variable would cause thread to have a stale copy
+craftingQueue = {}
 craftingQueue.first = 0
 craftingQueue.last = -1
 
@@ -321,12 +329,15 @@ function craftingQueue.pushleft(value)
 end
 
 function craftingQueue.pushright(value)
+    debugLog("=== QUEUE: pushright called, old last=" .. tostring(craftingQueue.last) .. " ===")
     local last = craftingQueue.last + 1
     craftingQueue.last = last
     craftingQueue[last] = value
+    debugLog("=== QUEUE: pushright done, new last=" .. tostring(craftingQueue.last) .. " ===")
 end
 
 function craftingQueue.popleft()
+    debugLog("=== QUEUE: popleft called, first=" .. tostring(craftingQueue.first) .. ", last=" .. tostring(craftingQueue.last) .. " ===")
     local first = craftingQueue.first
     if first > craftingQueue.last then
         error("craftingQueue is empty")
@@ -334,6 +345,7 @@ function craftingQueue.popleft()
     local value = craftingQueue[first]
     craftingQueue[first] = nil -- to allow garbage collection
     craftingQueue.first = first + 1
+    debugLog("=== QUEUE: popleft returning item, new first=" .. tostring(craftingQueue.first) .. " ===")
     return value
 end
 
@@ -372,8 +384,70 @@ function craftingQueue.dumpItems()
         end
     end
 
-    debugLog(dump(tab))
+    debugLog("craftingQueue dump: " .. dump(tab))
     return tab
+end
+
+-- Deduplication tracking for autoCraftItem messages
+-- Prevents duplicate craft requests from being processed twice
+local recentCraftRequests = {}
+local function trackCraftRequest(itemName, amount, recipeName)
+    local key = itemName .. ":" .. tostring(amount) .. ":" .. tostring(recipeName)
+    local currentTime = os.epoch("utc") / 1000
+    recentCraftRequests[key] = currentTime
+    -- Clean up old entries (older than 2 seconds)
+    for k, v in pairs(recentCraftRequests) do
+        if currentTime - v > 2 then
+            recentCraftRequests[k] = nil
+        end
+    end
+end
+
+local function isDuplicateCraftRequest(itemName, amount, recipeName)
+    local key = itemName .. ":" .. tostring(amount) .. ":" .. tostring(recipeName)
+    if recentCraftRequests[key] then
+        return true
+    end
+    return false
+end
+
+local function isRequestAlreadyQueued(itemName, recipeName)
+    -- Check if the same item/recipe is already at the front of the queue
+    if craftingQueue.first <= craftingQueue.last then
+        local frontRequest = craftingQueue[craftingQueue.first]
+        if frontRequest and frontRequest.name == itemName and frontRequest.recipe.recipeName == recipeName then
+            return true
+        end
+    end
+    return false
+end
+
+-- Throttle inventory refresh requests to avoid event spam
+local lastInventoryRefreshTime = 0
+local INVENTORY_REFRESH_THROTTLE = 1  -- Wait at least 1 second between refresh events
+
+local function shouldQueueInventoryRefresh()
+    local now = os.epoch("utc") / 1000
+    if now - lastInventoryRefreshTime >= INVENTORY_REFRESH_THROTTLE then
+        lastInventoryRefreshTime = now
+        return true
+    end
+    return false
+end
+
+local function logError(err)
+    -- Format a timestamp if you have an in-game day or real-world time via os.epoch
+    local timeStr = textutils.formatTime(os.time(), true)
+    local logMsg = string.format("[%s] CRASH: %s\n", timeStr, tostring(err))
+
+    -- Append the crash message to an error log file
+    local file = fs.open("logs/crash.log", "a")
+    if file then
+        file.write(logMsg)
+        file.close()
+    else
+        print("Failed to write to log file!")
+    end
 end
 
 local function findInTable(arr, element)
@@ -544,8 +618,6 @@ local function addTag(item)
 
     tags.count = countTags
     tags.countItems = countItems
-    os.queueEvent("instant_yield")
-    os.pullEvent("instant_yield")
 
 end
 
@@ -616,9 +688,9 @@ end
 -- loop ever gets a turn, spamming the same handful of messages forever. Instead, we
 -- dispatch anything we don't want straight to the real handler ourselves, so normal
 -- messages (watchCrafting, getItems responses, etc.) still get processed properly.
-local function waitForEvent(name, timeout)
+local function waitForEvent(name, timeout, reason)
     timeout = timeout or 10
-    debugLog("waitForEvent: " .. tostring(name))
+    debugLog("waitForEvent: " .. tostring(name) .. " (reason: " .. tostring(reason) .. ")")
     local timerId = os.startTimer(timeout)
     while true do
         local event = {os.pullEvent()}
@@ -626,7 +698,10 @@ local function waitForEvent(name, timeout)
             debugLog("waitForEvent: got " .. tostring(name))
             return event[1]
         elseif event[1] == "timer" and event[2] == timerId then
-            debugLog("waitForEvent: timeout waiting for " .. tostring(name))
+            debugLog("waitForEvent: timeout waiting for " .. tostring(name) .. " (reason: " .. tostring(reason) .. ")")
+            if tostring(name) == "itemsUpdated" then
+                return "itemsUpdated"
+            end
             return nil
         elseif type(onCryptoNetEvent) == "function" then
             onCryptoNetEvent(event)
@@ -668,31 +743,39 @@ local getItemsRequestSent = false
 -- frame that's genuinely blocked will see the eventual itemsUpdated event and refresh
 -- `items` before IT returns, which is all any nested caller actually needed.
 -- Returns true if this call was the one that actually performed the wait.
-local function blockForItemsUpdated()
+local function blockForItemsUpdated(reason)
+    debugLog("blockForItemsUpdated CALLED with reason: " .. tostring(reason))
     if itemsUpdateWaiting then
+        debugLog("blockForItemsUpdated: itemsUpdateWaiting already true, returning false")
         return false
     end
     itemsUpdateWaiting = true
-    waitForEvent("itemsUpdated")
+    debugLog("blockForItemsUpdated: ABOUT TO CALL waitForEvent (THIS MAY BLOCK)")
+    waitForEvent("itemsUpdated", nil, reason)
+    debugLog("blockForItemsUpdated: RETURNED FROM waitForEvent")
     itemsUpdateWaiting = false
     getItemsRequestSent = false
     return true
 end
 
-local function getDatabaseFromServer()
+local function getDatabaseFromServer(reason)
     if not getItemsRequestSent then
         -- Only actually send the request if nobody else currently has one in flight.
         getItemsRequestSent = true
         cryptoNet.send(storageServerSocket, {"getItems"})
     end
-    blockForItemsUpdated()
+    blockForItemsUpdated("getDatabaseFromServer" .. ": " .. tostring(reason))
 end
 
 local function getDetailDBFromServer()
     cryptoNet.send(storageServerSocket, {"getDetailDB"})
-    waitForEvent("detailDBUpdated")
+    waitForEvent("detailDBUpdated", nil, "getDetailDBFromServer")
 
     local count = 0
+    if type(detailDB) ~= "table" then
+        print("detailDB is not a table, got: " .. tostring(detailDB))
+        return
+    end
     for _ in pairs(detailDB) do
         count = count + 1
     end
@@ -703,7 +786,7 @@ end
 
 local function pingServer()
     cryptoNet.send(storageServerSocket, {"ping"})
-    waitForEvent("storageServerAck")
+    waitForEvent("storageServerAck", nil, "pingServer")
 end
 
 local function Split(s, delimiter)
@@ -917,20 +1000,12 @@ local function searchForTag(searchString, InputTable, count, quick)
     local returnV = nil
     local returnK
 
-    local yieldCounter = 0
-
     -- Only scan the bucket for the tag we actually want. Each physical item entry
     -- appears in exactly one list per tag it has, so itemTagIndex[stringTag] already
     -- contains each matching stack exactly once - no cross-bucket dedup needed.
     local itemPool = itemTagIndex[stringTag]
     if itemPool ~= nil then
         for k, v in ipairs(itemPool) do
-            yieldCounter = yieldCounter + 1
-            if yieldCounter % 10 == 0 then
-                os.queueEvent("instant_yield")
-                os.pullEvent("instant_yield")
-            end
-
             if v ~= nil then
                 number = number + (v.count or 0)
 
@@ -1017,7 +1092,9 @@ local function updateWatchingClients()
     for k, v in pairs(craftingUpdateClients) do
         debugLog("updateWatchingClients: sending craftingUpdate to client: " .. tostring(v))
         cryptoNet.send(v, {"pushCurrentlyCrafting", currentlyCrafting})
-        cryptoNet.send(v, {"pushCraftingQueue", dump})
+        if dump ~= {} then
+            cryptoNet.send(v, {"pushCraftingQueue", dump})
+        end
     end
 end
 
@@ -1243,14 +1320,18 @@ end
 
 -- Note: Large performance hit on larger systems
 local function reloadStorageDatabase(skipTagPersist)
-    debugLog("Reloading database..")
+    debugLog("reloadStorageDatabase() called")
     if not reloadRequestSent then
         reloadRequestSent = true
+        debugLog("reloadStorageDatabase: ABOUT TO CALL reloadServerDatabase")
         reloadServerDatabase("reloadStorageDatabase() called")
+        debugLog("reloadStorageDatabase: RETURNED FROM reloadServerDatabase")
     end
 
-    debugLog("wait for itemsUpdated")
-    local didWait = blockForItemsUpdated()
+    debugLog("reloadStorageDatabase: wait for itemsUpdated")
+    debugLog("reloadStorageDatabase: ABOUT TO CALL blockForItemsUpdated (THIS MAY BLOCK)")
+    local didWait = blockForItemsUpdated("reloadStorageDatabase() called")
+    debugLog("reloadStorageDatabase: RETURNED FROM blockForItemsUpdated, didWait=" .. tostring(didWait))
     if didWait then
         reloadRequestSent = false
     end
@@ -1318,7 +1399,7 @@ local function dumpAll(skipReload, socket)
             updateClient(socket, "logUpdate", "Waiting on server...")
         end
         local time = os.epoch("utc") / 1000
-        blockForItemsUpdated()
+        blockForItemsUpdated("dumpAll")
         local speed = (os.epoch("utc") / 1000) - time
         print("Waited " .. tostring(("%.3g"):format(speed) .. " seconds total"))
         debugLog("itemsUpdated took " .. tostring(speed) .. " seconds total")
@@ -1616,12 +1697,9 @@ end
 
 -- Avoid costly database reload by patching database in memory
 local function patchStorageDatabase(itemName, count, chest, slot)
-    if count == 0 or itemName == nil or chest == nil or slot == nil then
-        return false
-    end
     if peripheral.find("rs_bridge") ~= nil then
         -- The item to find and the new count
-        local targetName = inputItem.name
+        local targetName = itemName
         local newCount = count
 
         -- Loop through the table to find and edit the count
@@ -1629,7 +1707,7 @@ local function patchStorageDatabase(itemName, count, chest, slot)
             if item.name == targetName then
                 item.count = item.count + newCount
 
-                print("Updated " .. item.displayName .. " count to #" .. item.count)
+                -- print("Updated " .. item.displayName .. " count to #" .. item.count)
                 debugLog("Updated " .. item.displayName .. " count to #" .. item.count)
                 if item.count < 1 then
                     -- If there is 0 items, delete from list
@@ -1638,6 +1716,9 @@ local function patchStorageDatabase(itemName, count, chest, slot)
                 return true
             end
         end
+        return false
+    end
+    if count == 0 or itemName == nil or chest == nil or slot == nil then
         return false
     end
     -- print("Patching database item:" .. itemName .. " by #" .. tostring(count) .. " chest:" .. chest .. " slot:" .. tostring(slot))
@@ -1752,8 +1833,14 @@ local function pullItems(craftingChest, chestName, slot, moveCount, itemName)
 end
 
 local function refreshInventoryIfNeeded(force)
+    -- NOTE: This function is called from the crafting thread, so we CANNOT use blocking calls like getDatabaseFromServer()
+    -- Instead, we signal the main thread to refresh the inventory by queueing an event
     if force or items == nil or next(items) == nil or itemCacheDirty then
-        getDatabaseFromServer()
+        -- Tell main thread to refresh inventory (non-blocking), but throttle to avoid spam
+        -- The items table is shared, so when the main thread updates it, we'll see the changes
+        if shouldQueueInventoryRefresh() then
+            os.queueEvent("inventoryRefreshNeeded")
+        end
     end
 end
 
@@ -2034,9 +2121,11 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             if itemsMoved < moveCount then
                                 debugLog("partial transfer after " .. tostring(retryAttempt) .. " retries: " ..
                                              tostring(itemsMoved) .. "/" .. tostring(moveCount))
-                                debugLog("attempting one last-ditch refresh")
+                                debugLog("attempting one last-ditch refresh - ABOUT TO CALL reloadStorageDatabase")
                                 updateClient(socket, "logUpdate", "last-ditch refresh...")
+                                debugLog("BEFORE reloadStorageDatabase(true) call")
                                 reloadStorageDatabase(true)
+                                debugLog("AFTER reloadStorageDatabase(true) call")
 
                                 local remaining = moveCount - itemsMoved
                                 if remaining > 0 then
@@ -2064,11 +2153,15 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             -- Ask the server to reload database now that something has been changed
                             -- reloadServerDatabase()
                             -- Move items from crafting chest to turtle inventory
+                            debugLog("Move items from crafting chest to turtle inventory turtle.suckUp()")
                             turtle.suckUp()
+                            debugLog("AFTER turtle.suckUp()")
                             -- Check the items just moved
                             local slotDetail = turtle.getItemDetail()
+                            debugLog("AFTER turtle.getItemDetail()")
                             if type(slotDetail) == "nil" then
-                                print("failed to get item: " .. searchResult.name)
+                                print("Failed to get item: " .. searchResult.name)
+                                debugLog("failed to get item: " .. searchResult.name)
                                 updateClient(socket, "logUpdate",
                                     "Failed getting: " .. searchResult.name:match(".+:(.+)"))
                                 dumpAll(true, socket)
@@ -2078,11 +2171,14 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
                             else
                                 -- debugLog("slotDetail:" .. textutils.serialise(slotDetail))
                                 -- Send crafting status update to client
+                                debugLog("Sending crafting status update to client")
                                 local table = {}
                                 table[1] = row
                                 table[2] = slot
                                 table[3] = slotDetail.count
+                                debugLog("BEFORE updateClient(slotUpdate)")
                                 updateClient(socket, "slotUpdate", table)
+                                debugLog("AFTER updateClient(slotUpdate)")
                             end
                         end
                     end
@@ -2090,10 +2186,13 @@ local function craftRecipe(recipeObj, timesToCraft, socket)
             end
         end
 
+        debugLog("EXITED ITEM PLACEMENT LOOPS, checking failed status")
         if failed then
+            debugLog("FAILED is true, calling dumpAll")
             dumpAll(true, socket)
             return false
         else
+            debugLog("FAILED is false, proceeding to turtle.craft()")
             updateClient(socket, "logUpdate", "Crafting...")
             debugLog("before turtle.craft")
             local ok = turtle.craft()
@@ -2132,6 +2231,12 @@ end
 -- Attempt to craft using RS Bridge if available
 -- Returns true if crafting was successful, false otherwise
 local function craftWithRSBridge(itemName, amount, socket)
+    -- Check if RS Bridge crafting is enabled
+    if not settings.get("enableRSBridgeCrafting") then
+        debugLog("RS Bridge crafting is disabled in settings, skipping rs_bridge crafting")
+        return false
+    end
+
     local rsBridge = peripheral.find("rs_bridge")
 
     if not rsBridge then
@@ -2145,11 +2250,20 @@ local function craftWithRSBridge(itemName, amount, socket)
     local displayName = type(itemName) == "string" and string.match(itemName, ".+:(.+)") or tostring(itemName)
 
     debugLog("RS Bridge found, attempting to craft: " .. tostring(itemName) .. " x" .. tostring(amount))
-    updateClient(socket, "logUpdate", "Checking RS Bridge for: " .. displayName)
+    -- updateClient(socket, "logUpdate", "Checking RS Bridge for: " .. displayName)
 
-    -- Get all craftable items from rs_bridge
+    -- Get all craftable items from rs_bridge with timeout
     debugLog("Fetching craftable items from RS Bridge...")
-    local craftableItems = rsBridge.getCraftableItems()
+    local craftableItems = nil
+    local success, result = pcall(function()
+        craftableItems = rsBridge.getCraftableItems()
+    end)
+    
+    if not success then
+        debugLog("RS Bridge.getCraftableItems() failed with error: " .. tostring(result))
+        return false
+    end
+    
     if not craftableItems or #craftableItems == 0 then
         debugLog("RS Bridge has no craftable items")
         updateClient(socket, "logUpdate", "RS Bridge has no craftable items available")
@@ -2201,7 +2315,7 @@ local function craftWithRSBridge(itemName, amount, socket)
 
     if not foundRecipe then
         debugLog("RS Bridge cannot craft: " .. tostring(itemName))
-        updateClient(socket, "logUpdate", "RS Bridge cannot craft: " .. displayName)
+        -- updateClient(socket, "logUpdate", "RS Bridge cannot craft: " .. displayName)
         return false
     end
 
@@ -2241,11 +2355,15 @@ local function craftWithRSBridge(itemName, amount, socket)
     -- 3. Monitor the crafting job for calculation updates
     while true do
         local event, error, id, message = os.pullEvent("rs_crafting")
-        debugLog("A crafting update occurred for Job #" .. id)
+        debugLog("A crafting update occurred for Job #" .. tostring(id) .. " with message: " .. tostring(message))
+        debugLog(dump(event))
         if error then
-            debugLog("There was an error while calculating or crafting the resource with the message " .. message)
+            debugLog("There was an error while calculating or crafting the resource with the message " ..
+                         tostring(message))
+            updateClient(socket, "logUpdate", "RS Bridge crafting error: " .. tostring(message))
+            return false
         else
-            debugLog("The new state of the task is " .. message)
+            debugLog("The new state of the task is " .. tostring(message))
             if message == "CALCULATION_STARTED" then
                 updateClient(socket, "logUpdate", "RS Bridge crafting calculation started")
             elseif message == "CRAFTING_STARTED" then
@@ -2709,10 +2827,12 @@ end
 
 -- Consumes crafting jobs from the queue, runs on its own thread
 local function craftingManager()
+    debugLog("=== CRAFTING MANAGER THREAD STARTED ===")
     while true do
         if craftingQueue.first ~= nil then
             -- check if the queue has anything in it
             if craftingQueue.first <= craftingQueue.last then
+                debugLog("=== CRAFTING MANAGER: LOOP ITERATION, queue.first=" .. tostring(craftingQueue.first) .. ", queue.last=" .. tostring(craftingQueue.last) .. " ===")
                 local time = os.epoch("utc") / 1000
                 local craftingRequest = craftingQueue.popleft()
                 debugLog("craftingRequest.recipe: " .. textutils.serialise(craftingRequest.recipe))
@@ -2758,8 +2878,10 @@ local function craftingManager()
                     debugLog("RS Bridge crafting failed or not available, falling back to regular crafting")
 
                     if craftingRequest.autoCraft then
+                        debugLog("before craft")
                         ableToCraft =
                             craft(craftingRequest.recipe, craftingRequest.timesToCraft, craftingRequest.socket)
+                        debugLog("after craft")
                     else
                         debugLog("before craftRecipe")
                         ableToCraft = craftRecipe(craftingRequest.recipe, craftingRequest.timesToCraft,
@@ -2929,9 +3051,12 @@ function onCryptoNetEvent(event)
         if socket.username ~= nil or (not settings.get("requireLogin") and socket.sender == settings.get("serverName")) or
             socket.target == settings.get("StorageServer") then
             if message == "getItems" then
+                debugLog("=== RECEIVED getItems MESSAGE ===")
                 if type(data) == "table" then
+                    debugLog("=== getItems data is a table, size: " .. tostring(#data or "nil") .. " ===")
                     local time = os.epoch("utc") / 1000
                     items = data
+                    debugLog("=== items table SET, size: " .. tostring(next(items) and "non-empty" or "EMPTY") .. " ===")
                     itemCacheDirty = true
                     local processedNames = {}
                     for k, v in pairs(data) do
@@ -2961,8 +3086,9 @@ function onCryptoNetEvent(event)
                     debugLog("getItems took " .. tostring(speed) .. " seconds total")
                     os.queueEvent("itemsUpdated")
                 else
-                    sleep(math.random() % 0.2)
-                    return getDatabaseFromServer()
+                    -- Non-blocking: Request items again without blocking
+                    debugLog("WARNING: getItems data is not a table, sending non-blocking getItems request")
+                    cryptoNet.send(storageServerSocket, {"getItems"})
                 end
             elseif message == "getDetailDB" then
                 detailDB = data
@@ -3063,8 +3189,10 @@ function onCryptoNetEvent(event)
                 log("Logging into server:" .. settings.get("StorageServer"))
                 cryptoNet.login(storageServerSocket, settings.get("username"), settings.get("password"))
             elseif message == "databaseReload" then
-                -- os.startThread(getDatabaseFromServer)
-                getDatabaseFromServer()
+                -- Non-blocking: Just send the request, don't wait for response
+                -- This prevents blocking the main event loop during crafting operations
+                debugLog("databaseReload requested by " .. socket.username .. " - sending non-blocking getItems request")
+                cryptoNet.send(storageServerSocket, {"getItems"})
             elseif message == "forceImport" then
                 os.queueEvent("forceImport")
             elseif message == "getRecipes" then
@@ -3079,38 +3207,99 @@ function onCryptoNetEvent(event)
                 print(socket.username .. " requested: " .. tostring(message))
                 turtle.craft()
             elseif message == "craftItem" then
+                debugLog("=== CRAFTITEM HANDLER START ===")
                 print(socket.username .. " requested: " .. tostring(message))
                 print("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
                 debugLog("Request to craft #" .. tostring(data.amount) .. " " .. data.name)
-                reloadStorageDatabase()
-                debugLog("data: " .. textutils.serialize(data))
+                
+                -- Check for duplicate requests (message received twice by event loop)
+                if isDuplicateCraftRequest(data.name, data.amount, data.recipeName) then
+                    debugLog("DUPLICATE craftItem detected - ignoring: " .. data.name)
+                    print("Duplicate craft request ignored")
+                else
+                    -- Track this request to prevent duplicates
+                    trackCraftRequest(data.name, data.amount, data.recipeName)
+                    
+                    debugLog("craftItem: ABOUT TO CALL reloadStorageDatabase()")
+                    reloadStorageDatabase()
+                    debugLog("craftItem: RETURNED FROM reloadStorageDatabase()")
+                    debugLog("data: " .. textutils.serialize(data))
 
-                local craftingRequest = {}
-                craftingRequest.autoCraft = false
-                craftingRequest.recipe = data
-                craftingRequest.name = data.name
-                craftingRequest.timesToCraft = math.ceil(data.amount / data.count)
-                craftingRequest.socket = socket
-                craftingQueue.pushright(craftingRequest)
+                    local craftingRequest = {}
+                    craftingRequest.autoCraft = false
+                    craftingRequest.recipe = data
+                    craftingRequest.name = data.name
+                    craftingRequest.timesToCraft = math.ceil(data.amount / data.count)
+                    craftingRequest.socket = socket
+                    debugLog("craftItem: Pushing crafting request to queue pushright")
+                    craftingQueue.pushright(craftingRequest)
+                    debugLog("craftItem: PUSHED TO QUEUE, ABOUT TO RETURN FROM HANDLER")
+                end
+                debugLog("=== CRAFTITEM HANDLER END ===")
             elseif message == "autoCraftItem" then
                 print(socket.username .. " requested: " .. tostring(message))
                 print("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
                 debugLog("Request to autocraft #" .. tostring(data.amount) .. " " .. data.name)
-                -- reloadStorageDatabase()
-
-                local craftingRequest = {}
-                craftingRequest.autoCraft = true
-                craftingRequest.recipe = data
-                craftingRequest.name = data.name
-                craftingRequest.timesToCraft = math.ceil(data.amount / data.count)
-                craftingRequest.socket = socket
-                craftingQueue.pushright(craftingRequest)
+                
+                -- Check for duplicate requests (message received twice by event loop)
+                if isDuplicateCraftRequest(data.name, data.amount, data.recipeName) then
+                    debugLog("DUPLICATE autoCraftItem detected - ignoring: " .. data.name)
+                    print("Duplicate craft request ignored")
+                else
+                    -- Track this request to prevent duplicates
+                    trackCraftRequest(data.name, data.amount, data.recipeName)
+                    
+                    local craftingRequest = {}
+                    craftingRequest.autoCraft = true
+                    craftingRequest.recipe = data
+                    craftingRequest.name = data.name
+                    craftingRequest.timesToCraft = math.ceil(data.amount / data.count)
+                    craftingRequest.socket = socket
+                    debugLog("autoCraftItem: Pushing crafting request to queue pushright")
+                    craftingQueue.pushright(craftingRequest)
+                end
             elseif message == "getAmount" then
+                debugLog("getAmount called for: " .. tostring(data))
+                ensureItemCaches()
                 local _, number = search(data, items, 1)
-                cryptoNet.send(socket, {message, number})
+                debugLog("getAmount result: " .. tostring(data) .. " = " .. tostring(number))
+                cryptoNet.send(socket, {message, number, data})
             elseif message == "getNumNeeded" then
+                debugLog("getNumNeeded called for: " .. tostring(data.name))
+                debugLog("getNumNeeded data.amount=" .. tostring(data.amount) .. ", data.count=" .. tostring(data.count))
+                debugLog("getNumNeeded recipe: " .. dump(data.recipe))
                 local amount = math.ceil(data.amount / data.count)
-                cryptoNet.send(socket, {message, calculateNumberOfItems(data.recipe, amount)})
+                debugLog("getNumNeeded calculated amount=" .. tostring(amount))
+                local needed = calculateNumberOfItems(data.recipe, amount)
+                debugLog("getNumNeeded calculated needed: " .. dump(needed))
+                
+                -- DEBUG: Show what's actually in items table for each needed item
+                ensureItemCaches()
+                for itemName, neededCount in pairs(needed) do
+                    local availableCount = 0
+                    if string.find(itemName, "tag:") then
+                        -- For tags, use itemTagIndex
+                        local tagName = string.match(itemName, 'tag:%w+:(.+)')
+                        local matchingEntries = itemTagIndex[tagName]
+                        if matchingEntries ~= nil then
+                            for _, entry in ipairs(matchingEntries) do
+                                availableCount = availableCount + (entry.count or 0)
+                            end
+                        end
+                    else
+                        -- For items, use itemNameIndex
+                        local stringSearch = string.match(itemName, 'item:(.+)') or itemName
+                        local matchingEntries = itemNameIndex[stringSearch]
+                        if matchingEntries ~= nil then
+                            for _, entry in ipairs(matchingEntries) do
+                                availableCount = availableCount + (entry.count or 0)
+                            end
+                        end
+                    end
+                    debugLog("  Item: " .. itemName .. " needed=" .. tostring(neededCount) .. " available=" .. tostring(availableCount))
+                end
+                
+                cryptoNet.send(socket, {message, needed})
             elseif message == "craftable" then
                 local item = data
 
@@ -3166,8 +3355,9 @@ function onCryptoNetEvent(event)
 
                     os.queueEvent("itemsUpdated")
                 else
-                    sleep(math.random() % 0.2)
-                    getDatabaseFromServer()
+                    -- Non-blocking: Request items again without blocking
+                    debugLog("WARNING: getItems data is not a table (getItems message handler), sending non-blocking getItems request")
+                    cryptoNet.send(storageServerSocket, {"getItems"})
                 end
             elseif message == "ping" then
                 if type(data) == "string" and data == "ack" then
@@ -3354,6 +3544,7 @@ local function getMasterCraftingServerCert()
 end
 
 local function postStart()
+    debugLog("=== POSTSTART: BEGIN ===")
     -- Download the cert from the storageserver if it doesnt exist already
     local filePath = settings.get("StorageServer") .. ".crt"
     if not fs.exists(filePath) then
@@ -3368,10 +3559,36 @@ local function postStart()
         file.close()
     end
     cryptoNet.send(storageServerSocket, {"storageServer"})
-    getDatabaseFromServer()
+    debugLog("=== POSTSTART: ABOUT TO CALL getDatabaseFromServer ===")
+    getDatabaseFromServer("postStart")
+    debugLog("=== POSTSTART: RETURNED FROM getDatabaseFromServer, items table size: " .. tostring(next(items) and "non-empty" or "EMPTY") .. " ===")
     getDetailDBFromServer()
     if not settings.get("isMasterCraftingServer") then
         getMasterCraftingServerCert()
+    end
+    debugLog("=== POSTSTART: END ===")
+end
+
+local function craftingManagerMonitor()
+    debugLog("=== CRAFTING MANAGER MONITOR STARTED ===")
+    -- Execute safely
+    local success, result = pcall(craftingManager)
+
+    if not success and result ~= "Terminated" then
+        -- 'result' holds the error string returned by the crash
+        logError(result)
+
+        -- Notify the user locally on the terminal screen before exiting
+        term.setTextColor(colors.red)
+        print("\ncraftingManager crashed! Details saved to crash.log")
+        term.setTextColor(colors.white)
+        if not settings.get("debug") then
+            sleep(5) -- Give the user a moment to read the message before rebooting
+            cryptoNet.closeAll()
+            os.reboot()
+        end
+        debugLog("craftingManager crashed! Details saved to crash.log: " .. result)
+
     end
 end
 
@@ -3435,7 +3652,7 @@ local function onStart()
     if settings.get("requireLogin") then
         -- If we send a "ping" and server requires login, it will return "requireLogin" which will start the login process on this server
         cryptoNet.send(storageServerSocket, {"ping"})
-        waitForEvent("storageServerLogin")
+        waitForEvent("storageServerLogin", nil, "requireLogin")
     elseif not settings.get("isMasterCraftingServer") then
         print("Connecting to master server: " .. settings.get("MasterCraftingServer"))
         log("Connecting to master server: " .. settings.get("MasterCraftingServer"))
@@ -3448,11 +3665,38 @@ local function onStart()
     postStart()
 
     getRecipes()
-    -- os.startThread(craftingManager)
+    debugLog("=== ABOUT TO START CRAFTING MANAGER THREAD ===")
+    os.startThread(craftingManagerMonitor)
+    debugLog("=== CRAFTING MANAGER THREAD STARTED ===")
     local speed = (os.epoch("utc") / 1000) - serverBootTime
     print("Boot time: " .. tostring(("%.3g"):format(speed) .. " seconds"))
     debugLog("Boot time: " .. tostring(("%.3g"):format(speed) .. " seconds"))
-    craftingManager()
+
+    -- Main event loop
+    while true do
+        debugLog("=== MAIN EVENT LOOP: ABOUT TO CALL os.pullEvent() ===")
+        local event = {os.pullEvent()}
+        debugLog("=== MAIN EVENT LOOP: GOT EVENT: " .. tostring(event[1]) .. " ===")
+        
+        -- Handle inventory refresh requests from crafting thread
+        if event[1] == "inventoryRefreshNeeded" then
+            debugLog("MAIN EVENT LOOP: Handling inventoryRefreshNeeded event - just requesting update, not blocking")
+            -- Request storage server to send items update, but DON'T wait for it
+            -- (waiting would cause this thread to process events via waitForEvent, interfering with main loop)
+            if not getItemsRequestSent then
+                getItemsRequestSent = true
+                cryptoNet.send(storageServerSocket, {"getItems"})
+            end
+            debugLog("MAIN EVENT LOOP: Finished handling inventoryRefreshNeeded (non-blocking)")
+        elseif type(onCryptoNetEvent) == "function" then
+            debugLog("MAIN EVENT LOOP: ABOUT TO CALL onCryptoNetEvent")
+            onCryptoNetEvent(event)
+            debugLog("MAIN EVENT LOOP: RETURNED FROM onCryptoNetEvent")
+        end
+        debugLog("=== MAIN EVENT LOOP: END OF ITERATION, LOOPING BACK ===")
+    end
+
+ 
 end
 
 debugLog("~~Boot~~")

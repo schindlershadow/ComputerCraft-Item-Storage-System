@@ -1467,7 +1467,9 @@ end
 -- Cryptonet event handler
 local function onCryptoNetEvent(event)
     -- When a client logs in
-    debugLog("onCryptoNetEvent: " .. textutils.serialise(event[1]))
+    if tostring(event[1]) ~= "task_complete" and tostring(event[1]) ~= "timer" then
+        debugLog("onCryptoNetEvent: " .. textutils.serialise(event[1]))
+    end
     if event[1] == "login" or event[1] == "hash_login" then
         local username = event[2]
         -- The socket of the client that just logged in
